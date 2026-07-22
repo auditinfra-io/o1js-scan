@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "o1js-scan"
+version = "0.1.0"
+description = "Static application-layer soundness analyzer for o1js / Mina zkApps"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+keywords = ["o1js", "mina", "zk", "zkapp", "security", "static-analysis", "audit"]
+authors = [{ name = "o1js-scan contributors" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.urls]
+Homepage = "https://github.com/OWNER/o1js-scan"
+Issues = "https://github.com/OWNER/o1js-scan/issues"
+
+[project.scripts]
+o1js-scan = "o1js_scan.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["o1js_scan*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
