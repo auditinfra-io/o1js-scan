@@ -21,7 +21,7 @@ pip install o1js-scan
 Or from source:
 
 ```bash
-git clone https://github.com/OWNER/o1js-scan
+git clone https://github.com/auditinfra-io/o1js-scan
 cd o1js-scan
 pip install -e .
 ```
