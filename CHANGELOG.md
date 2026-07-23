@@ -17,6 +17,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with findings, and the gate verdict.
 - `SECURITY.md`, this `CHANGELOG.md`, and an `examples/` directory with a
   vulnerable contract and its fixed counterpart.
+- Release workflow (`.github/workflows/publish.yml`) that builds an sdist +
+  wheel and publishes to PyPI when a GitHub Release is published.
 
 ## [0.4.0] - 2026-07-23
 
