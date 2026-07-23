@@ -404,6 +404,58 @@ def test_severity_json_casing_is_lowercase():
 
 
 # ---------------------------------------------------------------------------
+# o1js 2.x compatibility — the authoring APIs the detector matches are stable
+# across 1.x/2.x. These pin idiomatic 2.x forms (`@method.returns(...)`,
+# `this.sender.getAndRequireSignature()`, `this.sender.getUnconstrained()`).
+# ---------------------------------------------------------------------------
+
+# 2.x removed `this.sender`; owner auth is now `this.sender.getAndRequireSignature()`.
+# That still gates the method, so its prover-supplied args stay suppressed.
+_O1JS_2X_SENDER_AUTH = """
+import { SmartContract, UInt64, PublicKey, method } from 'o1js';
+export class Wallet extends SmartContract {
+  @method async pay(to: PublicKey, amount: UInt64) {
+    const owner = this.sender.getAndRequireSignature();
+    this.send({ to: to, amount: amount });
+  }
+}
+"""
+
+# An UNGATED 2.x method (uses the non-proving `getUnconstrained()` and the 2.x
+# `@method.returns(...)` return form) with an unbound amount must still fire.
+_O1JS_2X_UNGATED_DRAIN = """
+import { SmartContract, UInt64, State, state, method } from 'o1js';
+export class Vault extends SmartContract {
+  @state(UInt64) total = State<UInt64>();
+  @method.returns(UInt64) async withdraw(amount: UInt64): Promise<UInt64> {
+    const t = this.total.getAndRequireEquals();
+    this.send({ to: this.sender.getUnconstrained(), amount: amount });
+    this.total.set(t.sub(amount));
+    return amount;
+  }
+}
+"""
+
+
+def test_o1js_2x_sender_auth_gates_method():
+    # `this.sender.getAndRequireSignature()` is the 2.x owner-auth idiom and
+    # must be recognized as signature-gating, suppressing witness findings.
+    v = analyze_file("Wallet.ts", _O1JS_2X_SENDER_AUTH)
+    assert "O1JS_UNCONSTRAINED_WITNESS" not in _rules(v)
+    assert "O1JS_WITNESS_NOT_BOUND_TO_STATE" not in _rules(v)
+    assert "O1JS_UNCONSTRAINED_RECIPIENT" not in _rules(v)
+
+
+def test_o1js_2x_ungated_method_still_detects():
+    # Proves 2.x support is real detection, not blanket-quiet: an ungated
+    # `@method.returns(...)` method with an unbound amount fires HIGH.
+    v = analyze_file("Vault.ts", _O1JS_2X_UNGATED_DRAIN)
+    amt = [x for x in v if x.evidence.get("witness") == "amount"]
+    assert amt and amt[0].rule_id == "O1JS_UNCONSTRAINED_WITNESS"
+    assert amt[0].severity == Severity.HIGH
+
+
+# ---------------------------------------------------------------------------
 # Settlement-contract archetype (real-world calibration target)
 # ---------------------------------------------------------------------------
 
