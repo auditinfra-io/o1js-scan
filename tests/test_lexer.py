@@ -613,3 +613,108 @@ def test_settlement_archetype_findings():
     assert not ben, "beneficiary is bound via assertEquals to on-chain state"
     # weak permissions present
     assert "O1JS_WEAK_PERMISSIONS" in rules
+
+
+# ---------------------------------------------------------------------------
+# Inline suppressions
+# ---------------------------------------------------------------------------
+
+_SUPPRESS_NEXT_LINE = """
+import { SmartContract, UInt64, PublicKey, method } from 'o1js';
+export class C extends SmartContract {
+  @method async pay(to: PublicKey, amount: UInt64) {
+    // o1js-scan-disable-next-line O1JS_UNCONSTRAINED_WITNESS
+    this.send({ to: to, amount: amount });
+  }
+}
+"""
+
+_SUPPRESS_SAME_LINE_ALL = """
+import { SmartContract, UInt64, PublicKey, method } from 'o1js';
+export class C extends SmartContract {
+  @method async pay(to: PublicKey, amount: UInt64) {
+    this.send({ to: to, amount: amount });  // o1js-scan-disable-line
+  }
+}
+"""
+
+
+def test_suppress_next_line_only_named_rule():
+    v = analyze_file("c.ts", _SUPPRESS_NEXT_LINE)
+    # the named rule is gone; other findings on the line remain
+    assert "O1JS_UNCONSTRAINED_WITNESS" not in _rules(v)
+    assert "O1JS_UNCONSTRAINED_RECIPIENT" in _rules(v)
+
+
+def test_suppress_same_line_bare_directive_silences_all():
+    v = analyze_file("c.ts", _SUPPRESS_SAME_LINE_ALL)
+    assert v == []
+
+
+def test_suppression_does_not_leak_to_other_lines():
+    # a disable on the send line must not silence an unrelated finding elsewhere
+    v = analyze_file("c.ts", _SUPPRESS_NEXT_LINE)
+    assert v, "unrelated recipient finding should survive"
+
+
+# ---------------------------------------------------------------------------
+# CLI — --fail-on threshold and --version
+# ---------------------------------------------------------------------------
+
+_HIGH_FINDING = """
+import { SmartContract, UInt64, PublicKey, method } from 'o1js';
+export class C extends SmartContract {
+  @method async pay(to: PublicKey, amount: UInt64) {
+    this.send({ to: to, amount: amount });
+  }
+}
+"""
+
+
+def _write(tmp_path, name, src):
+    p = tmp_path / name
+    p.write_text(src)
+    return str(p)
+
+
+def test_fail_on_default_high_exits_1(tmp_path):
+    from o1js_scan.cli import main
+
+    assert main([_write(tmp_path, "C.ts", _HIGH_FINDING)]) == 1
+
+
+def test_fail_on_none_never_fails(tmp_path):
+    from o1js_scan.cli import main
+
+    assert main([_write(tmp_path, "C.ts", _HIGH_FINDING), "--fail-on", "none"]) == 0
+
+
+def test_fail_on_critical_ignores_high(tmp_path):
+    from o1js_scan.cli import main
+
+    assert main([_write(tmp_path, "C.ts", _HIGH_FINDING), "--fail-on", "critical"]) == 0
+
+
+def test_fail_on_medium_catches_high(tmp_path):
+    from o1js_scan.cli import main
+
+    assert main([_write(tmp_path, "C.ts", _HIGH_FINDING), "--fail-on", "medium"]) == 1
+
+
+def test_version_flag_prints_and_exits_zero(capsys):
+    import pytest as _pytest
+    from o1js_scan import __version__
+    from o1js_scan.cli import main
+
+    with _pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+    assert __version__ in capsys.readouterr().out
+
+
+def test_summary_line_reports_counts(tmp_path, capsys):
+    from o1js_scan.cli import main
+
+    main([_write(tmp_path, "C.ts", _HIGH_FINDING)])
+    err = capsys.readouterr().err
+    assert "finding(s)" in err and "1 high" in err

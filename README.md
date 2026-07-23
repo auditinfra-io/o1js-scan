@@ -1,5 +1,9 @@
 # o1js-scan
 
+[![CI](https://github.com/auditinfra-io/o1js-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/auditinfra-io/o1js-scan/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.8%2B-blue)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 A fast, dependency-free static analyzer for **o1js / Mina zkApp** soundness bugs.
 
 o1js zkApps compile TypeScript `@method` bodies into Kimchi circuits. Just like
@@ -43,13 +47,35 @@ o1js-scan src --json
 # SARIF 2.1.0 for GitHub code scanning (writes o1js-scan.sarif by default)
 o1js-scan src --sarif
 o1js-scan src --sarif report.sarif   # or a named file, or - for stdout
+
+# choose which severity fails CI (critical|high|medium|low|none; default high)
+o1js-scan src --fail-on medium
+
+o1js-scan --version
 ```
 
-Exit code is `1` when any high/critical finding is present and `0` otherwise —
-so you can drop it straight into CI. A low/medium finding (including the
-informational recipient rule below) does **not** fail the build. A missing
-scan path exits `2` with an error on stderr, so a typo can't silently pass CI
-as a clean run.
+Exit code is `1` when a finding at or above the `--fail-on` level (default
+`high`) is present and `0` otherwise — so you can drop it straight into CI.
+With the default, a low/medium finding (including the informational recipient
+rule below) does **not** fail the build; use `--fail-on none` to only report,
+or `--fail-on medium` to gate more strictly. A missing scan path exits `2` with
+an error on stderr, so a typo can't silently pass CI as a clean run. Every run
+prints a one-line summary (counts by severity and the gate verdict) to stderr.
+
+### Suppressing a reviewed finding
+
+Silence a finding you've triaged without loosening the gate, with an inline
+comment on — or on the line above — the flagged line:
+
+```ts
+this.send({ to, amount });  // o1js-scan-disable-line O1JS_UNCONSTRAINED_WITNESS
+
+// o1js-scan-disable-next-line
+this.send({ to, amount });
+```
+
+List one or more rule ids to suppress only those; a bare directive (no ids)
+suppresses every rule on the target line.
 
 As a library:
 

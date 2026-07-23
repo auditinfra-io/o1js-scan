@@ -21,6 +21,25 @@ class Severity(Enum):
     INFO = "info"
 
 
+# Ordering, most severe first, for threshold comparisons (e.g. the CLI exit
+# gate). Higher rank == more severe.
+_SEVERITY_ORDER = ("info", "low", "medium", "high", "critical")
+
+
+def severity_rank(value: str) -> int:
+    """Rank a severity string; unknown values rank as the least severe."""
+    v = value.lower()
+    return _SEVERITY_ORDER.index(v) if v in _SEVERITY_ORDER else 0
+
+
+def meets_threshold(value: str, threshold: str) -> bool:
+    """True if a finding of severity ``value`` is at least as severe as
+    ``threshold``. A ``threshold`` of ``"none"`` never matches (gate disabled)."""
+    if threshold.lower() == "none":
+        return False
+    return severity_rank(value) >= severity_rank(threshold)
+
+
 @dataclass
 class Vulnerability:
     """A detected soundness issue with evidence and provenance."""
