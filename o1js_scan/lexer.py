@@ -67,10 +67,20 @@ O1JS_ORIGIN_TIER = "o1js"
 # Detection
 # ---------------------------------------------------------------------------
 
+# Upper bounds on how much a single regex quantifier will scan. o1js source is
+# hand-written and well under these limits; the caps exist purely so a crafted
+# or malformed `.ts` file (a giant identifier run, an unclosed literal, a
+# minified blob that slips past the node_modules filter) can't drive the
+# scanner into O(n^2) backtracking and hang a CI run. See _asserts_on and
+# _FUNC_HEAD_RE below.
+_MAX_IDENT = 120       # longest identifier a real token would ever be
+_MAX_PARAMS = 4000     # longest parameter list / return-type annotation
+_MAX_CALL_ARG = 2000   # longest single call-argument expression
+
 _O1JS_IMPORT_RE = re.compile(r"""from\s+['"]o1js['"]""")
 _SMARTCONTRACT_RE = re.compile(r"\bclass\s+(\w+)\s+extends\s+SmartContract\b")
 _METHOD_DECORATOR_RE = re.compile(
-    r"@method(?:\.returns\([^)]*\))?\s+(?:async\s+)?(\w+)\s*\(",
+    r"@method(?:\.returns\([^)]{0,%d}\))?\s+(?:async\s+)?(\w+)\s*\(" % _MAX_PARAMS,
 )
 _STATE_DECL_RE = re.compile(r"@state\(\s*(\w+)\s*\)\s+(\w+)\s*=")
 
@@ -138,9 +148,9 @@ class _Method:
 
 
 _FUNC_HEAD_RE = re.compile(
-    r"(?P<deco>@method(?:\.returns\([^)]*\))?\s+)?"
-    r"(?:async\s+)?(?P<name>\w+)\s*\((?P<params>[^)]*)\)\s*"
-    r"(?::\s*[^\{]+)?\{",
+    r"(?P<deco>@method(?:\.returns\([^)]{0,%d}\))?\s+)?"
+    r"(?:async\s+)?(?P<name>\w{1,%d})\s*\((?P<params>[^)]{0,%d})\)\s*"
+    r"(?::\s*[^{]{1,%d})?\{" % (_MAX_PARAMS, _MAX_IDENT, _MAX_PARAMS, _MAX_PARAMS),
 )
 
 
@@ -414,9 +424,10 @@ class O1jsLexer:
         any_assert = False
         # X.assertEquals(Y) / X.requireEquals(Y) where X or Y is arg
         for am in re.finditer(
-            r"(\w[\w\.\(\)]*)\s*\.\s*(assertEquals|requireEquals|assertGreaterThan"
+            r"(\w[\w.()]{0,%d})\s*\.\s*(assertEquals|requireEquals|assertGreaterThan"
             r"|assertGreaterThanOrEqual|assertLessThan|assertLessThanOrEqual"
-            r"|assertNotEquals|assertBool|assertTrue|assertFalse)\s*\(([^;]*?)\)",
+            r"|assertNotEquals|assertBool|assertTrue|assertFalse)\s*\(([^;]{0,%d}?)\)"
+            % (_MAX_IDENT, _MAX_CALL_ARG),
             body,
         ):
             recv, kind, inner = am.group(1), am.group(2), am.group(3)
@@ -436,7 +447,8 @@ class O1jsLexer:
                 trivial = True
         # also: equality the other direction `configuredX.assertEquals(arg)`
         for am in re.finditer(
-            r"(\w+)\s*\.\s*(assertEquals|requireEquals)\s*\(\s*" + a + r"\s*\)", body,
+            r"(\w{1,%d})\s*\.\s*(assertEquals|requireEquals)\s*\(\s*" % _MAX_IDENT
+            + a + r"\s*\)", body,
         ):
             if am.group(1) in state_bound:
                 bound = True
@@ -569,12 +581,14 @@ def _method_param_blob(src: str, meth: "_Method") -> str:
     raw-Field detector can see `name: Field` type annotations (the stripped
     param-name list discards types)."""
     m = re.search(
-        r"@method[^\n]*\n?\s*(?:async\s+)?" + re.escape(meth.name) + r"\s*\((?P<p>[^)]*)\)",
+        r"@method[^\n]*\n?\s*(?:async\s+)?" + re.escape(meth.name)
+        + r"\s*\((?P<p>[^)]{0,%d})\)" % _MAX_PARAMS,
         src, re.DOTALL,
     )
     if m:
         return m.group("p")
-    m2 = re.search(re.escape(meth.name) + r"\s*\((?P<p>[^)]*)\)", src, re.DOTALL)
+    m2 = re.search(
+        re.escape(meth.name) + r"\s*\((?P<p>[^)]{0,%d})\)" % _MAX_PARAMS, src, re.DOTALL)
     return m2.group("p") if m2 else ""
 
 
