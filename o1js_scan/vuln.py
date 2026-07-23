@@ -14,7 +14,7 @@ from typing import Dict, Optional, Tuple
 class Severity(Enum):
     """Finding severity levels."""
 
-    CRITICAL = "CRITICAL"
+    CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"

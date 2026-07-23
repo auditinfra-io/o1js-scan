@@ -278,6 +278,132 @@ def test_cli_clean_scan_exits_zero(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# False-positive fixes — recipient witness + state-derived comparisons
+# ---------------------------------------------------------------------------
+
+_SAFE_VAULT = """
+import { SmartContract, UInt64, PublicKey, State, state, method } from 'o1js';
+export class SafeVault extends SmartContract {
+  @state(UInt64) bal = State<UInt64>();
+  @method async withdraw(to: PublicKey, amount: UInt64) {
+    const b = this.bal.getAndRequireEquals();
+    amount.assertLessThanOrEqual(b);
+    this.send({ to: to, amount: amount });
+    this.bal.set(b.sub(amount));
+  }
+}
+"""
+
+_SAFE_VAULT_NO_CHECK = """
+import { SmartContract, UInt64, PublicKey, State, state, method } from 'o1js';
+export class SafeVault extends SmartContract {
+  @state(UInt64) bal = State<UInt64>();
+  @method async withdraw(to: PublicKey, amount: UInt64) {
+    const b = this.bal.getAndRequireEquals();
+    this.send({ to: to, amount: amount });
+    this.bal.set(b.sub(amount));
+  }
+}
+"""
+
+_SAFE_VAULT_CHAINED = """
+import { SmartContract, UInt64, PublicKey, State, state, method } from 'o1js';
+export class SafeVault extends SmartContract {
+  @state(UInt64) bal = State<UInt64>();
+  @method async withdraw(to: PublicKey, amount: UInt64) {
+    const b = this.bal.getAndRequireEquals();
+    amount.lessThanOrEqual(b).assertTrue();
+    this.send({ to: to, amount: amount });
+    this.bal.set(b.sub(amount));
+  }
+}
+"""
+
+_SAFE_VAULT_CONST = """
+import { SmartContract, UInt64, PublicKey, State, state, method } from 'o1js';
+export class SafeVault extends SmartContract {
+  @state(UInt64) bal = State<UInt64>();
+  @method async withdraw(to: PublicKey, amount: UInt64) {
+    const b = this.bal.getAndRequireEquals();
+    amount.assertLessThanOrEqual(UInt64.from(100));
+    this.send({ to: to, amount: amount });
+    this.bal.set(b.sub(amount));
+  }
+}
+"""
+
+_FIXED_TREASURY = """
+import { SmartContract, UInt64, PublicKey, State, state, method } from 'o1js';
+export class Payout extends SmartContract {
+  @state(UInt64) bal = State<UInt64>();
+  @state(PublicKey) treasury = State<PublicKey>();
+  @method async payout(to: PublicKey, amount: UInt64) {
+    const t = this.treasury.getAndRequireEquals();
+    t.assertEquals(to);
+    const b = this.bal.getAndRequireEquals();
+    amount.assertLessThanOrEqual(b);
+    this.send({ to: to, amount: amount });
+  }
+}
+"""
+
+
+def test_safe_vault_no_high_and_recipient_is_low():
+    v = analyze_file("SafeVault.ts", _SAFE_VAULT)
+    # No high/critical findings on correct code.
+    assert not [x for x in v if x.severity in (Severity.HIGH, Severity.CRITICAL)]
+    # `amount` is bound to on-chain state -> no finding at all.
+    assert not [x for x in v if x.evidence.get("witness") == "amount"]
+    # `to` is a prover-chosen recipient -> LOW O1JS_UNCONSTRAINED_RECIPIENT.
+    tos = [x for x in v if x.evidence.get("witness") == "to"]
+    assert tos and all(x.rule_id == "O1JS_UNCONSTRAINED_RECIPIENT" for x in tos)
+    assert all(x.severity == Severity.LOW for x in tos)
+
+
+def test_recipient_low_does_not_trip_cli_exit_gate(tmp_path):
+    from o1js_scan.cli import main
+
+    (tmp_path / "SafeVault.ts").write_text(_SAFE_VAULT)
+    assert main([str(tmp_path)]) == 0
+
+
+def test_amount_fires_high_when_bound_check_removed():
+    v = analyze_file("SafeVault.ts", _SAFE_VAULT_NO_CHECK)
+    amt = [x for x in v if x.evidence.get("witness") == "amount"]
+    assert amt and amt[0].rule_id == "O1JS_UNCONSTRAINED_WITNESS"
+    assert amt[0].severity == Severity.HIGH
+
+
+def test_chained_comparison_binds_amount():
+    v = analyze_file("SafeVault.ts", _SAFE_VAULT_CHAINED)
+    assert not [x for x in v if x.evidence.get("witness") == "amount"]
+
+
+def test_comparison_against_constant_is_medium_not_bound():
+    v = analyze_file("SafeVault.ts", _SAFE_VAULT_CONST)
+    amt = [x for x in v if x.evidence.get("witness") == "amount"]
+    assert amt and amt[0].rule_id == "O1JS_WITNESS_NOT_BOUND_TO_STATE"
+    assert amt[0].severity == Severity.MEDIUM
+
+
+def test_state_bound_recipient_has_no_recipient_finding():
+    v = analyze_file("Payout.ts", _FIXED_TREASURY)
+    assert not [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_RECIPIENT"]
+    assert not [x for x in v if x.evidence.get("witness") == "to"]
+
+
+def test_severity_json_casing_is_lowercase():
+    for sev in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM,
+                Severity.LOW, Severity.INFO):
+        assert sev.value == sev.value.lower()
+    # critical specifically must serialize lowercase through to_dict()
+    from o1js_scan import Vulnerability
+
+    d = Vulnerability(pattern_name="X", severity=Severity.CRITICAL).to_dict()
+    assert d["severity"] == "critical"
+
+
+# ---------------------------------------------------------------------------
 # Settlement-contract archetype (real-world calibration target)
 # ---------------------------------------------------------------------------
 
