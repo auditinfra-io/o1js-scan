@@ -35,6 +35,13 @@ o1js soundness model (the three footguns this encodes)
    Rules: ``O1JS_UNCONSTRAINED_WITNESS`` (never asserted at all) and
    ``O1JS_WITNESS_NOT_BOUND_TO_STATE`` (only trivially asserted, e.g.
    ``> 0`` or against a constant, but never tied to on-chain state).
+   The OTHER witness source is ``Provable.witness(Type, () => ...)``: the
+   callback runs OUTSIDE the circuit (it is only a hint), so the returned
+   value is a FRESH prover-controlled witness carrying no constraint of its
+   own. If such a local flows into a send/state effect without being
+   re-derived and asserted in-circuit, it is the o1js analog of an
+   under-constrained Circom signal.
+   Rule: ``O1JS_UNCONSTRAINED_PROVABLE_WITNESS``.
    A witness used ONLY as the ``to:`` recipient of a send is prover-chosen
    by design (a user names their own withdrawal destination), so it is
    reported as a LOW, informational ``O1JS_UNCONSTRAINED_RECIPIENT`` that
@@ -89,6 +96,12 @@ _METHOD_DECORATOR_RE = re.compile(
     r"@method(?:\.returns\([^)]{0,%d}\))?\s+(?:async\s+)?(\w+)\s*\(" % _MAX_PARAMS,
 )
 _STATE_DECL_RE = re.compile(r"@state\(\s*(\w+)\s*\)\s+(\w+)\s*=")
+# `const x = Provable.witness(Type, () => ...)` — a fresh in-circuit witness.
+# Also covers `witnessFields` and the async `witnessAsync` form.
+_PROVABLE_WITNESS_RE = re.compile(
+    r"\b(?:const|let|var)\s+(\w{1,%d})\s*=\s*(?:await\s+)?"
+    r"Provable\s*\.\s*(witness|witnessFields|witnessAsync)\s*\(" % _MAX_IDENT,
+)
 
 
 def is_o1js_source(content: str, filepath: str = "") -> bool:
@@ -252,6 +265,7 @@ class O1jsLexer:
         vulns: List[Vulnerability] = []
         vulns += self._detect_missing_state_precondition(content, stripped, methods, state)
         vulns += self._detect_unconstrained_witness(content, methods, state)
+        vulns += self._detect_unconstrained_provable_witness(content, methods, state)
         vulns += self._detect_raw_field_amount(content, methods)
         vulns += self._detect_weak_permissions(content, stripped)
         return vulns
@@ -429,6 +443,80 @@ class O1jsLexer:
                             "framework": "o1js",
                         },
                     ))
+        return out
+
+    # --- Rule 2c: unconstrained `Provable.witness` locals -----------------
+
+    def _detect_unconstrained_provable_witness(
+        self, src: str, methods: List[_Method], state: Dict[str, str],
+    ) -> List[Vulnerability]:
+        """Flag a ``Provable.witness(...)`` local that flows into a send/state
+        effect without ever being asserted. The witness callback runs OUTSIDE
+        the circuit, so the returned value is a fresh prover-controlled witness
+        — the o1js analog of an under-constrained Circom signal. Reuses the
+        effect + assertion machinery from rule 2; any assertion mentioning the
+        witness (even a re-derivation check) suppresses, keeping precision high
+        (we would rather miss a case than flag correctly-constrained code)."""
+        out: List[Vulnerability] = []
+        for meth in methods:
+            body = meth.body
+            # signature-gated methods take key-holder-chosen inputs, not
+            # arbitrary-prover witnesses (same carve-out as rule 2).
+            if _method_is_signature_gated(body):
+                continue
+            # locals bound to on-chain state in this body (for _asserts_on).
+            state_bound: Set[str] = set()
+            for am in re.finditer(
+                r"\b(?:const|let|var)\s+(\w+)\s*=\s*this\s*\.\s*(\w+)\s*\.\s*"
+                r"(?:getAndRequireEquals|get)\s*\(", body,
+            ):
+                if am.group(2) in state:
+                    state_bound.add(am.group(1))
+
+            for wm in _PROVABLE_WITNESS_RE.finditer(body):
+                name, api = wm.group(1), wm.group(2)
+                effect = self._witness_effect(body, name)
+                if effect is None:
+                    continue  # witness never reaches a state-changing effect
+                if self._asserts_on(body, name, state_bound) != "none":
+                    continue  # constrained in-circuit somehow → sound; skip
+                kind = effect[0]
+                line = meth.start_line + body.count("\n", 0, effect[1])
+                sev = {
+                    "send_amount": Severity.HIGH,
+                    "state_set": Severity.MEDIUM,
+                    "send_recipient": Severity.LOW,
+                }.get(kind, Severity.MEDIUM)
+                out.append(Vulnerability(
+                    pattern_name="O1JS_UNCONSTRAINED_PROVABLE_WITNESS",
+                    severity=sev,
+                    function=meth.name,
+                    location=(line, 0),
+                    origin_tier=O1JS_ORIGIN_TIER,
+                    rule_id="O1JS_UNCONSTRAINED_PROVABLE_WITNESS",
+                    title=(
+                        f"Unconstrained `Provable.{api}` result `{name}` flows to "
+                        f"{kind} in `{meth.name}`"
+                    ),
+                    description=(
+                        f"`{name}` is produced by `Provable.{api}(...)`, a FRESH in-circuit "
+                        f"witness. Its callback runs OUTSIDE the circuit (it is only a prover "
+                        f"hint), so `{name}` carries no constraint on its own and is fully "
+                        f"prover-controlled. It flows to `{kind}` ({effect[2]}) without any "
+                        f"`assert*`/`requireEquals` tying it down, so the prover can substitute "
+                        f"any value — the o1js form of an under-constrained Circom signal. A "
+                        f"witness must be re-derived and asserted in-circuit (e.g. "
+                        f"`{name}.assertEquals(<recomputed>)`) or bound to on-chain state."
+                    ),
+                    evidence={
+                        "witness": name,
+                        "witness_source": f"Provable.{api}",
+                        "method": meth.name,
+                        "effect": kind,
+                        "effect_expr": effect[2],
+                        "framework": "o1js",
+                    },
+                ))
         return out
 
     @staticmethod

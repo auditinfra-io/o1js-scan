@@ -153,6 +153,52 @@ def test_witness_bound_to_state_does_not_fire():
 
 
 # ---------------------------------------------------------------------------
+# Rule 2c — unconstrained `Provable.witness` local (the Circom-signal analog)
+# ---------------------------------------------------------------------------
+
+# A fresh Provable.witness result flows straight into a send amount with no
+# in-circuit assertion → prover-controlled, HIGH.
+_PROVABLE_WITNESS_DRAIN = """
+import { SmartContract, UInt64, PublicKey, Provable, method } from 'o1js';
+export class Rewards extends SmartContract {
+  @method async claim(to: PublicKey) {
+    const payout = Provable.witness(UInt64, () => this.offchainReward());
+    this.send({ to: to, amount: payout });
+  }
+}
+"""
+
+# Same shape, but the witness is re-derived and asserted in-circuit before use
+# — the CORRECT witness pattern. Must NOT fire.
+_PROVABLE_WITNESS_CHECKED = """
+import { SmartContract, UInt64, PublicKey, Provable, method } from 'o1js';
+export class Rewards extends SmartContract {
+  @method async claim(to: PublicKey, base: UInt64) {
+    const payout = Provable.witness(UInt64, () => base.mul(2).toConstant());
+    payout.assertEquals(base.mul(2));
+    this.send({ to: to, amount: payout });
+  }
+}
+"""
+
+
+def test_provable_witness_unconstrained_fires_high_on_send():
+    v = analyze_file("Rewards.ts", _PROVABLE_WITNESS_DRAIN)
+    fired = [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_PROVABLE_WITNESS"]
+    assert fired, _rules(v)
+    assert fired[0].severity == Severity.HIGH
+    assert fired[0].evidence["witness"] == "payout"
+    assert fired[0].evidence["witness_source"] == "Provable.witness"
+
+
+def test_provable_witness_reasserted_does_not_fire():
+    v = analyze_file("Rewards.ts", _PROVABLE_WITNESS_CHECKED)
+    assert "O1JS_UNCONSTRAINED_PROVABLE_WITNESS" not in _rules(v)
+    # correct code carries no high/critical finding
+    assert not [x for x in v if x.severity in (Severity.HIGH, Severity.CRITICAL)]
+
+
+# ---------------------------------------------------------------------------
 # Rule 3 — raw Field used as transfer amount
 # ---------------------------------------------------------------------------
 
