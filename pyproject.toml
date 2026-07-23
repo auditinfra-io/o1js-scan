@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "o1js-scan"
-version = "0.3.0"
+version = "0.4.0"
 description = "Static application-layer soundness analyzer for o1js / Mina zkApps"
 readme = "README.md"
 requires-python = ">=3.8"

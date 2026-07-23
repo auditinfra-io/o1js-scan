@@ -1,0 +1,67 @@
+name: 'o1js-scan'
+description: 'Static soundness scanner for o1js / Mina zkApps. Surfaces findings in GitHub code scanning.'
+author: 'auditinfra-io'
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  path:
+    description: 'File or directory to scan.'
+    required: false
+    default: '.'
+  version:
+    description: 'o1js-scan version to install from PyPI (empty = latest).'
+    required: false
+    default: ''
+  upload-sarif:
+    description: 'Upload the SARIF report to GitHub code scanning (requires security-events: write).'
+    required: false
+    default: 'true'
+  fail-on-findings:
+    description: 'Fail the job when any high/critical finding is present.'
+    required: false
+    default: 'false'
+
+outputs:
+  sarif-file:
+    description: 'Path to the generated SARIF file.'
+    value: ${{ steps.scan.outputs.sarif-file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Install o1js-scan
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.version }}" ]; then
+          python -m pip install "o1js-scan==${{ inputs.version }}"
+        else
+          python -m pip install o1js-scan
+        fi
+
+    - name: Run o1js-scan
+      id: scan
+      shell: bash
+      run: |
+        # Always produce a (possibly empty) SARIF so the upload step can run
+        # even when the scan finds high-severity issues (non-zero exit).
+        o1js-scan "${{ inputs.path }}" --sarif o1js-scan.sarif || true
+        echo "sarif-file=o1js-scan.sarif" >> "$GITHUB_OUTPUT"
+
+    - name: Upload SARIF to code scanning
+      if: ${{ inputs.upload-sarif == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: o1js-scan.sarif
+        category: o1js-scan
+
+    - name: Enforce finding gate
+      if: ${{ inputs.fail-on-findings == 'true' }}
+      shell: bash
+      run: o1js-scan "${{ inputs.path }}"

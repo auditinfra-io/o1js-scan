@@ -19,7 +19,7 @@ from .lexer import (
 )
 from .vuln import Severity, Vulnerability
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "O1jsLexer",

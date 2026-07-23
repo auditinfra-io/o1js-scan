@@ -39,6 +39,10 @@ o1js-scan src/MyContract.ts
 
 # machine-readable output for CI
 o1js-scan src --json
+
+# SARIF 2.1.0 for GitHub code scanning (writes o1js-scan.sarif by default)
+o1js-scan src --sarif
+o1js-scan src --sarif report.sarif   # or a named file, or - for stdout
 ```
 
 Exit code is `1` when any high/critical finding is present and `0` otherwise —
@@ -55,6 +59,39 @@ from o1js_scan import analyze_file, analyze_project
 for path, finding in analyze_project("src"):
     print(path, finding.rule_id, finding.severity.value, finding.title)
 ```
+
+## GitHub Action
+
+Add the scanner to CI in a few lines. Findings appear as annotations on the PR
+diff and as alerts in the repository's **Security → Code scanning** tab.
+
+```yaml
+# .github/workflows/o1js-scan.yml
+name: o1js-scan
+on: [push, pull_request]
+
+permissions:
+  contents: read
+  security-events: write   # required to upload SARIF to code scanning
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: auditinfra-io/o1js-scan@v0.4.0
+        with:
+          path: src              # optional, defaults to the repo root
+          # version: 0.4.0       # optional, pin the scanner version
+          # fail-on-findings: true   # optional, fail the job on any high/critical
+```
+
+Inputs: `path` (default `.`), `version` (PyPI version to install, default latest),
+`upload-sarif` (default `true`), `fail-on-findings` (default `false` — by default
+the scan reports as alerts without failing the build). SARIF upload needs
+`security-events: write` and code scanning enabled (on by default for public
+repos; private repos need GitHub Advanced Security). To gate the build instead of
+(or in addition to) uploading alerts, set `fail-on-findings: true`.
 
 ## What it detects
 
