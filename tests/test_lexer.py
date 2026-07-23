@@ -199,6 +199,73 @@ def test_provable_witness_reasserted_does_not_fire():
 
 
 # ---------------------------------------------------------------------------
+# Rule 3b — stale Merkle root (witness root not bound to on-chain state)
+# ---------------------------------------------------------------------------
+
+# Recomputes a root from the prover's witness and overwrites on-chain root
+# WITHOUT ever binding a recomputed root to the current root → prover can pass
+# a witness for any tree. HIGH.
+_STALE_MERKLE = """
+import { SmartContract, Field, State, state, MerkleMapWitness, method } from 'o1js';
+export class Registry extends SmartContract {
+  @state(Field) root = State<Field>();
+  @method async set(witness: MerkleMapWitness, value: Field) {
+    const [newRoot, key] = witness.computeRootAndKey(value);
+    this.root.set(newRoot);
+  }
+}
+"""
+
+# Correct update: binds the recomputed OLD root to the current on-chain root
+# before setting the new root. Must NOT fire (even though newRoot is unasserted).
+_SAFE_MERKLE = """
+import { SmartContract, Field, State, state, MerkleMapWitness, method } from 'o1js';
+export class Registry extends SmartContract {
+  @state(Field) root = State<Field>();
+  @method async update(witness: MerkleMapWitness, oldValue: Field, newValue: Field) {
+    const current = this.root.getAndRequireEquals();
+    const [rootBefore, key] = witness.computeRootAndKey(oldValue);
+    rootBefore.assertEquals(current);
+    const [rootAfter, key2] = witness.computeRootAndKey(newValue);
+    this.root.set(rootAfter);
+  }
+}
+"""
+
+# Membership check via MerkleWitness.calculateRoot bound with requireEquals.
+_SAFE_MERKLE_REQUIRE = """
+import { SmartContract, Field, State, state, MerkleWitness, method } from 'o1js';
+export class Registry extends SmartContract {
+  @state(Field) root = State<Field>();
+  @method async prove(witness: MerkleWitness, leaf: Field) {
+    const computed = witness.calculateRoot(leaf);
+    this.root.requireEquals(computed);
+  }
+}
+"""
+
+
+def test_stale_merkle_root_fires_high():
+    v = analyze_file("Registry.ts", _STALE_MERKLE)
+    fired = [x for x in v if x.rule_id == "O1JS_STALE_MERKLE_ROOT"]
+    assert fired, _rules(v)
+    assert fired[0].severity == Severity.HIGH
+    assert fired[0].evidence["witness_recv"] == "witness"
+    assert fired[0].evidence["api"] == "computeRootAndKey"
+
+
+def test_safe_merkle_update_does_not_fire():
+    v = analyze_file("Registry.ts", _SAFE_MERKLE)
+    assert "O1JS_STALE_MERKLE_ROOT" not in _rules(v)
+    assert not [x for x in v if x.severity in (Severity.HIGH, Severity.CRITICAL)]
+
+
+def test_safe_merkle_require_equals_does_not_fire():
+    v = analyze_file("Registry.ts", _SAFE_MERKLE_REQUIRE)
+    assert "O1JS_STALE_MERKLE_ROOT" not in _rules(v)
+
+
+# ---------------------------------------------------------------------------
 # Rule 3 — raw Field used as transfer amount
 # ---------------------------------------------------------------------------
 

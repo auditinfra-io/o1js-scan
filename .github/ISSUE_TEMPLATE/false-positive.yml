@@ -20,6 +20,7 @@ body:
         - O1JS_UNCONSTRAINED_PROVABLE_WITNESS
         - O1JS_UNCONSTRAINED_RECIPIENT
         - O1JS_WITNESS_NOT_BOUND_TO_STATE
+        - O1JS_STALE_MERKLE_ROOT
         - O1JS_WEAK_PERMISSIONS
         - MissingRangeCheck
         - Other / not sure (paste the finding below)

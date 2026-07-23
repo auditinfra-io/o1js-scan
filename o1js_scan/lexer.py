@@ -49,7 +49,18 @@ o1js soundness model (the three footguns this encodes)
    state-derived value (``amount.assertLessThanOrEqual(bal)``, incl. the
    chained ``amount.lessThanOrEqual(bal).assertTrue()`` form) counts as bound.
 
-3. **Permissions & raw-Field amounts.**
+3. **Stale Merkle roots.** A zkApp that stores off-chain data keeps only the
+   Merkle *root* on-chain (a ``@state(Field)``) and takes a witness as a
+   ``@method`` argument. A root recomputed from that witness
+   (``witness.computeRootAndKey(...)`` / ``witness.calculateRoot(...)``) must
+   be bound to the CURRENT on-chain root (``this.root.requireEquals(...)`` /
+   ``getAndRequireEquals()`` + ``assertEquals``) before the tree is updated —
+   otherwise a prover can supply a witness for a fabricated/stale tree and the
+   proof still verifies (forged membership / stale-state replay). A method that
+   recomputes a witness root but binds NONE of them to on-chain state is
+   flagged. Rule: ``O1JS_STALE_MERKLE_ROOT``.
+
+4. **Permissions & raw-Field amounts.**
    - ``account.permissions.set`` with ``editState`` / ``send`` set to
      ``proofOrSignature()`` or ``none()`` means the zkApp account key can
      bypass the proof logic by signing — defeating the whole circuit.
@@ -101,6 +112,18 @@ _STATE_DECL_RE = re.compile(r"@state\(\s*(\w+)\s*\)\s+(\w+)\s*=")
 _PROVABLE_WITNESS_RE = re.compile(
     r"\b(?:const|let|var)\s+(\w{1,%d})\s*=\s*(?:await\s+)?"
     r"Provable\s*\.\s*(witness|witnessFields|witnessAsync)\s*\(" % _MAX_IDENT,
+)
+# A Merkle root recomputed from a prover-supplied witness.
+#   const [computedRoot, key] = witness.computeRootAndKey(value);
+_MERKLE_DESTRUCT_RE = re.compile(
+    r"(?:const|let|var)\s*\[\s*(\w{1,%d})\s*(?:,[^\]]{0,%d})?\]\s*=\s*"
+    r"([\w.]{1,%d})\s*\.\s*(computeRootAndKey|computeRootAndKeyV2)\s*\("
+    % (_MAX_IDENT, _MAX_IDENT, _MAX_IDENT),
+)
+#   const root = witness.calculateRoot(leaf);   (MerkleWitness API — single Field)
+_MERKLE_ASSIGN_RE = re.compile(
+    r"(?:const|let|var)\s+(\w{1,%d})\s*=\s*([\w.]{1,%d})\s*\.\s*"
+    r"(calculateRoot)\s*\(" % (_MAX_IDENT, _MAX_IDENT),
 )
 
 
@@ -266,6 +289,7 @@ class O1jsLexer:
         vulns += self._detect_missing_state_precondition(content, stripped, methods, state)
         vulns += self._detect_unconstrained_witness(content, methods, state)
         vulns += self._detect_unconstrained_provable_witness(content, methods, state)
+        vulns += self._detect_stale_merkle_root(content, methods, state)
         vulns += self._detect_raw_field_amount(content, methods)
         vulns += self._detect_weak_permissions(content, stripped)
         return vulns
@@ -518,6 +542,124 @@ class O1jsLexer:
                     },
                 ))
         return out
+
+    # --- Rule 3b: stale Merkle root (witness root not bound to state) -----
+
+    def _detect_stale_merkle_root(
+        self, src: str, methods: List[_Method], state: Dict[str, str],
+    ) -> List[Vulnerability]:
+        """Flag a method that recomputes a Merkle root from a prover-supplied
+        witness but binds NONE of the recomputed roots to the current on-chain
+        root. Per-method (not per-root) on purpose: a correct tree update legitimately
+        leaves the NEW root unasserted (it is what gets ``set``), so the soundness
+        requirement is that at least one witness-derived root is tied to the
+        current on-chain state — proving the witness matches the live tree."""
+        if not state:
+            return []
+        out: List[Vulnerability] = []
+        for meth in methods:
+            body = meth.body
+            # admin/owner-gated methods take a trusted key-holder's witness
+            # (same carve-out as the witness rules) — a stale witness is then
+            # the signer's own problem, not an attacker's.
+            if _method_is_signature_gated(body):
+                continue
+            roots: List[Tuple[str, str, str, int]] = []  # (root_var, recv, api, offset)
+            for m in _MERKLE_DESTRUCT_RE.finditer(body):
+                roots.append((m.group(1), m.group(2), m.group(3), m.start()))
+            for m in _MERKLE_ASSIGN_RE.finditer(body):
+                roots.append((m.group(1), m.group(2), m.group(3), m.start()))
+            if not roots:
+                continue
+            # Relevance gate: the method must actually touch an on-chain state
+            # field (read or set), else it is a pure off-chain computation.
+            if not any(
+                re.search(r"this\s*\.\s*" + re.escape(f) + r"\b", body) for f in state
+            ):
+                continue
+            state_bound: Set[str] = set()
+            for am in re.finditer(
+                r"\b(?:const|let|var)\s+(\w+)\s*=\s*this\s*\.\s*(\w+)\s*\.\s*"
+                r"(?:getAndRequireEquals|get)\s*\(", body,
+            ):
+                if am.group(2) in state:
+                    state_bound.add(am.group(1))
+
+            if any(self._merkle_root_bound(body, rv, state, state_bound)
+                   for rv, _, _, _ in roots):
+                continue  # at least one recomputed root is tied to the live tree
+            root_var, recv, api, off = roots[0]
+            line = meth.start_line + body.count("\n", 0, off)
+            out.append(Vulnerability(
+                pattern_name="O1JS_STALE_MERKLE_ROOT",
+                severity=Severity.HIGH,
+                function=meth.name,
+                location=(line, 0),
+                origin_tier=O1JS_ORIGIN_TIER,
+                rule_id="O1JS_STALE_MERKLE_ROOT",
+                title=(
+                    f"Merkle root recomputed from witness `{recv}` is not bound to "
+                    f"on-chain state in `{meth.name}`"
+                ),
+                description=(
+                    f"`{meth.name}` recomputes a Merkle root from the prover-supplied "
+                    f"witness `{recv}` (`{recv}.{api}(...)`) but never binds a recomputed "
+                    f"root to the current on-chain root (no `this.<root>.requireEquals(...)` "
+                    f"or `assertEquals` against a `getAndRequireEquals()`-derived value). "
+                    f"Without that binding the proof does not check the witness against the "
+                    f"LIVE tree, so a prover can supply a witness for a fabricated or stale "
+                    f"tree — forging membership or replaying old state. Read the on-chain "
+                    f"root with `getAndRequireEquals()` and assert the recomputed root "
+                    f"against it before updating."
+                ),
+                evidence={
+                    "root_var": root_var,
+                    "witness_recv": recv,
+                    "api": api,
+                    "method": meth.name,
+                    "framework": "o1js",
+                },
+            ))
+        return out
+
+    @staticmethod
+    def _merkle_root_bound(
+        body: str, root_var: str, state: Dict[str, str], state_bound: Set[str],
+    ) -> bool:
+        """True if ``root_var`` is asserted against on-chain-state-derived data."""
+        rv = re.escape(root_var)
+
+        def _state_derived(expr: str) -> bool:
+            if "getAndRequireEquals" in expr or ".get()" in expr:
+                return True
+            if any(re.search(r"\b" + re.escape(sb) + r"\b", expr) for sb in state_bound):
+                return True
+            for fm in re.finditer(r"this\s*\.\s*(\w+)\b", expr):
+                if fm.group(1) in state:
+                    return True
+            return False
+
+        # Form A: this.<stateRoot>.requireEquals|assertEquals(... root_var ...)
+        for m in re.finditer(
+            r"this\s*\.\s*(\w+)\s*\.\s*(?:requireEquals|assertEquals)\s*\(([^;]{0,%d}?)\)"
+            % _MAX_CALL_ARG, body,
+        ):
+            if m.group(1) in state and re.search(r"\b" + rv + r"\b", m.group(2)):
+                return True
+        # Form B: X.assertEquals|requireEquals(Y) with one side root_var, other state-derived
+        for m in re.finditer(
+            r"([\w.()]{1,%d})\s*\.\s*(?:assertEquals|requireEquals)\s*\(([^;]{0,%d}?)\)"
+            % (_MAX_IDENT, _MAX_CALL_ARG), body,
+        ):
+            recv, inner = m.group(1), m.group(2)
+            in_recv = bool(re.search(r"\b" + rv + r"\b", recv))
+            in_inner = bool(re.search(r"\b" + rv + r"\b", inner))
+            if not (in_recv or in_inner):
+                continue
+            other = inner if in_recv else recv
+            if _state_derived(other):
+                return True
+        return False
 
     @staticmethod
     def _witness_effect(body: str, arg: str) -> Optional[Tuple[str, int, str]]:
