@@ -25,6 +25,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--json", action="store_true", help="emit JSONL findings")
     args = ap.parse_args(argv)
 
+    # Fail loudly on a missing path. Otherwise a typo'd scan target silently
+    # produces zero findings and exit 0 — a green CI run that scanned nothing.
+    if not Path(args.path).exists():
+        print(f"o1js-scan: path not found: {args.path}", file=sys.stderr)
+        return 2
+
     findings = analyze_project(args.path)
 
     if args.json:

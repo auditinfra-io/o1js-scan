@@ -229,6 +229,55 @@ def test_env_kill_switch(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Robustness — a crafted/malformed file must not hang the CI scanner
+# ---------------------------------------------------------------------------
+
+def test_pathological_input_terminates_quickly():
+    import time
+
+    # A giant contiguous token run used to drive _FUNC_HEAD_RE / _asserts_on
+    # into O(n^2) backtracking (~40s). Bounded quantifiers keep it linear.
+    body = "amount.assertGreaterThan(" + "x" * 60000 + ")"
+    src = (
+        "import { SmartContract, UInt64, PublicKey, method } from 'o1js';\n"
+        "export class C extends SmartContract {\n"
+        "  @method async pay(to: PublicKey, amount: UInt64) {\n"
+        f"    {body}\n"
+        "    this.send({ to, amount });\n"
+        "  }\n}\n"
+    )
+    start = time.time()
+    analyze_file("c.ts", src)
+    assert time.time() - start < 2.0, "analysis of a crafted input hung"
+
+
+def test_normal_asserts_still_bind_after_bounding():
+    # A normal-length equality against on-chain state must still be recognized
+    # as a real binding (the quantifier caps are far above real expressions).
+    v = analyze_file("Settle.ts", _STATE_BOUND)
+    assert not [x for x in v if x.evidence.get("witness") == "to"]
+
+
+# ---------------------------------------------------------------------------
+# CLI — a missing path must fail loudly, not silently pass
+# ---------------------------------------------------------------------------
+
+def test_cli_missing_path_errors(capsys):
+    from o1js_scan.cli import main
+
+    rc = main(["/no/such/path/xyz"])
+    assert rc == 2
+    assert "path not found" in capsys.readouterr().err
+
+
+def test_cli_clean_scan_exits_zero(tmp_path):
+    from o1js_scan.cli import main
+
+    (tmp_path / "safe.ts").write_text(_SAFE_GET)
+    assert main([str(tmp_path)]) == 0
+
+
+# ---------------------------------------------------------------------------
 # Settlement-contract archetype (real-world calibration target)
 # ---------------------------------------------------------------------------
 
