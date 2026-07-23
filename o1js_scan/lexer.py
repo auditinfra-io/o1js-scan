@@ -269,6 +269,48 @@ def _state_fields(stripped: str) -> Dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Inline suppressions
+# ---------------------------------------------------------------------------
+#
+# Let a reviewer silence a finding they've triaged, without the all-or-nothing
+# env kill-switch:
+#
+#     this.send({ to, amount });  // o1js-scan-disable-line O1JS_UNCONSTRAINED_WITNESS
+#
+#     // o1js-scan-disable-next-line
+#     this.send({ to, amount });
+#
+# A bare directive (no rule ids) suppresses every rule on the target line;
+# otherwise only the listed rule ids (space/comma separated) are suppressed.
+_SUPPRESS_RE = re.compile(r"//\s*o1js-scan-disable(-next)?-line\b([^\n]*)")
+
+
+def _suppressions(content: str) -> Dict[int, Set[str]]:
+    """Map target line number -> set of suppressed rule ids ({"*"} = all)."""
+    out: Dict[int, Set[str]] = {}
+    for m in _SUPPRESS_RE.finditer(content):
+        line = content.count("\n", 0, m.start()) + 1
+        target = line + 1 if m.group(1) else line
+        rules = {r for r in re.split(r"[\s,]+", m.group(2).strip()) if r} or {"*"}
+        out.setdefault(target, set()).update(rules)
+    return out
+
+
+def _apply_suppressions(content: str, vulns: List[Vulnerability]) -> List[Vulnerability]:
+    supp = _suppressions(content)
+    if not supp:
+        return vulns
+    kept: List[Vulnerability] = []
+    for v in vulns:
+        ln = v.location[0] if v.location else 0
+        rules = supp.get(ln)
+        if rules and ("*" in rules or v.rule_id in rules):
+            continue
+        kept.append(v)
+    return kept
+
+
+# ---------------------------------------------------------------------------
 # Lexer
 # ---------------------------------------------------------------------------
 
@@ -292,7 +334,7 @@ class O1jsLexer:
         vulns += self._detect_stale_merkle_root(content, methods, state)
         vulns += self._detect_raw_field_amount(content, methods)
         vulns += self._detect_weak_permissions(content, stripped)
-        return vulns
+        return _apply_suppressions(content, vulns)
 
     # --- Rule 1: state read without precondition --------------------------
 
