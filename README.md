@@ -109,6 +109,18 @@ These are the reason findings are a starting point for human review, not
 proofs. A dataflow-aware rewrite is deliberately out of scope for the
 lexical analyzer.
 
+## Compatibility
+
+Works on **o1js 1.x and 2.x**. o1js-scan analyzes TypeScript source as text
+and has **no runtime dependency on o1js** — nothing is version-pinned. It keys
+on the modern `require*` precondition API (`getAndRequireEquals`,
+`requireEquals`, `requireSignature`, `getAndRequireSignature`), the
+`@method` / `@method.returns(...)` decorators, `@state`, `this.send({...})`,
+and `Permissions.*`, all of which are unchanged across the 1.x → 2.x boundary.
+The 2.x owner-auth idiom `this.sender.getAndRequireSignature()` is recognized
+as signature-gating. (Legacy `assertEquals` preconditions are still accepted,
+so older code isn't broken either.)
+
 ## How it works
 
 It's a lexical analyzer, not a full TypeScript parser — o1js code is
