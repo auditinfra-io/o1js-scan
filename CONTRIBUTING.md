@@ -41,6 +41,10 @@ Please include a minimal o1js snippet that reproduces the false positive or
 missed detection — that's the fastest path to a fix and it usually becomes the
 regression test.
 
+For false positives specifically, use the **False-positive report** issue
+template — it asks for exactly what a calibration fix needs (the snippet, the
+finding, and why the flagged pattern is intended design).
+
 ## License
 
 By contributing you agree that your contributions are licensed under Apache-2.0.

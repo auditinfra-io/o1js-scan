@@ -1,0 +1,79 @@
+name: False-positive report
+description: A rule fired on code that is intended design, not a bug. These reports directly drive calibration.
+title: "[FP] <rule id>: <one-line summary>"
+labels: ["false-positive", "calibration"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks — false-positive reports are the single most useful contribution to this
+        project. Every guard in the scanner exists because someone showed a pattern where
+        a rule fired on correct code.
+
+  - type: dropdown
+    id: rule
+    attributes:
+      label: Rule that fired
+      options:
+        - O1JS_MISSING_STATE_PRECONDITION
+        - O1JS_UNCONSTRAINED_WITNESS
+        - O1JS_WITNESS_NOT_BOUND_TO_STATE
+        - O1JS_WEAK_PERMISSIONS
+        - MissingRangeCheck
+        - Other / not sure (paste the finding below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: snippet
+    attributes:
+      label: Minimal code snippet
+      description: |
+        The smallest self-contained excerpt that reproduces the finding — ideally the
+        `@method` (or permissions block) plus any `@state` declarations it touches.
+        Trim unrelated methods. Anonymize names if the code is private.
+      render: typescript
+    validations:
+      required: true
+
+  - type: textarea
+    id: finding
+    attributes:
+      label: Scanner output
+      description: The finding as printed by `o1js-scan` (or the `--json` line).
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why this is intended design
+      description: |
+        The key question. What makes this safe or intentional? For example: the value is
+        bound elsewhere (where?), the method is admin-gated in a way the scanner missed
+        (how?), or a prover-chosen value is the entire point of the method (e.g. a
+        withdrawal recipient).
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: o1js-scan version
+      placeholder: "0.1.0 (pip show o1js-scan)"
+    validations:
+      required: true
+
+  - type: input
+    id: o1js-version
+    attributes:
+      label: o1js version the code targets
+      placeholder: "2.x"
+
+  - type: checkboxes
+    id: fixture
+    attributes:
+      label: Fixture permission
+      options:
+        - label: The snippet above may be used (possibly anonymized) as a regression-test fixture in this repository.
