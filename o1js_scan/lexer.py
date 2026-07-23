@@ -34,7 +34,13 @@ o1js soundness model (the three footguns this encodes)
    direct analog of Circom ``UnconstrainedCircuitVariable``.
    Rules: ``O1JS_UNCONSTRAINED_WITNESS`` (never asserted at all) and
    ``O1JS_WITNESS_NOT_BOUND_TO_STATE`` (only trivially asserted, e.g.
-   ``> 0``, but never tied to on-chain state).
+   ``> 0`` or against a constant, but never tied to on-chain state).
+   A witness used ONLY as the ``to:`` recipient of a send is prover-chosen
+   by design (a user names their own withdrawal destination), so it is
+   reported as a LOW, informational ``O1JS_UNCONSTRAINED_RECIPIENT`` that
+   does not fail CI — an ordering comparison or equality against a
+   state-derived value (``amount.assertLessThanOrEqual(bal)``, incl. the
+   chained ``amount.lessThanOrEqual(bal).assertTrue()`` form) counts as bound.
 
 3. **Permissions & raw-Field amounts.**
    - ``account.permissions.set`` with ``editState`` / ``send`` set to

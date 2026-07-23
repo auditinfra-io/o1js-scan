@@ -41,8 +41,11 @@ o1js-scan src/MyContract.ts
 o1js-scan src --json
 ```
 
-Exit code is `1` when any high/critical finding is present, `0` otherwise — so
-you can drop it straight into CI.
+Exit code is `1` when any high/critical finding is present and `0` otherwise —
+so you can drop it straight into CI. A low/medium finding (including the
+informational recipient rule below) does **not** fail the build. A missing
+scan path exits `2` with an error on stderr, so a typo can't silently pass CI
+as a clean run.
 
 As a library:
 
