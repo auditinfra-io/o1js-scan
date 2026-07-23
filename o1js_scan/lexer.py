@@ -34,7 +34,13 @@ o1js soundness model (the three footguns this encodes)
    direct analog of Circom ``UnconstrainedCircuitVariable``.
    Rules: ``O1JS_UNCONSTRAINED_WITNESS`` (never asserted at all) and
    ``O1JS_WITNESS_NOT_BOUND_TO_STATE`` (only trivially asserted, e.g.
-   ``> 0``, but never tied to on-chain state).
+   ``> 0`` or against a constant, but never tied to on-chain state).
+   A witness used ONLY as the ``to:`` recipient of a send is prover-chosen
+   by design (a user names their own withdrawal destination), so it is
+   reported as a LOW, informational ``O1JS_UNCONSTRAINED_RECIPIENT`` that
+   does not fail CI — an ordering comparison or equality against a
+   state-derived value (``amount.assertLessThanOrEqual(bal)``, incl. the
+   chained ``amount.lessThanOrEqual(bal).assertTrue()`` form) counts as bound.
 
 3. **Permissions & raw-Field amounts.**
    - ``account.permissions.set`` with ``editState`` / ``send`` set to
@@ -340,11 +346,41 @@ class O1jsLexer:
                 asserts = self._asserts_on(body, arg, state_bound)
                 if asserts == "bound":
                     continue  # tied to on-chain state / signature → sound
+                kind = effect[0]
                 line = meth.start_line + body.count("\n", 0, effect[1])
+                if kind == "send_recipient":
+                    # A caller choosing their own send destination is by design for
+                    # user-initiated withdrawals; recipients are not meant to be
+                    # bound to on-chain state. Report as LOW/informational only —
+                    # it matters only when the destination should be fixed.
+                    out.append(Vulnerability(
+                        pattern_name="O1JS_UNCONSTRAINED_RECIPIENT",
+                        severity=Severity.LOW,
+                        function=meth.name,
+                        location=(line, 0),
+                        origin_tier=O1JS_ORIGIN_TIER,
+                        rule_id="O1JS_UNCONSTRAINED_RECIPIENT",
+                        title=f"Recipient `{arg}` is prover-chosen in `{meth.name}`",
+                        description=(
+                            f"`{arg}` is the `to:` recipient of a `this.send(...)` in "
+                            f"`{meth.name}` and is a prover-chosen `@method` argument. This "
+                            f"is usually INTENDED — a user initiating a withdrawal names "
+                            f"their own destination. It only matters if the destination is "
+                            f"meant to be constrained (e.g. a fixed treasury or an address "
+                            f"recorded in on-chain state); in that case bind `{arg}` with "
+                            f"`assertEquals(...)` against that state. Otherwise informational."
+                        ),
+                        evidence={
+                            "witness": arg, "method": meth.name,
+                            "effect": kind, "effect_expr": effect[2],
+                            "framework": "o1js",
+                        },
+                    ))
+                    continue
                 if asserts == "none":
                     out.append(Vulnerability(
                         pattern_name="O1JS_UNCONSTRAINED_WITNESS",
-                        severity=Severity.HIGH if effect[0] == "send" else Severity.MEDIUM,
+                        severity=Severity.HIGH if kind == "send_amount" else Severity.MEDIUM,
                         function=meth.name,
                         location=(line, 0),
                         origin_tier=O1JS_ORIGIN_TIER,
@@ -398,14 +434,27 @@ class O1jsLexer:
     @staticmethod
     def _witness_effect(body: str, arg: str) -> Optional[Tuple[str, int, str]]:
         """Return (effect_kind, offset, expr) if ``arg`` flows into a
-        state-changing effect: send amount, state .set(), or .send to."""
+        state-changing effect. Effect kinds:
+          * ``send_amount``    — arg appears in the ``amount:`` value of a send
+          * ``send_recipient`` — arg appears ONLY in the ``to:`` value of a send
+          * ``state_set``      — arg flows into a ``this.<state>.set(...)``
+        A witness that appears in both ``amount`` and ``to`` is ``send_amount``
+        (the higher-severity effect wins)."""
         a = re.escape(arg)
         # this.send({ ..., amount: <arg...> }) or this.send({to: <arg...>})
         for sm in re.finditer(r"this\s*\.\s*send\s*\(", body):
             # grab the argument object up to matching )
             seg = _paren_segment(body, sm.end() - 1)
-            if re.search(r"\b" + a + r"\b", seg):
-                return ("send", sm.start(), seg.strip()[:80])
+            if not re.search(r"\b" + a + r"\b", seg):
+                continue
+            keys = _send_object_keys(seg, arg)
+            if keys is not None and "amount" not in keys and "to" in keys:
+                kind = "send_recipient"
+            else:
+                # amount value, both, a positional send, or some other key:
+                # treat as the amount-flow (higher severity) conservatively.
+                kind = "send_amount"
+            return (kind, sm.start(), seg.strip()[:80])
         # this.<state>.set(<arg ...>)
         for sm in re.finditer(r"this\s*\.\s*\w+\s*\.\s*set\s*\(", body):
             seg = _paren_segment(body, sm.end() - 1)
@@ -422,7 +471,21 @@ class O1jsLexer:
         bound = False
         trivial = False
         any_assert = False
-        # X.assertEquals(Y) / X.requireEquals(Y) where X or Y is arg
+
+        def _state_derived(other: str) -> bool:
+            """True if ``other`` references an on-chain-state-derived value."""
+            return (any(re.search(r"\b" + re.escape(sb) + r"\b", other) for sb in state_bound)
+                    or "getAndRequireEquals" in other or ".get()" in other)
+
+        # Equality AND ordering comparisons all bind the witness when the other
+        # operand is state-derived: `amount.assertLessThanOrEqual(bal)` is the
+        # idiomatic correct way to bound a withdrawal, not a trivial constraint.
+        _state_bindable = (
+            "assertEquals", "requireEquals",
+            "assertLessThan", "assertLessThanOrEqual",
+            "assertGreaterThan", "assertGreaterThanOrEqual",
+        )
+        # X.assertEquals(Y) / X.assertLessThanOrEqual(Y) where X or Y is arg
         for am in re.finditer(
             r"(\w[\w.()]{0,%d})\s*\.\s*(assertEquals|requireEquals|assertGreaterThan"
             r"|assertGreaterThanOrEqual|assertLessThan|assertLessThanOrEqual"
@@ -435,11 +498,10 @@ class O1jsLexer:
             if not mentions:
                 continue
             any_assert = True
-            if kind in ("assertEquals", "requireEquals"):
+            if kind in _state_bindable:
                 # bound if the OTHER side references on-chain-state-derived var
                 other = inner if re.search(r"\b" + a + r"\b", recv) else recv
-                if any(re.search(r"\b" + re.escape(sb) + r"\b", other) for sb in state_bound) \
-                        or "getAndRequireEquals" in other or ".get()" in other:
+                if _state_derived(other):
                     bound = True
                 else:
                     trivial = True
@@ -453,6 +515,17 @@ class O1jsLexer:
             if am.group(1) in state_bound:
                 bound = True
             any_assert = True
+        # chained-comparison idiom: `amount.lessThanOrEqual(bal).assertTrue()`
+        for cm in re.finditer(
+            r"\b" + a + r"\s*\.\s*(?:lessThan|lessThanOrEqual|greaterThan"
+            r"|greaterThanOrEqual)\s*\(([^;]{0,%d}?)\)\s*\.\s*assertTrue\s*\(" % _MAX_CALL_ARG,
+            body,
+        ):
+            any_assert = True
+            if _state_derived(cm.group(1)):
+                bound = True
+            else:
+                trivial = True
         if bound:
             return "bound"
         if trivial or any_assert:
@@ -472,7 +545,7 @@ class O1jsLexer:
             field_params = set(re.findall(r"(\w+)\s*:\s*Field\b", _method_param_blob(src, meth)))
             for fp in field_params:
                 eff = self._witness_effect(meth.body, fp)
-                if eff and eff[0] == "send" and "amount" in eff[2]:
+                if eff and eff[0] == "send_amount":
                     line = meth.start_line + meth.body.count("\n", 0, eff[1])
                     out.append(Vulnerability(
                         pattern_name="MissingRangeCheck",
@@ -556,6 +629,57 @@ def _method_is_signature_gated(body: str) -> bool:
     if re.search(r"\b\w*[Ss]ignature\w*\s*\.\s*verify\s*\(", body):
         return True
     return False
+
+
+def _split_top_level(s: str, sep: str) -> List[str]:
+    """Split ``s`` on ``sep`` characters that sit at paren/bracket/brace depth 0."""
+    out: List[str] = []
+    depth = 0
+    cur: List[str] = []
+    for ch in s:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if ch == sep and depth == 0:
+            out.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    out.append("".join(cur))
+    return out
+
+
+def _send_object_keys(seg: str, arg: str) -> Optional[Set[str]]:
+    """For the argument text of a ``this.send(...)`` call, return the set of
+    object-literal keys whose value mentions ``arg`` (shorthand ``{ amount }``
+    counts as key ``amount``). Returns ``None`` when there is no object literal
+    (e.g. a positional ``this.send(pk, amt)`` form)."""
+    lb = seg.find("{")
+    if lb == -1:
+        return None
+    depth = 0
+    rb = len(seg)
+    for i in range(lb, len(seg)):
+        if seg[i] == "{":
+            depth += 1
+        elif seg[i] == "}":
+            depth -= 1
+            if depth == 0:
+                rb = i
+                break
+    inner = seg[lb + 1:rb]
+    a = re.escape(arg)
+    keys: Set[str] = set()
+    for part in _split_top_level(inner, ","):
+        if not part.strip():
+            continue
+        kv = _split_top_level(part, ":")
+        key = kv[0].strip()
+        val = ":".join(kv[1:]) if len(kv) > 1 else kv[0]  # shorthand: value == key
+        if re.search(r"\b" + a + r"\b", val):
+            keys.add(key)
+    return keys
 
 
 def _paren_segment(s: str, open_paren_idx: int) -> str:

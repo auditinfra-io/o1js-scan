@@ -38,7 +38,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(json.dumps({
                 "file": fp,
                 "rule_id": v.rule_id,
-                "severity": v.severity.value,
+                "severity": v.severity.value.lower(),
                 "function": v.function,
                 "line": (v.location or [0])[0],
                 "title": v.title,
@@ -52,7 +52,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"{v.severity.value.upper():<8} {v.rule_id:<34} "
                   f"{Path(fp).name}:{line}  fn={v.function}  {v.title}")
 
-    hi = any(v.severity.value in ("CRITICAL", "high") for _f, v in findings)
+    hi = any(v.severity.value.lower() in ("critical", "high") for _f, v in findings)
     return 1 if hi else 0
 
 
