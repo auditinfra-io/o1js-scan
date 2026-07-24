@@ -874,3 +874,61 @@ def test_non_proof_param_named_proofData_unaffected():
     # Still a normal unconstrained witness flowing to state_set.
     amt = [x for x in v if x.evidence.get("witness") == "proofData"]
     assert amt and amt[0].rule_id == "O1JS_UNCONSTRAINED_WITNESS"
+
+
+# ---------------------------------------------------------------------------
+# OffchainState.settle(proof) — framework verifies; do not FP
+# ---------------------------------------------------------------------------
+
+_OFFCHAIN_STATE_SETTLE = """
+import { SmartContract, method } from 'o1js';
+class TokenInformationArrayProof {}
+export class Doot extends SmartContract {
+  @method async settle(proof: TokenInformationArrayProof) {
+    await this.offchainState.settle(proof);
+  }
+}
+"""
+
+# A custom helper named settle must NOT get the OffchainState carve-out.
+_CUSTOM_SETTLE_NO_VERIFY = """
+import { SmartContract, Field, State, state, method } from 'o1js';
+class SomeProof {}
+export class C extends SmartContract {
+  @state(Field) slot = State<Field>();
+  @method async settle(proof: SomeProof) {
+    this.myHelper.settle(proof);
+    this.slot.set(proof.publicOutput);
+  }
+}
+"""
+
+
+def test_offchain_state_settle_suppresses_unverified_proof():
+    v = analyze_file("Doot.ts", _OFFCHAIN_STATE_SETTLE)
+    assert "O1JS_UNVERIFIED_PROOF" not in _rules(v), _rules(v)
+
+
+def test_custom_settle_without_verify_still_fires():
+    # Narrowness canary: only `this.offchainState.settle` is trusted.
+    v = analyze_file("C.ts", _CUSTOM_SETTLE_NO_VERIFY)
+    assert "O1JS_UNVERIFIED_PROOF" in _rules(v)
+
+
+def test_rando_mina_shape_still_fires_after_offchain_carveout():
+    # The zkLocus TP must remain visible after the OffchainState carve-out.
+    src = """
+import { SmartContract, Field, Poseidon, method } from 'o1js';
+class RandomNumberObservationCircuitProof {}
+export class RandoMinaContract extends SmartContract {
+  @method async verifyRandomNumber(observationProof: RandomNumberObservationCircuitProof) {
+    const claimedSender = observationProof.publicInput.sender;
+    claimedSender.assertEquals(Poseidon.hash(this.sender.getUnconstrained().toFields()));
+    const claimedNetworkState = observationProof.publicInput.networkState;
+    this.network.stakingEpochData.ledger.hash.requireEquals(claimedNetworkState);
+  }
+}
+"""
+    v = analyze_file("RandoMinaContract.ts", src)
+    fired = [x for x in v if x.rule_id == "O1JS_UNVERIFIED_PROOF"]
+    assert fired and fired[0].evidence["witness"] == "observationProof"

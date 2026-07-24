@@ -152,8 +152,11 @@ The analyzer is designed to stay quiet on correct code:
 - **Verified proofs are skipped.** A `Proof` / `SelfProof` / `DynamicProof` /
   `*Proof`-typed argument on which `.verify()` / `.verifyIf()` is called is
   constrained by the verified circuit — witness findings on it (and its
-  `publicOutput` / `publicInput`) are suppressed. The inverse case (proof-typed
-  arg never verified) is reported as `O1JS_UNVERIFIED_PROOF`.
+  `publicOutput` / `publicInput`) are suppressed. The same applies to the
+  canonical OffchainState wrapper `this.offchainState.settle(proof)` (the
+  framework verifies inside `settle`). A hand-rolled `.settle(proof)` is
+  **not** assumed to verify. The inverse case (proof-typed arg never verified
+  and not OffchainState-settled) is reported as `O1JS_UNVERIFIED_PROOF`.
 - Comments and string literals are stripped before analysis, so an `assert`
   inside a string can't create a false result.
 

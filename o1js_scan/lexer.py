@@ -776,6 +776,12 @@ class O1jsLexer:
                     continue
                 if _proof_is_verified(body, arg):
                     continue
+                # OffchainState.settle(proof) verifies the recursive settlement
+                # proof inside the framework API (Mina docs canonical pattern).
+                # Only this exact receiver/method pair — a custom `.settle(proof)`
+                # is NOT assumed to verify and must still fire.
+                if _proof_settled_via_offchain_state(body, arg):
+                    continue
                 # Locate the parameter declaration line approximately via method start.
                 line = meth.start_line
                 out.append(Vulnerability(
@@ -1055,6 +1061,23 @@ def _proof_is_verified(body: str, param: str) -> bool:
     """True if ``param.verify(...)`` or ``param.verifyIf(...)`` appears in body."""
     return bool(re.search(
         r"\b" + re.escape(param) + r"\s*\.\s*verify(?:If)?\s*\(", body,
+    ))
+
+
+def _proof_settled_via_offchain_state(body: str, param: str) -> bool:
+    """True if ``this.offchainState.settle(<param>)`` appears in body.
+
+    The Mina OffchainState API verifies the recursive settlement proof inside
+    ``settle`` — the contract method is documented as a one-liner that only
+    forwards the proof. Matching ANY ``.settle(param)`` would hide true
+    positives on hand-rolled settle helpers that never verify, so this is
+    intentionally narrowed to the ``offchainState`` receiver name.
+    """
+    return bool(re.search(
+        r"this\s*\.\s*offchainState\s*\.\s*settle\s*\(\s*"
+        + re.escape(param)
+        + r"\s*\)",
+        body,
     ))
 
 
