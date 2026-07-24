@@ -59,8 +59,19 @@ o1js soundness model (the three footguns this encodes)
    proof still verifies (forged membership / stale-state replay). A method that
    recomputes a witness root but binds NONE of them to on-chain state is
    flagged. Rule: ``O1JS_STALE_MERKLE_ROOT``.
+   Binding may live in an undecorated same-class helper called as
+   ``this.verifyX(witness)`` — one level of helper-binding propagation covers
+   that (see below).
 
-4. **Permissions & raw-Field amounts.**
+4. **Proof-typed arguments.** A ``@method`` parameter typed as ``Proof<...>``,
+   ``SelfProof<...>``, ``DynamicProof<...>``, or a class name ending in
+   ``Proof`` is a recursive-proof witness. Once ``proof.verify()`` /
+   ``proof.verifyIf(...)`` succeeds, the proof and its ``publicOutput`` /
+   ``publicInput`` are constrained by the verified circuit — so witness
+   findings on them are suppressed. If the proof is NEVER verified in the
+   method body, that IS a bug: Rule: ``O1JS_UNVERIFIED_PROOF``.
+
+5. **Permissions & raw-Field amounts.**
    - ``account.permissions.set`` with ``editState`` / ``send`` set to
      ``proofOrSignature()`` or ``none()`` means the zkApp account key can
      bypass the proof logic by signing — defeating the whole circuit.
@@ -179,11 +190,12 @@ def _line_of(src: str, idx: int) -> int:
 
 
 class _Method:
-    __slots__ = ("name", "params", "body", "start_line", "is_method_decorated")
+    __slots__ = ("name", "params", "param_types", "body", "start_line", "is_method_decorated")
 
-    def __init__(self, name, params, body, start_line, is_method_decorated):
+    def __init__(self, name, params, body, start_line, is_method_decorated, param_types=None):
         self.name = name
         self.params = params                # List[str] param names
+        self.param_types = param_types or [None] * len(params)  # parallel type strings
         self.body = body
         self.start_line = start_line
         self.is_method_decorated = is_method_decorated
@@ -193,6 +205,10 @@ _FUNC_HEAD_RE = re.compile(
     r"(?P<deco>@method(?:\.returns\([^)]{0,%d}\))?\s+)?"
     r"(?:async\s+)?(?P<name>\w{1,%d})\s*\((?P<params>[^)]{0,%d})\)\s*"
     r"(?::\s*[^{]{1,%d})?\{" % (_MAX_PARAMS, _MAX_IDENT, _MAX_PARAMS, _MAX_PARAMS),
+)
+# Same-class helper call: `this.<helper>(...)`. Depth-1 binding propagation only.
+_THIS_HELPER_CALL_RE = re.compile(
+    r"this\s*\.\s*(\w{1,%d})\s*\(" % _MAX_IDENT,
 )
 
 
@@ -205,7 +221,9 @@ def _extract_methods(stripped: str, full_src: str) -> List[_Method]:
         if name in ("if", "for", "while", "switch", "catch", "function"):
             continue
         params_raw = m.group("params")
-        param_names = _parse_param_names(params_raw)
+        parsed = _parse_params(params_raw)
+        param_names = [p[0] for p in parsed]
+        param_types = [p[1] for p in parsed]
         open_idx = m.end() - 1
         depth = 1
         i = open_idx + 1
@@ -221,6 +239,7 @@ def _extract_methods(stripped: str, full_src: str) -> List[_Method]:
         methods.append(_Method(
             name=name,
             params=param_names,
+            param_types=param_types,
             body=body,
             start_line=_line_of(full_src, m.start()),
             is_method_decorated=bool(m.group("deco")),
@@ -228,8 +247,9 @@ def _extract_methods(stripped: str, full_src: str) -> List[_Method]:
     return methods
 
 
-def _parse_param_names(params_raw: str) -> List[str]:
-    """`a: Field, b: PublicKey` -> ['a', 'b'] (depth-aware on <> and ())."""
+def _parse_params(params_raw: str) -> List[Tuple[str, Optional[str]]]:
+    """`a: Field, b: PublicKey` -> [('a','Field'), ('b','PublicKey')]
+    (depth-aware on <> and ())."""
     out: List[str] = []
     depth = 0
     cur = []
@@ -245,19 +265,29 @@ def _parse_param_names(params_raw: str) -> List[str]:
             cur.append(ch)
     if cur:
         out.append("".join(cur))
-    names: List[str] = []
+    parsed: List[Tuple[str, Optional[str]]] = []
     for raw in out:
         raw = raw.strip()
         if not raw:
             continue
         # strip default values
         raw = raw.split("=")[0]
-        # `name: Type` -> name
-        name = raw.split(":")[0].strip().lstrip(".")  # handle rest/spread
+        typ: Optional[str] = None
+        if ":" in raw:
+            name_part, type_part = raw.split(":", 1)
+            name = name_part.strip().lstrip(".")
+            typ = type_part.strip() or None
+        else:
+            name = raw.strip().lstrip(".")
         name = re.sub(r"^\{.*\}$", "", name)  # skip destructured params
         if re.fullmatch(r"\w+", name):
-            names.append(name)
-    return names
+            parsed.append((name, typ))
+    return parsed
+
+
+def _parse_param_names(params_raw: str) -> List[str]:
+    """Back-compat: names only."""
+    return [n for n, _t in _parse_params(params_raw)]
 
 
 # ---------------------------------------------------------------------------
@@ -326,15 +356,67 @@ class O1jsLexer:
         stripped = _strip_comments(content)
         state = _state_fields(stripped)
         methods = _extract_methods(stripped, content)
+        # Depth-1: undecorated same-class helpers → which param indices they bind.
+        helper_binds = self._build_helper_binds(methods, state)
 
         vulns: List[Vulnerability] = []
         vulns += self._detect_missing_state_precondition(content, stripped, methods, state)
-        vulns += self._detect_unconstrained_witness(content, methods, state)
+        vulns += self._detect_unconstrained_witness(content, methods, state, helper_binds)
         vulns += self._detect_unconstrained_provable_witness(content, methods, state)
-        vulns += self._detect_stale_merkle_root(content, methods, state)
+        vulns += self._detect_stale_merkle_root(content, methods, state, helper_binds)
+        vulns += self._detect_unverified_proof(content, methods)
         vulns += self._detect_raw_field_amount(content, methods)
         vulns += self._detect_weak_permissions(content, stripped)
         return _apply_suppressions(content, vulns)
+
+    # --- Cross-method binding (depth-1 helper propagation) ----------------
+
+    def _build_helper_binds(
+        self, methods: List[_Method], state: Dict[str, str],
+    ) -> Dict[str, Set[int]]:
+        """Map undecorated helper name → parameter indices it state-binds.
+
+        Only helpers with a non-empty binds set are entered (an empty set would
+        propagate nothing anyway; omitting them also means calling a no-op
+        helper cannot launder a witness). ``@method``-decorated methods are
+        never treated as helpers."""
+        out: Dict[str, Set[int]] = {}
+        for meth in methods:
+            if meth.is_method_decorated:
+                continue
+            state_bound = _state_bound_locals(meth.body, state)
+            idxs: Set[int] = set()
+            for i, pname in enumerate(meth.params):
+                if self._asserts_on(meth.body, pname, state_bound) == "bound":
+                    idxs.add(i)
+            if idxs:
+                out[meth.name] = idxs
+        return out
+
+    @staticmethod
+    def _propagated_bindings(body: str, helper_binds: Dict[str, Set[int]]) -> Set[str]:
+        """Identifiers in ``body`` that a same-class helper call state-binds.
+
+        Only ``this.<helper>(...)`` calls; positional index mapping; root
+        identifier of each matching arg (leading ident before ``.`` / ``[``).
+        Depth 1 only — helpers are never followed further."""
+        if not helper_binds:
+            return set()
+        bound: Set[str] = set()
+        for m in _THIS_HELPER_CALL_RE.finditer(body):
+            name = m.group(1)
+            idxs = helper_binds.get(name)
+            if not idxs:
+                continue
+            args_seg = _paren_segment(body, m.end() - 1)
+            args = _split_top_level(args_seg, ",")
+            for i in idxs:
+                if i >= len(args):
+                    continue
+                root = _arg_root_ident(args[i])
+                if root:
+                    bound.add(root)
+        return bound
 
     # --- Rule 1: state read without precondition --------------------------
 
@@ -397,7 +479,9 @@ class O1jsLexer:
 
     def _detect_unconstrained_witness(
         self, src: str, methods: List[_Method], state: Dict[str, str],
+        helper_binds: Optional[Dict[str, Set[int]]] = None,
     ) -> List[Vulnerability]:
+        helper_binds = helper_binds or {}
         out: List[Vulnerability] = []
         for meth in methods:
             if not meth.is_method_decorated:
@@ -411,15 +495,21 @@ class O1jsLexer:
                 continue
             # variables that ARE bound to on-chain state in this body:
             # locals assigned from this.<state>.getAndRequireEquals()/get()
-            state_bound: Set[str] = set()
-            for am in re.finditer(
-                r"\b(?:const|let|var)\s+(\w+)\s*=\s*this\s*\.\s*(\w+)\s*\.\s*"
-                r"(?:getAndRequireEquals|get)\s*\(", body,
-            ):
-                if am.group(2) in state:
-                    state_bound.add(am.group(1))
+            # PLUS identifiers state-bound via a depth-1 same-class helper call.
+            state_bound: Set[str] = _state_bound_locals(body, state)
+            helper_bound = self._propagated_bindings(body, helper_binds)
+            state_bound |= helper_bound
 
-            for arg in meth.params:
+            for arg_i, arg in enumerate(meth.params):
+                typ = meth.param_types[arg_i] if arg_i < len(meth.param_types) else None
+                # Proof-typed args are owned by O1JS_UNVERIFIED_PROOF / the
+                # verify() suppression — not the generic witness rules.
+                if _is_proof_type(typ):
+                    continue
+                # Bound via helper call (e.g. this.verifyX(arg) where verifyX
+                # state-binds its parameter) → treat as state-bound.
+                if arg in helper_bound:
+                    continue
                 effect = self._witness_effect(body, arg)
                 if effect is None:
                     continue  # arg not used in any state-changing effect → ignore
@@ -531,13 +621,7 @@ class O1jsLexer:
             if _method_is_signature_gated(body):
                 continue
             # locals bound to on-chain state in this body (for _asserts_on).
-            state_bound: Set[str] = set()
-            for am in re.finditer(
-                r"\b(?:const|let|var)\s+(\w+)\s*=\s*this\s*\.\s*(\w+)\s*\.\s*"
-                r"(?:getAndRequireEquals|get)\s*\(", body,
-            ):
-                if am.group(2) in state:
-                    state_bound.add(am.group(1))
+            state_bound: Set[str] = _state_bound_locals(body, state)
 
             for wm in _PROVABLE_WITNESS_RE.finditer(body):
                 name, api = wm.group(1), wm.group(2)
@@ -589,15 +673,21 @@ class O1jsLexer:
 
     def _detect_stale_merkle_root(
         self, src: str, methods: List[_Method], state: Dict[str, str],
+        helper_binds: Optional[Dict[str, Set[int]]] = None,
     ) -> List[Vulnerability]:
         """Flag a method that recomputes a Merkle root from a prover-supplied
         witness but binds NONE of the recomputed roots to the current on-chain
         root. Per-method (not per-root) on purpose: a correct tree update legitimately
         leaves the NEW root unasserted (it is what gets ``set``), so the soundness
         requirement is that at least one witness-derived root is tied to the
-        current on-chain state — proving the witness matches the live tree."""
+        current on-chain state — proving the witness matches the live tree.
+
+        Binding may live in an undecorated same-class helper
+        (``this.verifyX(witness)``); a witness receiver that appears in the
+        depth-1 helper-propagated bound set counts as verified."""
         if not state:
             return []
+        helper_binds = helper_binds or {}
         out: List[Vulnerability] = []
         for meth in methods:
             body = meth.body
@@ -619,14 +709,14 @@ class O1jsLexer:
                 re.search(r"this\s*\.\s*" + re.escape(f) + r"\b", body) for f in state
             ):
                 continue
-            state_bound: Set[str] = set()
-            for am in re.finditer(
-                r"\b(?:const|let|var)\s+(\w+)\s*=\s*this\s*\.\s*(\w+)\s*\.\s*"
-                r"(?:getAndRequireEquals|get)\s*\(", body,
-            ):
-                if am.group(2) in state:
-                    state_bound.add(am.group(1))
+            state_bound: Set[str] = _state_bound_locals(body, state)
+            helper_bound = self._propagated_bindings(body, helper_binds)
+            state_bound |= helper_bound
 
+            # Witness receiver itself state-bound via helper → tree membership
+            # was checked in the helper; do not flag.
+            if any(recv in helper_bound for _rv, recv, _api, _off in roots):
+                continue
             if any(self._merkle_root_bound(body, rv, state, state_bound)
                    for rv, _, _, _ in roots):
                 continue  # at least one recomputed root is tied to the live tree
@@ -662,6 +752,55 @@ class O1jsLexer:
                     "framework": "o1js",
                 },
             ))
+        return out
+
+    # --- Rule 2d: proof-typed arg never verified --------------------------
+
+    def _detect_unverified_proof(
+        self, src: str, methods: List[_Method],
+    ) -> List[Vulnerability]:
+        """A Proof/SelfProof/DynamicProof / ``*Proof`` typed ``@method``
+        argument that is never ``.verify()``/``.verifyIf()``'d. Passing a Proof
+        does not verify it — without an explicit verify the prover can supply
+        an arbitrary proof object and any use of its publicOutput is unconstrained."""
+        out: List[Vulnerability] = []
+        for meth in methods:
+            if not meth.is_method_decorated:
+                continue
+            body = meth.body
+            if _method_is_signature_gated(body):
+                continue
+            for i, arg in enumerate(meth.params):
+                typ = meth.param_types[i] if i < len(meth.param_types) else None
+                if not _is_proof_type(typ):
+                    continue
+                if _proof_is_verified(body, arg):
+                    continue
+                # Locate the parameter declaration line approximately via method start.
+                line = meth.start_line
+                out.append(Vulnerability(
+                    pattern_name="O1JS_UNVERIFIED_PROOF",
+                    severity=Severity.HIGH,
+                    function=meth.name,
+                    location=(line, 0),
+                    origin_tier=O1JS_ORIGIN_TIER,
+                    rule_id="O1JS_UNVERIFIED_PROOF",
+                    title=f"Proof `{arg}` is never verified in `{meth.name}`",
+                    description=(
+                        f"`{arg}` is typed as a proof (`{typ}`) but `{meth.name}` never "
+                        f"calls `{arg}.verify()` / `{arg}.verifyIf(...)`. Passing a Proof "
+                        f"to a `@method` does not verify it — without an explicit verify "
+                        f"the prover can supply an arbitrary proof object, and any use of "
+                        f"its `publicOutput` / `publicInput` is unconstrained. Call "
+                        f"`{arg}.verify()` before reading its public fields."
+                    ),
+                    evidence={
+                        "witness": arg,
+                        "proof_type": typ,
+                        "method": meth.name,
+                        "framework": "o1js",
+                    },
+                ))
         return out
 
     @staticmethod
@@ -881,6 +1020,43 @@ class O1jsLexer:
 # ---------------------------------------------------------------------------
 # small helpers
 # ---------------------------------------------------------------------------
+
+def _state_bound_locals(body: str, state: Dict[str, str]) -> Set[str]:
+    """Locals assigned from ``this.<state>.getAndRequireEquals()`` / ``.get()``."""
+    bound: Set[str] = set()
+    for am in re.finditer(
+        r"\b(?:const|let|var)\s+(\w+)\s*=\s*this\s*\.\s*(\w+)\s*\.\s*"
+        r"(?:getAndRequireEquals|get)\s*\(", body,
+    ):
+        if am.group(2) in state:
+            bound.add(am.group(1))
+    return bound
+
+
+def _arg_root_ident(arg: str) -> Optional[str]:
+    """Leading identifier of a call argument (before ``.`` / ``[`` / ``(``)."""
+    m = re.match(r"\s*(\w+)", arg or "")
+    return m.group(1) if m else None
+
+
+def _is_proof_type(type_str: Optional[str]) -> bool:
+    """True for ``Proof<...>``, ``SelfProof<...>``, ``DynamicProof<...>``,
+    or an identifier ending in ``Proof`` (ZkProgram proof-class convention)."""
+    if not type_str:
+        return False
+    t = type_str.strip()
+    if re.match(r"^(?:Proof|SelfProof|DynamicProof)\s*<", t):
+        return True
+    base = re.match(r"^(\w+)", t)
+    return bool(base and base.group(1).endswith("Proof"))
+
+
+def _proof_is_verified(body: str, param: str) -> bool:
+    """True if ``param.verify(...)`` or ``param.verifyIf(...)`` appears in body."""
+    return bool(re.search(
+        r"\b" + re.escape(param) + r"\s*\.\s*verify(?:If)?\s*\(", body,
+    ))
+
 
 def _method_is_signature_gated(body: str) -> bool:
     """True if a method authorizes via a signature, making its arguments

@@ -718,3 +718,159 @@ def test_summary_line_reports_counts(tmp_path, capsys):
     main([_write(tmp_path, "C.ts", _HIGH_FINDING)])
     err = capsys.readouterr().err
     assert "finding(s)" in err and "1 high" in err
+
+
+# ---------------------------------------------------------------------------
+# FP class 1 — depth-1 cross-method helper binding (Response.ts shape)
+# ---------------------------------------------------------------------------
+
+# Binding lives in an undecorated helper; @method only calls it then recomputes.
+_HELPER_BOUND_MERKLE = """
+import { SmartContract, Field, State, state, MerkleWitness, method } from 'o1js';
+export class Response extends SmartContract {
+  @state(Field) finalizedDRoot = State<Field>();
+  @method async finalize(finalizedDWitness: MerkleWitness, value: Field) {
+    this.verifyFinalizedD(value, finalizedDWitness);
+    let nextFinalizedDRoot = finalizedDWitness.calculateRoot(value);
+    this.finalizedDRoot.set(nextFinalizedDRoot);
+  }
+  verifyFinalizedD(value: Field, witness: MerkleWitness) {
+    this.finalizedDRoot.getAndRequireEquals().assertEquals(witness.calculateRoot(value));
+  }
+}
+"""
+
+# Same contract with the helper call DELETED → HIGH must fire again.
+_HELPER_BOUND_MERKLE_NO_CALL = """
+import { SmartContract, Field, State, state, MerkleWitness, method } from 'o1js';
+export class Response extends SmartContract {
+  @state(Field) finalizedDRoot = State<Field>();
+  @method async finalize(finalizedDWitness: MerkleWitness, value: Field) {
+    let nextFinalizedDRoot = finalizedDWitness.calculateRoot(value);
+    this.finalizedDRoot.set(nextFinalizedDRoot);
+  }
+  verifyFinalizedD(value: Field, witness: MerkleWitness) {
+    this.finalizedDRoot.getAndRequireEquals().assertEquals(witness.calculateRoot(value));
+  }
+}
+"""
+
+# Helper exists but does NO state binding (no-op) → finding still fires.
+_HELPER_NOOP_MERKLE = """
+import { SmartContract, Field, State, state, MerkleWitness, method } from 'o1js';
+export class Response extends SmartContract {
+  @state(Field) finalizedDRoot = State<Field>();
+  @method async finalize(finalizedDWitness: MerkleWitness, value: Field) {
+    this.verifyFinalizedD(value, finalizedDWitness);
+    let nextFinalizedDRoot = finalizedDWitness.calculateRoot(value);
+    this.finalizedDRoot.set(nextFinalizedDRoot);
+  }
+  verifyFinalizedD(value: Field, witness: MerkleWitness) {
+    // intentionally no state binding
+  }
+}
+"""
+
+# Witness passed at an index the helper does NOT bind → finding still fires.
+# Helper binds param 0 (`a`), but the merkle witness is at call index 1.
+_HELPER_WRONG_INDEX_MERKLE = """
+import { SmartContract, Field, State, state, MerkleWitness, method } from 'o1js';
+export class Response extends SmartContract {
+  @state(Field) finalizedDRoot = State<Field>();
+  @state(Field) other = State<Field>();
+  @method async finalize(unrelated: Field, finalizedDWitness: MerkleWitness, value: Field) {
+    this.verifySomething(unrelated, finalizedDWitness);
+    let nextFinalizedDRoot = finalizedDWitness.calculateRoot(value);
+    this.finalizedDRoot.set(nextFinalizedDRoot);
+  }
+  verifySomething(a: Field, witness: MerkleWitness) {
+    // binds ONLY `a` (index 0), NOT `witness` (index 1)
+    this.other.getAndRequireEquals().assertEquals(a);
+  }
+}
+"""
+
+
+def test_helper_bound_merkle_suppresses_stale_root():
+    v = analyze_file("Response.ts", _HELPER_BOUND_MERKLE)
+    assert "O1JS_STALE_MERKLE_ROOT" not in _rules(v), _rules(v)
+
+
+def test_helper_bound_merkle_without_call_fires_high():
+    # Discrimination canary: deleting the helper call must restore the finding.
+    v = analyze_file("Response.ts", _HELPER_BOUND_MERKLE_NO_CALL)
+    fired = [x for x in v if x.rule_id == "O1JS_STALE_MERKLE_ROOT"]
+    assert fired and fired[0].severity == Severity.HIGH
+
+
+def test_helper_noop_does_not_launder_witness():
+    v = analyze_file("Response.ts", _HELPER_NOOP_MERKLE)
+    assert "O1JS_STALE_MERKLE_ROOT" in _rules(v)
+
+
+def test_helper_wrong_param_index_does_not_bind():
+    v = analyze_file("Response.ts", _HELPER_WRONG_INDEX_MERKLE)
+    assert "O1JS_STALE_MERKLE_ROOT" in _rules(v)
+
+
+# ---------------------------------------------------------------------------
+# FP class 2 — proof-typed arguments + O1JS_UNVERIFIED_PROOF
+# ---------------------------------------------------------------------------
+
+_VERIFIED_PROOF = """
+import { SmartContract, Field, State, state, method } from 'o1js';
+class ExactGeolocationMetadataCircuitProof {}
+export class ExactGeoPointWithMetadataContract extends SmartContract {
+  @state(Field) geoPointWithMetadata = State<Field>();
+  @method async submitProof(proof: ExactGeolocationMetadataCircuitProof) {
+    proof.verify();
+    this.geoPointWithMetadata.set(proof.publicOutput);
+  }
+}
+"""
+
+_UNVERIFIED_PROOF = """
+import { SmartContract, Field, State, state, method } from 'o1js';
+class ExactGeolocationMetadataCircuitProof {}
+export class ExactGeoPointWithMetadataContract extends SmartContract {
+  @state(Field) geoPointWithMetadata = State<Field>();
+  @method async submitProof(proof: ExactGeolocationMetadataCircuitProof) {
+    this.geoPointWithMetadata.set(proof.publicOutput);
+  }
+}
+"""
+
+_PROOF_DATA_FIELD = """
+import { SmartContract, Field, State, state, method } from 'o1js';
+export class C extends SmartContract {
+  @state(Field) slot = State<Field>();
+  @method async submit(proofData: Field) {
+    this.slot.set(proofData);
+  }
+}
+"""
+
+
+def test_verified_proof_suppresses_witness_findings():
+    v = analyze_file("Exact.ts", _VERIFIED_PROOF)
+    assert "O1JS_UNCONSTRAINED_WITNESS" not in _rules(v)
+    assert "O1JS_WITNESS_NOT_BOUND_TO_STATE" not in _rules(v)
+    assert "O1JS_UNVERIFIED_PROOF" not in _rules(v)
+
+
+def test_unverified_proof_fires_high():
+    v = analyze_file("Exact.ts", _UNVERIFIED_PROOF)
+    fired = [x for x in v if x.rule_id == "O1JS_UNVERIFIED_PROOF"]
+    assert fired and fired[0].severity == Severity.HIGH
+    assert fired[0].evidence["witness"] == "proof"
+    # Must not also spam unconstrained-witness on the same proof param.
+    assert not [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_WITNESS"
+                and x.evidence.get("witness") == "proof"]
+
+
+def test_non_proof_param_named_proofData_unaffected():
+    v = analyze_file("C.ts", _PROOF_DATA_FIELD)
+    assert "O1JS_UNVERIFIED_PROOF" not in _rules(v)
+    # Still a normal unconstrained witness flowing to state_set.
+    amt = [x for x in v if x.evidence.get("witness") == "proofData"]
+    assert amt and amt[0].rule_id == "O1JS_UNCONSTRAINED_WITNESS"
