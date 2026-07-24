@@ -130,6 +130,8 @@ repos; private repos need GitHub Advanced Security). To gate the build instead o
 | `O1JS_WITNESS_NOT_BOUND_TO_STATE` | medium | A witness is only *trivially* constrained (e.g. `> 0`, or compared against a constant) before an effect — never tied to on-chain state. Confirm the off-chain orchestration makes this safe, or the balance is drainable up to its standing value. |
 | `O1JS_STALE_MERKLE_ROOT` | high | A method recomputes a Merkle root from a prover-supplied witness (`computeRootAndKey` / `calculateRoot`) but binds **none** of the recomputed roots to the current on-chain root. Without a `this.root.requireEquals(...)` / `assertEquals` against the live root, a prover can pass a witness for a fabricated or stale tree — forging membership or replaying old state. Binding may live in an undecorated same-class helper (`this.verifyX(witness)`); one level of helper propagation covers that. |
 | `O1JS_UNVERIFIED_PROOF` | high | A `@method` parameter typed as `Proof<...>` / `SelfProof` / `DynamicProof` / `*Proof` is never `.verify()` / `.verifyIf()`'d. Passing a Proof does not verify it — without an explicit verify the prover can supply an arbitrary proof object, and any use of its `publicOutput` is unconstrained. |
+| `O1JS_UNASSERTED_BOOL` | high / medium | An o1js predicate (`equals` / `lessThanOrEqual` / …) returns a `Bool` and adds **no** constraint unless the result is asserted or used. HIGH when the call is a bare discarded statement; MEDIUM when assigned to a local that is never referenced again. |
+| `O1JS_UNCONSTRAINED_SENDER` | high / medium | `this.sender.getUnconstrained()` returns the tx sender without proving it. HIGH when that value (or a local from it) flows into an assert / state `.set` / `send` (vacuous check); MEDIUM otherwise. Prefer `this.sender.getAndRequireSignature()`, or the expanded idiom `AccountUpdate.createSigned(sender)`. **Stays quiet when** (1) the same `@method` also calls `this.sender.getAndRequireSignature()` anywhere (signature requirement is method-scoped), or (2) the witnessed sender value is the argument to `AccountUpdate.createSigned(...)` / an `AccountUpdate.create(...).requireSignature()` on that same key (argument identity required — a `createSigned` on a different key does not suppress). |
 | `MissingRangeCheck` | high | A raw `Field` (not the range-checked `UInt64`/`UInt32`) is used as a transfer amount. A `Field` is an element mod p and is not range-bounded. |
 | `O1JS_WEAK_PERMISSIONS` | high / medium | `editState` / `send` permission set to `proofOrSignature()` or `none()`, letting the zkApp account key bypass the circuit by signing. |
 
@@ -157,6 +159,16 @@ The analyzer is designed to stay quiet on correct code:
   framework verifies inside `settle`). A hand-rolled `.settle(proof)` is
   **not** assumed to verify. The inverse case (proof-typed arg never verified
   and not OffchainState-settled) is reported as `O1JS_UNVERIFIED_PROOF`.
+- **Asserted / used Bools are skipped.** A predicate chained with
+  `.assertTrue()` / `.assertFalse()`, nested in `Provable.if(...)`, or
+  assigned to a local that is later referenced, is not reported as
+  `O1JS_UNASSERTED_BOOL`.
+- **Authenticated senders are skipped.** `this.sender.getUnconstrained()`
+  does not fire when the same `@method` also calls
+  `this.sender.getAndRequireSignature()`, or when that witnessed value is
+  passed to `AccountUpdate.createSigned(...)` / authenticated via
+  `.requireSignature()` on an AccountUpdate built from it (argument
+  identity required).
 - Comments and string literals are stripped before analysis, so an `assert`
   inside a string can't create a false result.
 
@@ -180,12 +192,27 @@ for this dependency-free design, not bugs:
   are **not** followed. Local-variable aliasing of the helper argument also
   stays a documented limitation.
 
+- **Unasserted-Bool detection is statement-shaped.** Tier A only flags bare
+  expression statements whose outermost call is a Bool predicate with nothing
+  chained after it. Predicates nested inside `Provable.if(...)`, or assigned
+  and later used, are not flagged. Complex control-flow uses of a Bool local
+  may still be missed if the name is never referenced (failure mode: miss,
+  not a false positive).
+
 - **Signature-gating is method-level and substring-based.**
   `_method_is_signature_gated` treats a whole `@method` as owner-gated if it
   contains a signature idiom, and it recognizes a verifier only when the
   receiver name literally contains `signature` — so `sig.verify(admin, msg)`
   is **not** recognized as gating, while an unrelated signature check elsewhere
   in a large method can over-suppress. It is all-or-nothing per method.
+
+- **Sender authentication is name-based and same-method only.**
+  `O1JS_UNCONSTRAINED_SENDER` suppresses when `this.sender.getAndRequireSignature()`
+  or `AccountUpdate.createSigned(<that sender>)` appears in the **same** `@method`
+  body. A signature requirement that lives only in a helper
+  (`this.requireSenderSig()` → `getAndRequireSignature` inside) is **not**
+  followed — failure mode is a false positive on correct code that wraps the
+  idiom, not a missed real bug.
 
 These are the reason findings are a starting point for human review, not
 proofs. A dataflow-aware rewrite is deliberately out of scope for the

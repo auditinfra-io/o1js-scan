@@ -932,3 +932,267 @@ export class RandoMinaContract extends SmartContract {
     v = analyze_file("RandoMinaContract.ts", src)
     fired = [x for x in v if x.rule_id == "O1JS_UNVERIFIED_PROOF"]
     assert fired and fired[0].evidence["witness"] == "observationProof"
+
+
+# ---------------------------------------------------------------------------
+# O1JS_UNASSERTED_BOOL — discarded predicate Bool
+# ---------------------------------------------------------------------------
+
+_BARE_PRED = """
+import { SmartContract, UInt64, method } from 'o1js';
+export class C extends SmartContract {
+  @method async withdraw(amount: UInt64, balance: UInt64) {
+    amount.lessThanOrEqual(balance);
+    this.send({ to: this.sender.getUnconstrained(), amount: amount });
+  }
+}
+"""
+
+_CHAINED_ASSERT = """
+import { SmartContract, UInt64, method } from 'o1js';
+export class C extends SmartContract {
+  @method async withdraw(amount: UInt64, balance: UInt64) {
+    amount.lessThanOrEqual(balance).assertTrue();
+  }
+}
+"""
+
+_MULTILINE_CHAIN = """
+import { SmartContract, UInt64, method } from 'o1js';
+export class C extends SmartContract {
+  @method async withdraw(amount: UInt64, balance: UInt64) {
+    amount
+      .lessThanOrEqual(balance)
+      .assertTrue();
+  }
+}
+"""
+
+_UNUSED_LOCAL = """
+import { SmartContract, Field, method } from 'o1js';
+export class C extends SmartContract {
+  @method async check(x: Field, y: Field) {
+    const ok = x.equals(y);
+  }
+}
+"""
+
+_USED_LOCAL_ASSERT = """
+import { SmartContract, Field, method } from 'o1js';
+export class C extends SmartContract {
+  @method async check(x: Field, y: Field) {
+    const ok = x.equals(y);
+    ok.assertTrue();
+  }
+}
+"""
+
+_USED_LOCAL_IF = """
+import { SmartContract, Field, Provable, method } from 'o1js';
+export class C extends SmartContract {
+  @method async check(x: Field, y: Field, a: Field, b: Field) {
+    const ok = x.equals(y);
+    const out = Provable.if(ok, a, b);
+    this;
+  }
+}
+"""
+
+_NESTED_IN_IF = """
+import { SmartContract, Field, Provable, method } from 'o1js';
+export class C extends SmartContract {
+  @method async check(x: Field, y: Field, a: Field, b: Field) {
+    Provable.if(x.equals(y), a, b);
+  }
+}
+"""
+
+
+def test_bare_predicate_fires_high():
+    v = analyze_file("C.ts", _BARE_PRED)
+    fired = [x for x in v if x.rule_id == "O1JS_UNASSERTED_BOOL"]
+    assert fired and fired[0].severity == Severity.HIGH
+    assert fired[0].evidence["predicate"] == "lessThanOrEqual"
+
+
+def test_chained_assertTrue_no_unasserted_bool():
+    v = analyze_file("C.ts", _CHAINED_ASSERT)
+    assert "O1JS_UNASSERTED_BOOL" not in _rules(v)
+
+
+def test_multiline_chain_no_unasserted_bool():
+    v = analyze_file("C.ts", _MULTILINE_CHAIN)
+    assert "O1JS_UNASSERTED_BOOL" not in _rules(v)
+
+
+def test_unused_predicate_local_is_medium():
+    v = analyze_file("C.ts", _UNUSED_LOCAL)
+    fired = [x for x in v if x.rule_id == "O1JS_UNASSERTED_BOOL"]
+    assert fired and fired[0].severity == Severity.MEDIUM
+    assert fired[0].evidence["local"] == "ok"
+
+
+def test_predicate_local_asserted_later_no_finding():
+    v = analyze_file("C.ts", _USED_LOCAL_ASSERT)
+    assert "O1JS_UNASSERTED_BOOL" not in _rules(v)
+
+
+def test_predicate_local_used_in_provable_if_no_finding():
+    v = analyze_file("C.ts", _USED_LOCAL_IF)
+    assert "O1JS_UNASSERTED_BOOL" not in _rules(v)
+
+
+def test_predicate_nested_in_provable_if_statement_no_finding():
+    v = analyze_file("C.ts", _NESTED_IN_IF)
+    assert "O1JS_UNASSERTED_BOOL" not in _rules(v)
+
+
+# ---------------------------------------------------------------------------
+# O1JS_UNCONSTRAINED_SENDER
+# ---------------------------------------------------------------------------
+
+_RANDO_SENDER = """
+import { SmartContract, Field, Poseidon, method } from 'o1js';
+class RandomNumberObservationCircuitProof {}
+export class RandoMinaContract extends SmartContract {
+  @method async verifyRandomNumber(observationProof: RandomNumberObservationCircuitProof) {
+    observationProof.verify();
+    const claimedSender = observationProof.publicInput.sender;
+    claimedSender.assertEquals(Poseidon.hash(this.sender.getUnconstrained().toFields()));
+  }
+}
+"""
+
+_SENDER_SIGNATURE = """
+import { SmartContract, Field, Poseidon, method } from 'o1js';
+export class C extends SmartContract {
+  @method async check() {
+    const claimed = Poseidon.hash(this.sender.getAndRequireSignature().toFields());
+    claimed.assertEquals(claimed);
+  }
+}
+"""
+
+
+def test_rando_mina_unconstrained_sender_fires_high():
+    v = analyze_file("RandoMinaContract.ts", _RANDO_SENDER)
+    fired = [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_SENDER"]
+    assert fired and fired[0].severity == Severity.HIGH
+
+
+def test_getAndRequireSignature_no_unconstrained_sender():
+    v = analyze_file("C.ts", _SENDER_SIGNATURE)
+    assert "O1JS_UNCONSTRAINED_SENDER" not in _rules(v)
+
+
+_SENDER_BALANCE_SET = """
+import { SmartContract, method } from 'o1js';
+export class C extends SmartContract {
+  @method async check() {
+    this.balance.set(this.sender.getUnconstrained().x);
+  }
+}
+"""
+
+_ESCROW_DEPOSIT = """
+import { SmartContract, method, UInt64, AccountUpdate, Bool } from 'o1js';
+class FungibleToken {
+  constructor(addr: any) {}
+  async transferCustom(a: any, b: any, c: any) {}
+}
+export class Escrow extends SmartContract {
+  @method
+  async deposit(amount: UInt64) {
+    const token = new FungibleToken(this.tokenAddress.getAndRequireEquals());
+
+    const sender = this.sender.getUnconstrained();
+    const senderUpdate = AccountUpdate.createSigned(sender);
+    senderUpdate.body.useFullCommitment = Bool(true);
+
+    await token.transferCustom(sender, this.address, amount);
+
+    const total = this.total.getAndRequireEquals();
+    this.total.set(total.add(amount));
+  }
+}
+"""
+
+_NACHO_WITHDRAW = """
+import { SmartContract, method, Poseidon, Field } from 'o1js';
+export class Bridge extends SmartContract {
+  @method async withdrawTokens(tokenId: Field, amount: any, singleWithdrawalWitness: any) {
+    await tokenContract.transfer(safeContract.self, this.sender.getUnconstrained(), amount);
+
+    this.withdrawalsMerkleTreeRoot.set(
+      singleWithdrawalWitness.calculateRoot(
+        Poseidon.hash([
+          ...this.sender.getUnconstrained().toFields(),
+          tokenId,
+          amount.value,
+        ]),
+      ),
+    );
+
+    this.emitEvent(
+      "withdrawn",
+      new Withdrawal({
+        withdrawer: this.sender.getAndRequireSignature(),
+      }),
+    );
+  }
+}
+"""
+
+_CREATE_SIGNED_OTHER_KEY = """
+import { SmartContract, method, Poseidon, AccountUpdate } from 'o1js';
+export class C extends SmartContract {
+  @method async check() {
+    const sender = this.sender.getUnconstrained();
+    AccountUpdate.createSigned(this.owner.getAndRequireEquals());
+    this.lastCaller.set(Poseidon.hash(sender.toFields()));
+  }
+}
+"""
+
+_SIG_IN_OTHER_METHOD = """
+import { SmartContract, method, Poseidon } from 'o1js';
+export class C extends SmartContract {
+  @method async bad() {
+    this.lastCaller.set(Poseidon.hash(this.sender.getUnconstrained().toFields()));
+  }
+  @method async good() {
+    const s = this.sender.getAndRequireSignature();
+    this.lastCaller.set(Poseidon.hash(s.toFields()));
+  }
+}
+"""
+
+
+def test_sender_balance_set_alone_fires_high():
+    v = analyze_file("C.ts", _SENDER_BALANCE_SET)
+    fired = [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_SENDER"]
+    assert fired and fired[0].severity == Severity.HIGH
+
+
+def test_escrow_createSigned_suppresses_sender():
+    v = analyze_file("escrow.eg.ts", _ESCROW_DEPOSIT)
+    assert "O1JS_UNCONSTRAINED_SENDER" not in _rules(v)
+
+
+def test_nacho_getAndRequireSignature_later_suppresses_sender():
+    v = analyze_file("bridge-contract.ts", _NACHO_WITHDRAW)
+    assert "O1JS_UNCONSTRAINED_SENDER" not in _rules(v)
+
+
+def test_createSigned_on_different_key_still_fires():
+    v = analyze_file("C.ts", _CREATE_SIGNED_OTHER_KEY)
+    fired = [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_SENDER"]
+    assert fired and fired[0].severity == Severity.HIGH
+
+
+def test_getAndRequireSignature_in_other_method_does_not_suppress():
+    v = analyze_file("C.ts", _SIG_IN_OTHER_METHOD)
+    bad = [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_SENDER" and x.function == "bad"]
+    good = [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_SENDER" and x.function == "good"]
+    assert bad and bad[0].severity == Severity.HIGH
+    assert not good

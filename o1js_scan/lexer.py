@@ -124,6 +124,33 @@ _PROVABLE_WITNESS_RE = re.compile(
     r"\b(?:const|let|var)\s+(\w{1,%d})\s*=\s*(?:await\s+)?"
     r"Provable\s*\.\s*(witness|witnessFields|witnessAsync)\s*\(" % _MAX_IDENT,
 )
+# Bool-returning o1js predicates — return a Bool, do NOT constrain on their own.
+_BOOL_PREDICATES = (
+    "equals", "notEquals",
+    "lessThan", "lessThanOrEqual", "greaterThan", "greaterThanOrEqual",
+    "isZero", "isEven", "isConstant",
+    "and", "or", "not",
+)
+_BOOL_PRED_ALT = "|".join(_BOOL_PREDICATES)
+_BOOL_PRED_CALL_RE = re.compile(r"\.(" + _BOOL_PRED_ALT + r")\s*\(")
+_BOOL_PRED_ASSIGN_RE = re.compile(
+    r"\b(?:const|let|var)\s+(\w{1,%d})\s*=\s*"
+    r"(?:[^;]{0,%d}?)\.(" % (_MAX_IDENT, _MAX_CALL_ARG)
+    + _BOOL_PRED_ALT
+    + r")\s*\("
+)
+_SENDER_UNCONSTRAINED_RE = re.compile(
+    r"this\s*\.\s*sender\s*\.\s*getUnconstrained\s*\(\s*\)"
+)
+_SENDER_REQUIRE_SIG_RE = re.compile(
+    r"this\s*\.\s*sender\s*\.\s*getAndRequireSignature\s*\("
+)
+_SENDER_UNCONSTRAINED_ASSIGN_RE = re.compile(
+    r"\b(?:const|let|var)\s+(\w{1,%d})\s*=\s*"
+    r"(?:[^;]{0,%d}?this\s*\.\s*sender\s*\.\s*getUnconstrained\s*\()" % (
+        _MAX_IDENT, _MAX_CALL_ARG,
+    ),
+)
 # A Merkle root recomputed from a prover-supplied witness.
 #   const [computedRoot, key] = witness.computeRootAndKey(value);
 _MERKLE_DESTRUCT_RE = re.compile(
@@ -365,6 +392,8 @@ class O1jsLexer:
         vulns += self._detect_unconstrained_provable_witness(content, methods, state)
         vulns += self._detect_stale_merkle_root(content, methods, state, helper_binds)
         vulns += self._detect_unverified_proof(content, methods)
+        vulns += self._detect_unasserted_bool(content, methods)
+        vulns += self._detect_unconstrained_sender(content, methods)
         vulns += self._detect_raw_field_amount(content, methods)
         vulns += self._detect_weak_permissions(content, stripped)
         return _apply_suppressions(content, vulns)
@@ -809,6 +838,197 @@ class O1jsLexer:
                 ))
         return out
 
+    # --- Rule 2e: discarded Bool predicate (unasserted comparison) --------
+
+    def _detect_unasserted_bool(
+        self, src: str, methods: List[_Method],
+    ) -> List[Vulnerability]:
+        """o1js predicates (``equals`` / ``lessThanOrEqual`` / …) return a Bool
+        and add NO constraint unless the result is asserted or otherwise used.
+        Tier A (HIGH): bare expression-statement whose outermost call is a
+        predicate with nothing chained after it.
+        Tier B (MEDIUM): ``const|let|var x = <expr>.<pred>(...)`` where ``x``
+        is never referenced again in the method body."""
+        out: List[Vulnerability] = []
+        for meth in methods:
+            if not meth.is_method_decorated:
+                continue
+            body = meth.body
+            statements = _split_statements(body)
+
+            # --- Tier A: bare discarded predicate statement ---------------
+            for stmt, stmt_off in statements:
+                trimmed = stmt.strip()
+                if not trimmed:
+                    continue
+                if re.match(r"^(?:return|const|let|var)\b", trimmed):
+                    continue
+                if _has_top_level_assign(trimmed):
+                    continue
+                # A predicate call whose closing paren is the end of the statement
+                # (nothing chained after — .assertTrue() / .and() / etc. suppress).
+                for pm in _BOOL_PRED_CALL_RE.finditer(trimmed):
+                    open_paren = pm.end() - 1
+                    close = _matching_paren_end(trimmed, open_paren)
+                    if close is None:
+                        continue
+                    if trimmed[close + 1:].strip():
+                        continue  # something follows — value is consumed
+                    pred = pm.group(1)
+                    # Receiver text for the title (trim to a short display form).
+                    recv = trimmed[:pm.start()].strip()
+                    recv_disp = recv[-40:] if len(recv) > 40 else recv
+                    line = meth.start_line + body.count("\n", 0, stmt_off + pm.start())
+                    out.append(Vulnerability(
+                        pattern_name="O1JS_UNASSERTED_BOOL",
+                        severity=Severity.HIGH,
+                        function=meth.name,
+                        location=(line, 0),
+                        origin_tier=O1JS_ORIGIN_TIER,
+                        rule_id="O1JS_UNASSERTED_BOOL",
+                        title=(
+                            f"Comparison `{recv_disp}.{pred}(...)` result is discarded "
+                            f"in `{meth.name}`"
+                        ),
+                        description=(
+                            f"In o1js, `{pred}()` returns a `Bool` and adds NO circuit "
+                            f"constraint on its own. The statement `{trimmed[:80]}` "
+                            f"discards that Bool, so the comparison is a no-op in the "
+                            f"proof. Chain `.assertTrue()` / `.assertFalse()`, or use "
+                            f"the Bool in `Provable.if(...)` / a further `.and()`/`.or()` "
+                            f"that is itself asserted."
+                        ),
+                        evidence={
+                            "predicate": pred,
+                            "method": meth.name,
+                            "tier": "bare_statement",
+                            "framework": "o1js",
+                        },
+                    ))
+                    break  # one finding per statement
+
+            # --- Tier B: assigned predicate never used --------------------
+            for stmt, stmt_off in statements:
+                am = _BOOL_PRED_ASSIGN_RE.search(stmt)
+                if not am:
+                    continue
+                # The predicate call must close such that the assignment RHS is
+                # essentially the predicate result (allow trailing whitespace /
+                # semicolon already stripped by statement split).
+                open_paren = am.end() - 1
+                # open_paren is relative to stmt; am.start is in stmt
+                close = _matching_paren_end(stmt, open_paren)
+                if close is None:
+                    continue
+                after = stmt[close + 1:].strip()
+                if after:
+                    # e.g. `const ok = x.equals(y).assertTrue()` — consumed
+                    continue
+                name = am.group(1)
+                pred = am.group(2)
+                # Rest of the method body after this statement.
+                rest = body[stmt_off + len(stmt):]
+                if re.search(r"\b" + re.escape(name) + r"\b", rest):
+                    continue  # used anywhere later → not a finding
+                line = meth.start_line + body.count("\n", 0, stmt_off + am.start())
+                out.append(Vulnerability(
+                    pattern_name="O1JS_UNASSERTED_BOOL",
+                    severity=Severity.MEDIUM,
+                    function=meth.name,
+                    location=(line, 0),
+                    origin_tier=O1JS_ORIGIN_TIER,
+                    rule_id="O1JS_UNASSERTED_BOOL",
+                    title=(
+                        f"Comparison result `{name}` is computed but never used "
+                        f"in `{meth.name}`"
+                    ),
+                    description=(
+                        f"`{name}` is assigned the result of `{pred}()` (an o1js "
+                        f"`Bool`) but is never referenced again in `{meth.name}`. "
+                        f"The comparison adds no constraint. Assert it "
+                        f"(`{name}.assertTrue()`), branch on it (`Provable.if`), "
+                        f"or remove the dead check."
+                    ),
+                    evidence={
+                        "predicate": pred,
+                        "local": name,
+                        "method": meth.name,
+                        "tier": "unused_local",
+                        "framework": "o1js",
+                    },
+                ))
+
+        return out
+
+    # --- Rule 2f: this.sender.getUnconstrained() --------------------------
+
+    def _detect_unconstrained_sender(
+        self, src: str, methods: List[_Method],
+    ) -> List[Vulnerability]:
+        """``this.sender.getUnconstrained()`` returns the tx sender WITHOUT
+        proving it. Using that value in an assert/set/send makes the check
+        vacuous (both sides prover-chosen) — unless the same method
+        authenticates the sender via ``getAndRequireSignature()`` or
+        ``AccountUpdate.createSigned(<that sender>)`` (the idiomatic
+        expanded form of getAndRequireSignature)."""
+        out: List[Vulnerability] = []
+        for meth in methods:
+            if not meth.is_method_decorated:
+                continue
+            body = meth.body
+            if not _SENDER_UNCONSTRAINED_RE.search(body):
+                continue
+
+            # FP2: getAndRequireSignature anywhere in THIS method authenticates
+            # the sender for the whole method (method-scoped, not call-site).
+            if _SENDER_REQUIRE_SIG_RE.search(body):
+                continue
+
+            # Locals assigned from getUnconstrained (incl. chained .toFields()).
+            tainted: Set[str] = set()
+            for am in _SENDER_UNCONSTRAINED_ASSIGN_RE.finditer(body):
+                tainted.add(am.group(1))
+
+            # FP1: AccountUpdate.createSigned(<same sender>) / create+requireSignature
+            # authenticates that witnessed key — treat as constrained.
+            if _sender_authenticated_via_account_update(body, tainted):
+                continue
+
+            load_bearing = _sender_unconstrained_is_load_bearing(body, tainted)
+            # First occurrence for line attribution.
+            first = _SENDER_UNCONSTRAINED_RE.search(body)
+            line = meth.start_line + body.count("\n", 0, first.start())
+            sev = Severity.HIGH if load_bearing else Severity.MEDIUM
+            out.append(Vulnerability(
+                pattern_name="O1JS_UNCONSTRAINED_SENDER",
+                severity=sev,
+                function=meth.name,
+                location=(line, 0),
+                origin_tier=O1JS_ORIGIN_TIER,
+                rule_id="O1JS_UNCONSTRAINED_SENDER",
+                title=(
+                    f"Sender obtained via getUnconstrained() is prover-chosen "
+                    f"in `{meth.name}`"
+                ),
+                description=(
+                    f"`this.sender.getUnconstrained()` returns the transaction "
+                    f"sender WITHOUT adding a proof constraint (o1js documents "
+                    f"this explicitly). Using that value in an assert, state "
+                    f"write, or send makes the check vacuous — the prover "
+                    f"chooses both sides. Use "
+                    f"`this.sender.getAndRequireSignature()` for a constrained "
+                    f"sender, or authenticate it with "
+                    f"`AccountUpdate.createSigned(sender)`."
+                ),
+                evidence={
+                    "method": meth.name,
+                    "load_bearing": load_bearing,
+                    "tainted_locals": sorted(tainted),
+                    "framework": "o1js",
+                },
+            ))
+        return out
+
     @staticmethod
     def _merkle_root_bound(
         body: str, root_var: str, state: Dict[str, str], state_bound: Set[str],
@@ -1079,6 +1299,164 @@ def _proof_settled_via_offchain_state(body: str, param: str) -> bool:
         + r"\s*\)",
         body,
     ))
+
+
+def _split_statements(body: str) -> List[Tuple[str, int]]:
+    """Split ``body`` into top-level statements on ``;`` (not on newlines).
+
+    Respects nested parens/brackets/braces so multi-line chains like
+    ``amount\\n  .lessThanOrEqual(balance)\\n  .assertTrue();`` stay one
+    statement. Returns ``(statement_text, start_offset)`` pairs. Template
+    literals / strings are already blanked by ``_strip_comments`` before
+    method bodies are extracted.
+    """
+    out: List[Tuple[str, int]] = []
+    depth = 0
+    start = 0
+    i = 0
+    n = len(body)
+    while i < n:
+        ch = body[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth = max(0, depth - 1)
+        elif ch == ";" and depth == 0:
+            out.append((body[start:i], start))
+            start = i + 1
+        i += 1
+    if start < n and body[start:].strip():
+        out.append((body[start:], start))
+    return out
+
+
+def _matching_paren_end(s: str, open_paren_idx: int) -> Optional[int]:
+    """Index of the ``)`` matching ``s[open_paren_idx]``, or None."""
+    if open_paren_idx >= len(s) or s[open_paren_idx] != "(":
+        return None
+    depth = 0
+    for i in range(open_paren_idx, len(s)):
+        if s[i] == "(":
+            depth += 1
+        elif s[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
+
+
+def _has_top_level_assign(s: str) -> bool:
+    """True if ``s`` contains a top-level ``=`` (not ``==``/``!=``/``<=``/``=>``)."""
+    depth = 0
+    i = 0
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth = max(0, depth - 1)
+        elif ch == "=" and depth == 0:
+            prev = s[i - 1] if i > 0 else ""
+            nxt = s[i + 1] if i + 1 < n else ""
+            if prev in "=!<>":
+                i += 1
+                continue
+            if nxt == "=":
+                i += 1
+                continue
+            if nxt == ">":  # arrow
+                i += 1
+                continue
+            return True
+        i += 1
+    return False
+
+
+def _arg_is_unconstrained_sender(arg: str, tainted: Set[str]) -> bool:
+    """True if a call argument is the witnessed sender (local or inline)."""
+    if not arg or not arg.strip():
+        return False
+    a = arg.strip()
+    if _SENDER_UNCONSTRAINED_RE.search(a):
+        return True
+    root = _arg_root_ident(a)
+    return bool(root and root in tainted)
+
+
+def _sender_authenticated_via_account_update(body: str, tainted: Set[str]) -> bool:
+    """True if the witnessed sender is passed to AccountUpdate.createSigned
+    (or AccountUpdate.create(...).requireSignature() / a local AU with
+    .requireSignature()). Argument identity is required — a createSigned on
+    a different key must NOT suppress."""
+    # AccountUpdate.createSigned(<sender>[, ...])
+    for m in re.finditer(r"AccountUpdate\s*\.\s*createSigned\s*\(", body):
+        seg = _paren_segment(body, m.end() - 1)
+        parts = _split_top_level(seg, ",")
+        if parts and _arg_is_unconstrained_sender(parts[0], tainted):
+            return True
+
+    # AccountUpdate.create(<sender>)....requireSignature()
+    for m in re.finditer(r"AccountUpdate\s*\.\s*create\s*\(", body):
+        open_paren = m.end() - 1
+        close = _matching_paren_end(body, open_paren)
+        if close is None:
+            continue
+        seg = body[open_paren + 1:close]
+        parts = _split_top_level(seg, ",")
+        if not parts or not _arg_is_unconstrained_sender(parts[0], tainted):
+            continue
+        # Chained: AccountUpdate.create(sender).requireSignature()
+        after = body[close + 1: close + 1 + 80]
+        if re.match(r"\s*\.\s*requireSignature\s*\(", after):
+            return True
+        # Assigned: const au = AccountUpdate.create(sender); ... au.requireSignature()
+        # Look backward from this create for a binding name.
+        prefix = body[max(0, m.start() - 80):m.start()]
+        bm = re.search(
+            r"\b(?:const|let|var)\s+(\w+)\s*=\s*$", prefix
+        )
+        if bm:
+            au_name = bm.group(1)
+            if re.search(
+                r"\b" + re.escape(au_name) + r"\s*\.\s*requireSignature\s*\(", body
+            ):
+                return True
+    return False
+
+
+def _sender_unconstrained_is_load_bearing(body: str, tainted: Set[str]) -> bool:
+    """True if getUnconstrained (or a local from it) appears in assert/set/send."""
+    # Spans that make an unconstrained sender load-bearing (and vacuous).
+    spans: List[Tuple[int, int]] = []
+    for m in re.finditer(
+        r"(?:assertEquals|assertTrue|assertFalse|assertNotEquals|"
+        r"requireEquals|assert)\s*\(",
+        body,
+    ):
+        end = _matching_paren_end(body, m.end() - 1)
+        if end is not None:
+            spans.append((m.start(), end + 1))
+    for m in re.finditer(r"this\s*\.\s*\w+\s*\.\s*set\s*\(", body):
+        end = _matching_paren_end(body, m.end() - 1)
+        if end is not None:
+            spans.append((m.start(), end + 1))
+    for m in re.finditer(r"this\s*\.\s*send\s*\(", body):
+        end = _matching_paren_end(body, m.end() - 1)
+        if end is not None:
+            spans.append((m.start(), end + 1))
+
+    def _in_span(pos: int) -> bool:
+        return any(a <= pos < b for a, b in spans)
+
+    for m in _SENDER_UNCONSTRAINED_RE.finditer(body):
+        if _in_span(m.start()):
+            return True
+    for name in tainted:
+        for m in re.finditer(r"\b" + re.escape(name) + r"\b", body):
+            if _in_span(m.start()):
+                return True
+    return False
 
 
 def _method_is_signature_gated(body: str) -> bool:
