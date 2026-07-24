@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-24
+
 ### Added
 - `--fail-on LEVEL` to configure the exit-code gate
   (`critical|high|medium|low|none`; default `high`). `none` never fails the run.
@@ -64,7 +66,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the chained `amount.lessThanOrEqual(bal).assertTrue()` form) are now
   recognized as binding a witness to on-chain state.
 
-[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/auditinfra-io/o1js-scan/releases/tag/v0.4.0
 [0.3.0]: https://github.com/auditinfra-io/o1js-scan/releases/tag/v0.3.0
 [0.2.0]: https://github.com/auditinfra-io/o1js-scan/releases/tag/v0.2.0
