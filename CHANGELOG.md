@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-25
+
+### Changed
+- **Noir test code is no longer scanned by default.** This is a behaviour
+  change: findings in `*_test.nr` / `test_*.nr` files, under `test/` or
+  `tests/` directories, in `#[test]` functions, or inside `mod test`/`mod tests`
+  blocks are suppressed. Pass `--include-tests` (or `include_tests=True` to
+  `analyze_project` / `analyze_file` / `analyze_noir_file`) to restore them.
+
 ### Fixed
 - **Noir false positives on a second corpus** (eight noir-lang / zkEmail
   libraries; 9 HIGH → 0, all nine read and classified as FPs in
@@ -181,7 +190,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the chained `amount.lessThanOrEqual(bal).assertTrue()` form) are now
   recognized as binding a witness to on-chain state.
 
-[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.7.1...v0.8.0
+[0.7.1]: https://github.com/auditinfra-io/o1js-scan/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/auditinfra-io/o1js-scan/releases/tag/v0.4.0
