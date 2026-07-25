@@ -189,6 +189,34 @@ fn main(x: Field, out: pub Field) {
     assert f[0].evidence["witness"] == "x" and f[0].evidence["cast_to"] == "u8"
 
 
+def test_unchecked_cast_follows_one_hop_let_assignment():
+    src = """
+fn main(x: Field, out: pub Field) {
+    let y = x;
+    let b = y as u8;
+    assert(b == out);
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    f = [c for c in v if c.rule_id == "NOIR_UNCHECKED_CAST"]
+    assert f and f[0].severity == Severity.MEDIUM
+    assert f[0].evidence["witness"] == "y" and f[0].evidence["cast_to"] == "u8"
+
+
+def test_unchecked_cast_follows_two_hop_derived_value():
+    src = """
+fn main(x: Field, out: pub Field) {
+    let y = x + 1;
+    let z = y * 2;
+    let b = z as u16;
+    assert(b == out);
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    f = [c for c in v if c.rule_id == "NOIR_UNCHECKED_CAST"]
+    assert f and f[0].severity == Severity.MEDIUM
+    assert f[0].evidence["witness"] == "z" and f[0].evidence["cast_to"] == "u16"
+
 def test_range_bounded_cast_does_not_fire():
     src = """
 fn main(x: Field, out: pub Field) {

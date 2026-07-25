@@ -401,15 +401,25 @@ class NoirLexer:
         # Prover-controlled value sources this tool already models: private
         # `main` inputs and `unsafe {}` results. Scoping the rule to these keeps
         # it high-signal (loop counters / known-small locals are not flagged).
-        controlled: Set[str] = {
-            n for n, is_pub in _main_params(stripped)
-            if not is_pub and not n.startswith("_")
-        }
-        for um in re.finditer(r"\blet\s+(?:mut\s+)?([\w(),\s]{0,200}?)\s*=\s*unsafe\s*\{", stripped):
-            controlled |= {w for w in re.findall(r"\w+", um.group(1))
-                           if w != "mut" and not w.startswith("_")}
+        controlled = _controlled_witnesses(stripped)
         if not controlled:
             return []
+
+        # Propagate controlled-ness forward through simple `let name = rhs;`
+        # aliases/derived values before looking for casts. This intentionally
+        # mirrors the lexical let-binding shape used by the reachability rules
+        # above and expands to a fixpoint so multi-hop derivations are covered.
+        lets = [(m.group(1), m.group(2)) for m in re.finditer(
+            r"\blet\s+(?:mut\s+)?(\w+)\s*=\s*([^;]{0,4000});", stripped)]
+        changed = True
+        while changed:
+            changed = False
+            for name, rhs in lets:
+                if name in controlled or name.startswith("_"):
+                    continue
+                if any(idt in controlled for idt in _idents(rhs)):
+                    controlled.add(name)
+                    changed = True
 
         out: List[Vulnerability] = []
         seen: Set[Tuple[str, int]] = set()
