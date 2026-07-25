@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 from o1js_scan import analyze_noir_file
-from o1js_scan.vuln import Severity
 
 _CORPUS = Path(__file__).resolve().parent / "corpus" / "noir"
 _SEV_RANK = {

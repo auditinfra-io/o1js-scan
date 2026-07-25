@@ -703,6 +703,7 @@ def test_fail_on_medium_catches_high(tmp_path):
 
 def test_version_flag_prints_and_exits_zero(capsys):
     import pytest as _pytest
+
     from o1js_scan import __version__
     from o1js_scan.cli import main
 

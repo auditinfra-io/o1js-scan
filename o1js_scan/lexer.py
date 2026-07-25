@@ -1011,14 +1011,14 @@ class O1jsLexer:
                     f"in `{meth.name}`"
                 ),
                 description=(
-                    f"`this.sender.getUnconstrained()` returns the transaction "
-                    f"sender WITHOUT adding a proof constraint (o1js documents "
-                    f"this explicitly). Using that value in an assert, state "
-                    f"write, or send makes the check vacuous — the prover "
-                    f"chooses both sides. Use "
-                    f"`this.sender.getAndRequireSignature()` for a constrained "
-                    f"sender, or authenticate it with "
-                    f"`AccountUpdate.createSigned(sender)`."
+                    "`this.sender.getUnconstrained()` returns the transaction "
+                    "sender WITHOUT adding a proof constraint (o1js documents "
+                    "this explicitly). Using that value in an assert, state "
+                    "write, or send makes the check vacuous — the prover "
+                    "chooses both sides. Use "
+                    "`this.sender.getAndRequireSignature()` for a constrained "
+                    "sender, or authenticate it with "
+                    "`AccountUpdate.createSigned(sender)`."
                 ),
                 evidence={
                     "method": meth.name,
