@@ -201,6 +201,10 @@ def _reachable_to_constraint_or_output(body: str) -> Set[str]:
     for stmt, _off, _term in _top_level_statements(body):
         if _has_any_comparison(stmt):
             seed |= _idents(stmt)
+    # `if` conditions influence which constraints apply — count them as uses so
+    # a control-flow-only input is diagnosed by NOIR_CONDITIONAL_ASSERT, not here.
+    for cm in re.finditer(r"\bif\b([^{;]{0,300})\{", body):
+        seed |= _idents(cm.group(1))
 
     lets = [(m.group(1), m.group(2)) for m in re.finditer(
         r"\blet\s+(?:mut\s+)?(\w+)\s*=\s*([^;]{0,4000});", body)]
@@ -214,6 +218,19 @@ def _reachable_to_constraint_or_output(body: str) -> Set[str]:
                         seed.add(idt)
                         changed = True
     return seed
+
+
+def _controlled_witnesses(stripped: str) -> Set[str]:
+    """Prover-controlled value sources the tool models: private `main` inputs
+    and `unsafe {}` results (excluding `_`-prefixed names)."""
+    controlled = {
+        n for n, is_pub in _main_params(stripped)
+        if not is_pub and not n.startswith("_")
+    }
+    for um in re.finditer(r"\blet\s+(?:mut\s+)?([\w(),\s]{0,200}?)\s*=\s*unsafe\s*\{", stripped):
+        controlled |= {w for w in re.findall(r"\w+", um.group(1))
+                       if w != "mut" and not w.startswith("_")}
+    return controlled
 
 
 def _main_params(stripped: str) -> List[Tuple[str, bool]]:
@@ -255,6 +272,7 @@ class NoirLexer:
         vulns += self._detect_unchecked_cast(content, stripped)
         for name, body, offset in _functions(stripped):
             vulns += self._detect_unasserted_bool(content, body, offset, name)
+        vulns += self._detect_conditional_assert(content, stripped)
         vulns += self._detect_unsafe_missing_safety(content, stripped)
         return _apply_suppressions(content, vulns)
 
@@ -489,7 +507,74 @@ class NoirLexer:
             ))
         return out
 
-    # --- Rule 5: `unsafe {}` without a `// Safety:` note ------------------
+    # --- Rule 5: constraint gated by a prover-controlled condition --------
+
+    def _detect_conditional_assert(self, src: str, stripped: str) -> List[Vulnerability]:
+        controlled = _controlled_witnesses(stripped)
+        if not controlled:
+            return []
+        out: List[Vulnerability] = []
+        n = len(stripped)
+        for im in re.finditer(r"\bif\b", stripped):
+            # condition text up to the block '{' (paren/bracket-depth aware)
+            j = im.end()
+            depth = 0
+            while j < n:
+                c = stripped[j]
+                if c in "([":
+                    depth += 1
+                elif c in ")]":
+                    depth -= 1
+                elif c == "{" and depth == 0:
+                    break
+                j += 1
+            if j >= n or stripped[j] != "{":
+                continue
+            cond = stripped[im.end():j].strip()
+            # only the high-signal case: the gate is a BARE prover-controlled
+            # bool (`if flag {` / `if !flag {`), which the prover just sets false
+            # to skip the constraint. Comparisons (e.g. `if x != 0`) are usually
+            # legitimate guards and are not flagged.
+            core = cond[1:].strip() if cond.startswith("!") else cond
+            if not re.fullmatch(r"\w+", core) or core not in controlled:
+                continue
+            # block body must actually contain a constraint
+            depth = 0
+            k = j
+            while k < n:
+                c = stripped[k]
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                k += 1
+            block = stripped[j + 1:k]
+            if not re.search(r"\bassert(?:_eq)?\s*\(", block):
+                continue
+            line = _line_of(src, im.start())
+            out.append(Vulnerability(
+                pattern_name="NOIR_CONDITIONAL_ASSERT",
+                severity=Severity.MEDIUM,
+                function="",
+                location=(line, 0),
+                origin_tier=NOIR_ORIGIN_TIER,
+                rule_id="NOIR_CONDITIONAL_ASSERT",
+                title=f"Constraint gated by prover-controlled condition `{core}`",
+                description=(
+                    f"An `assert` runs inside `if {cond} {{ ... }}`, and `{core}` is a "
+                    f"prover-controlled value (a private input or `unsafe` result). In Noir "
+                    f"a constraint inside a conditional is only enforced when the condition "
+                    f"holds, so a prover can set `{core}` to skip the check entirely — the "
+                    f"assertion binds nothing. Enforce the constraint unconditionally, or "
+                    f"constrain `{core}` itself so the prover can't choose the branch."
+                ),
+                evidence={"condition": core, "framework": "noir"},
+            ))
+        return out
+
+    # --- Rule 6: `unsafe {}` without a `// Safety:` note ------------------
 
     def _detect_unsafe_missing_safety(self, src: str, stripped: str) -> List[Vulnerability]:
         out: List[Vulnerability] = []
