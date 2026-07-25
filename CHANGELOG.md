@@ -7,6 +7,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`NOIR_VACUOUS_CONSTRAINT`** (high/medium) — a constraint satisfied by
+  construction: a self-comparison (`assert(x == x)`, `assert_eq(x, x)`,
+  `x >= x`, `x.assert_eq(x)`) or a constant condition (`assert(true)`). It
+  binds nothing while *reading* as a check, so review stops there — more
+  dangerous than a missing constraint. HIGH for self-comparison (a typo for a
+  real check), MEDIUM for a constant (often a placeholder). `x != x` is
+  deliberately not flagged: unsatisfiable is a liveness bug, not a silent
+  soundness hole. Validated across **4,911 real assert call sites** in the ten
+  corpus repos with zero false positives; mutating the real reconstruction
+  check in noir_json_parser's `slice_field` from `assert(total == f)` to
+  `assert(total == total)` makes it fire
+  (`fp_`/`tp_jsonparser_real_assert.nr`).
 - **`NOIR_UNCONSTRAINED_PUBLIC_INPUT`** (medium) — a new detection axis rather
   than another suppression heuristic. Every prior rule asks "is this *private*
   witness constrained?"; public inputs were explicitly skipped on the

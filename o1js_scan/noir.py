@@ -257,6 +257,54 @@ def _in_ranges(line: int, ranges: List[Tuple[int, int]]) -> bool:
 _ASSERT_CALL_RE = re.compile(r"\b\w*assert\w*\s*(?:::<[^>]{0,200}>)?\s*\(")
 
 
+def _split_on_top_level_op(text: str, op: str) -> Optional[Tuple[str, str]]:
+    """Split ``text`` at the first depth-0 occurrence of ``op``, or ``None``."""
+    depth = 0
+    n = len(text)
+    for i in range(n - len(op) + 1):
+        c = text[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif depth == 0 and text[i:i + len(op)] == op:
+            return text[:i], text[i + len(op):]
+    return None
+
+
+def _norm_expr(text: str) -> str:
+    """Whitespace-insensitive form, for comparing the two sides of an operator."""
+    return re.sub(r"\s+", "", text)
+
+
+# Operators that are trivially satisfied when both operands are the same
+# expression. `!=`, `<` and `>` are deliberately excluded: those are always
+# FALSE on identical operands, which makes the circuit unprovable — a liveness
+# bug, not the silent soundness hole this rule is about.
+_REFLEXIVE_OPS = ("==", ">=", "<=")
+
+
+def _vacuous_reason(cond: str) -> Optional[Tuple[str, bool]]:
+    """If ``cond`` is a trivially-true constraint, return ``(reason, is_typo)``.
+
+    ``is_typo`` marks a self-comparison — a real check was clearly intended and
+    got mistyped — as opposed to a constant, which is more often a placeholder.
+    """
+    e = _norm_expr(cond)
+    if not e:
+        return None
+    if e == "true":
+        return ("the condition is the constant `true`", False)
+    for op in _REFLEXIVE_OPS:
+        halves = _split_on_top_level_op(cond, op)
+        if not halves:
+            continue
+        lhs, rhs = (_norm_expr(h) for h in halves)
+        if lhs and lhs == rhs:
+            return (f"both sides of `{op}` are the same expression `{lhs}`", True)
+    return None
+
+
 def _expr_start(text: str, end: int) -> int:
     """Index where the expression ending at ``end`` (exclusive) begins, walking
     left across balanced ``()``/``[]`` — e.g. the ``chunks[0]`` in
@@ -688,6 +736,7 @@ class NoirLexer:
         for name, body, offset in _functions(stripped):
             vulns += self._detect_unasserted_bool(content, body, offset, name)
             vulns += self._detect_unused_check_result(content, body, offset, name)
+            vulns += self._detect_vacuous_constraint(content, body, offset, name)
             vulns += self._detect_conditional_constrain(
                 content, body, offset, name, stripped,
             )
@@ -1237,6 +1286,79 @@ class NoirLexer:
                     f"the constrain unconditionally, or constrain `{core}` itself."
                 ),
                 evidence={"condition": core, "function": fn_name, "framework": "noir"},
+            ))
+        return out
+
+    # --- Rule 6: vacuous (trivially-true) constraint ----------------------
+
+    def _detect_vacuous_constraint(
+        self, src: str, body: str, body_offset: int, fn_name: str,
+    ) -> List[Vulnerability]:
+        """Flag constraints that are satisfied by construction.
+
+        A vacuous constraint is worse than a missing one: the code *looks*
+        checked, so review stops there, while the circuit binds nothing.
+        `assert(expected == expected)` is a one-character slip from
+        `assert(computed == expected)`.
+        """
+        out: List[Vulnerability] = []
+        for am in _ASSERT_CALL_RE.finditer(body):
+            call = body[am.start():am.end() - 1]
+            name = re.sub(r"::<.*", "", call).strip()
+            args = _split_top_level(_paren_segment(body, am.end() - 1), ",")
+            if not args:
+                continue
+
+            reason: Optional[Tuple[str, bool]] = None
+            # `assert_eq(a, a)` — two-operand form.
+            if "eq" in name and len(args) >= 2:
+                lhs, rhs = _norm_expr(args[0]), _norm_expr(args[1])
+                if lhs and lhs == rhs:
+                    reason = (f"both operands of `{name}` are `{lhs}`", True)
+            # `<receiver>.assert_eq(receiver)` — method form.
+            if reason is None and "eq" in name:
+                j = am.start() - 1
+                while j >= 0 and body[j].isspace():
+                    j -= 1
+                if j >= 0 and body[j] == ".":
+                    recv = _norm_expr(body[_expr_start(body, j):j])
+                    if recv and recv == _norm_expr(args[0]):
+                        reason = (f"`{name}` compares `{recv}` with itself", True)
+            # `assert(cond)` — condition form (message arg, if any, ignored).
+            if reason is None:
+                reason = _vacuous_reason(args[0])
+            if reason is None:
+                continue
+
+            text, is_typo = reason
+            line = _line_of(src, body_offset + am.start())
+            out.append(Vulnerability(
+                pattern_name="NOIR_VACUOUS_CONSTRAINT",
+                severity=Severity.HIGH if is_typo else Severity.MEDIUM,
+                function=fn_name,
+                location=(line, 0),
+                origin_tier=NOIR_ORIGIN_TIER,
+                rule_id="NOIR_VACUOUS_CONSTRAINT",
+                title=f"Constraint is always satisfied in `{fn_name}`",
+                description=(
+                    f"This constraint is trivially true — {text} — so it adds no "
+                    f"restriction to the circuit. A vacuous constraint is more dangerous "
+                    f"than a missing one: the code reads as checked, so review stops "
+                    f"there, while the prover remains free. "
+                    + (
+                        "A self-comparison is almost always a typo for a real check "
+                        "(`assert(computed == expected)` mistyped as "
+                        "`assert(expected == expected)`) — compare against the value it "
+                        "was meant to be checked against."
+                        if is_typo else
+                        "If this is a placeholder, replace it with the real constraint or "
+                        "remove it; a constant condition proves nothing."
+                    )
+                ),
+                evidence={
+                    "function": fn_name, "expr": args[0].strip()[:80],
+                    "framework": "noir",
+                },
             ))
         return out
 
