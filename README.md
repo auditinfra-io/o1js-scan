@@ -164,18 +164,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: auditinfra-io/o1js-scan@v0.7.1
+      - uses: auditinfra-io/o1js-scan@v0.8.0
         with:
           path: src              # optional, defaults to the repo root
           lang: auto             # auto | o1js | noir
-          # version: 0.7.1       # optional, pin the scanner version
+          # version: 0.8.0       # optional, pin the scanner version
           # fail-on-findings: true   # optional, fail the job on any high/critical
 ```
 
 ### Noir-only CI recipe
 
 ```yaml
-- uses: auditinfra-io/o1js-scan@v0.7.1
+- uses: auditinfra-io/o1js-scan@v0.8.0
   with:
     path: .
     lang: noir

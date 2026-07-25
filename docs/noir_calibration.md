@@ -45,7 +45,7 @@ Or use the optional CI workflow / script:
 ./scripts/noirlang_canary.sh              # clones the 8 pinned repos
 ```
 
-## Second corpus — noir-lang + zkEmail (0.7.1 → 0.7.2)
+## Second corpus — noir-lang + zkEmail (0.7.1 → 0.8.0)
 
 aztec-nr and zkpassport pin **one** idiom set, and the 0.6→0.7 retune overfit to
 it: driving those two trees to zero HIGH did not generalize. Scanning eight
