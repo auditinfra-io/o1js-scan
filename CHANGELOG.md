@@ -6,7 +6,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Noir false positives on a second corpus** (eight noir-lang / zkEmail
+  libraries; 9 HIGH → 0, all nine read and classified as FPs in
+  `docs/noir_calibration.md`):
+  - Test code is excluded by default — detected by filename (`*_test.nr`,
+    `test_*.nr`, `test/` or `tests/` path segment), a `#[test]` /
+    `#[test(...)]` attribute, or an enclosing `mod test`/`mod tests` block
+    (block-scoped). New `--include-tests` flag restores those findings.
+  - Constraint seeding now recognizes the whole **assert family** — any call
+    whose name contains `assert`, with optional turbofish
+    (`assert_max_bit_size::<240>(`, `assert_lt(`, `sortfn_assert(`) — and for
+    the method form `<receiver>.assert_xxx(...)` seeds the **receiver**
+    expression, so `lt_parameter.assert_max_bit_size::<240>()` and
+    `chunks[0].assert_max_bit_size::<8>()` bind their values.
+  - Type-annotated `let` bindings (`let raw: Field = …`) now participate in the
+    constraint fixpoint; previously they were invisible, orphaning a hint from
+    the assert that bound it.
+  - aztec-nr regression delta: HIGH unchanged at 0; MEDIUM 4 → 0 (all four were
+    `NOIR_UNUSED_CHECK_RESULT` in a test file). zkpassport unchanged.
+
 ### Added
+- `scripts/noirlang_canary.sh` — second FP canary over eight pinned noir-lang /
+  zkEmail repos, gated on per-repo *classified budgets* rather than a bare
+  zero-HIGH assertion, plus a weekly `noirlang-canary` CI job.
+- Paired mutation fixtures (`fp_`/`tp_` twins) for each fix, and a `@scan-as`
+  corpus annotation so fixtures under `tests/` can be analyzed as production
+  code (or opt into a test-shaped path).
 - Ruff lint configuration (`[tool.ruff]`) and a `lint` CI job; the codebase
   passes `ruff check .` clean.
 - `py.typed` marker (PEP 561) so downstream type checkers see the package's

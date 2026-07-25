@@ -91,6 +91,9 @@ noir-scan . --lang noir --sarif noir.sarif
 # choose which severity fails CI (critical|high|medium|low|none; default high)
 o1js-scan src --fail-on medium
 
+# Noir test code is excluded by default; opt back in
+noir-scan circuits --lang noir --include-tests
+
 o1js-scan --version
 ```
 
@@ -101,6 +104,15 @@ rule below) does **not** fail the build; use `--fail-on none` to only report,
 or `--fail-on medium` to gate more strictly. A missing scan path exits `2` with
 an error on stderr, so a typo can't silently pass CI as a clean run. Every run
 prints a one-line summary (counts by severity and the gate verdict) to stderr.
+
+**Noir test code is excluded by default.** Noir tests deliberately build
+invalid values inside `unsafe` blocks to prove the surrounding asserts reject
+them, so findings there are noise rather than circuit bugs. A file is treated as
+test code when its name is `*_test.nr` / `test_*.nr`, it sits under a `test/` or
+`tests/` directory, the function carries a `#[test]` / `#[test(...)]` attribute,
+or it is inside a `mod test { … }` / `mod tests { … }` block (block-scoped, so a
+test module at the bottom of a production file does not silence the rest of it).
+Pass `--include-tests` to report them.
 
 **Directories skipped when walking a tree:** `node_modules`, `target` (nargo),
 `.git`, `dist`, `build`, `__pycache__`, `.venv`, `venv`.
