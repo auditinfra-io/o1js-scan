@@ -75,6 +75,17 @@ fn main(n: Field, m: Field) {
 }
 """
 
+# The hint flows through two intermediate locals before being asserted.
+_CONSTRAINED_TWO_HOP = """
+fn main(n: Field, m: Field) {
+    // Safety: checked via ok
+    let quotient = unsafe { div_hint(n, m) };
+    let remainder = n - quotient * m;
+    let ok = remainder == 0;
+    assert(ok);
+}
+"""
+
 
 def test_unconstrained_unsafe_fires_high():
     v = analyze_noir_file("main.nr", _UNCONSTRAINED)
@@ -93,6 +104,11 @@ def test_constrained_unsafe_does_not_fire():
 
 def test_one_hop_constraint_does_not_fire():
     v = analyze_noir_file("main.nr", _CONSTRAINED_ONE_HOP)
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(v)
+
+
+def test_two_hop_constraint_does_not_fire():
+    v = analyze_noir_file("main.nr", _CONSTRAINED_TWO_HOP)
     assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(v)
 
 
