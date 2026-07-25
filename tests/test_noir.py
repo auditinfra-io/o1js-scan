@@ -927,3 +927,76 @@ fn f(x: Field) -> Field {
              if x.rule_id == "NOIR_UNCONSTRAINED_WITNESS"]
     assert len(fired) == 1
     assert fired[0].evidence["witness"] == "free"
+
+
+# ---------------------------------------------------------------------------
+# NOIR_UNCONSTRAINED_PUBLIC_INPUT — the dual of the private-witness rule
+# ---------------------------------------------------------------------------
+
+def test_unused_public_input_fires_medium():
+    # `root` is handed to the verifier but the circuit never reads it.
+    src = "fn main(leaf: Field, root: pub Field) { assert(leaf != 0); }"
+    v = analyze_noir_file("m.nr", src)
+    f = [x for x in v if x.rule_id == "NOIR_UNCONSTRAINED_PUBLIC_INPUT"]
+    assert f and f[0].severity == Severity.MEDIUM
+    assert f[0].evidence["witness"] == "root"
+    assert f[0].evidence["witness_source"] == "public_input"
+
+
+def test_constrained_public_input_does_not_fire():
+    src = "fn main(leaf: Field, root: pub Field) { assert(hash(leaf) == root); }"
+    assert "NOIR_UNCONSTRAINED_PUBLIC_INPUT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_public_input_reaching_output_does_not_fire():
+    src = "fn main(a: pub Field) -> pub Field { a * 2 }"
+    assert "NOIR_UNCONSTRAINED_PUBLIC_INPUT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_public_input_bound_through_let_chain_does_not_fire():
+    src = """
+fn main(x: Field, expected: pub Field) {
+    let h = hash(x);
+    let ok = h == expected;
+    assert(ok);
+}
+"""
+    assert "NOIR_UNCONSTRAINED_PUBLIC_INPUT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_underscore_public_input_is_ignored():
+    # `_`-prefixed marks a deliberately unused binding.
+    src = "fn main(leaf: Field, _nonce: pub Field) { assert(leaf != 0); }"
+    assert "NOIR_UNCONSTRAINED_PUBLIC_INPUT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_public_input_rule_does_not_gate_default_ci(tmp_path):
+    # MEDIUM by design: a deliberately unused pub input (proof-context binding)
+    # is a legitimate idiom, so this rule must not fail the default --fail-on high.
+    from o1js_scan.cli import main as cli_main
+
+    p = tmp_path / "m.nr"
+    p.write_text("fn main(leaf: Field, nonce: pub Field) { assert(leaf != 0); }")
+    assert cli_main([str(p), "--lang", "noir"]) == 0
+
+
+def test_public_and_private_unconstrained_are_distinct_rules():
+    src = "fn main(secret: Field, root: pub Field, seen: pub Field) { assert(seen != 0); }"
+    rules = _rules(analyze_noir_file("m.nr", src))
+    assert "NOIR_UNCONSTRAINED_INPUT" in rules        # secret
+    assert "NOIR_UNCONSTRAINED_PUBLIC_INPUT" in rules  # root
+
+
+def test_public_input_suppressible_inline():
+    src = """
+fn main(leaf: Field, nonce: pub Field) {
+    // o1js-scan-disable-next-line NOIR_UNCONSTRAINED_PUBLIC_INPUT
+    assert(leaf != 0);
+}
+"""
+    # the finding is reported on the `fn main` signature line, so suppress there
+    src2 = src.replace(
+        "fn main(leaf: Field, nonce: pub Field) {",
+        "fn main(leaf: Field, nonce: pub Field) {  "
+        "// o1js-scan-disable-line NOIR_UNCONSTRAINED_PUBLIC_INPUT")
+    assert "NOIR_UNCONSTRAINED_PUBLIC_INPUT" not in _rules(analyze_noir_file("m.nr", src2))

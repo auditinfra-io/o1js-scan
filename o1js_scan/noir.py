@@ -856,9 +856,44 @@ class NoirLexer:
         sig = re.search(r"\bfn\s+main\s*\(", stripped)
         line = _line_of(src, sig.start()) if sig else 0
         for name, is_pub in params:
-            # public inputs are already bound (they're part of the statement);
             # `_`-prefixed params are conventionally intentionally-unused.
-            if is_pub or name.startswith("_") or name in reachable:
+            if name.startswith("_") or name in reachable:
+                continue
+            if is_pub:
+                # A public input that reaches no constraint is the DUAL of the
+                # private case: the verifier is handed a value the circuit never
+                # uses, so the proof asserts nothing about it. A circuit taking
+                # `merkle_root: pub Field` and never touching it lets a verifier
+                # believe membership was proven against that root when it was
+                # not. MEDIUM rather than HIGH — an unused public input is also
+                # a legitimate idiom for binding a proof to a context (nonce,
+                # chain id, recipient), which is indistinguishable lexically.
+                out.append(Vulnerability(
+                    pattern_name="NOIR_UNCONSTRAINED_PUBLIC_INPUT",
+                    severity=Severity.MEDIUM,
+                    function="main",
+                    location=(line, 0),
+                    origin_tier=NOIR_ORIGIN_TIER,
+                    rule_id="NOIR_UNCONSTRAINED_PUBLIC_INPUT",
+                    title=f"Public input `{name}` is never used in `main`",
+                    description=(
+                        f"`{name}` is a PUBLIC input of the circuit `main`, but it reaches "
+                        f"no constraint and no output — the circuit never reads it. A "
+                        f"verifier checking the proof against `{name}` therefore learns "
+                        f"nothing about it: the statement appears to be about `{name}` "
+                        f"while the circuit ignores it. If `{name}` is meant to pin down "
+                        f"the computation (a Merkle root, a commitment, an expected hash), "
+                        f"constrain it — e.g. `assert(computed == {name})`. If it exists "
+                        f"only to bind the proof to a context (nonce / chain id / "
+                        f"recipient), that is a legitimate idiom and this finding is a "
+                        f"false positive: suppress it with "
+                        f"`// o1js-scan-disable-line NOIR_UNCONSTRAINED_PUBLIC_INPUT`."
+                    ),
+                    evidence={
+                        "witness": name, "function": "main",
+                        "witness_source": "public_input", "framework": "noir",
+                    },
+                ))
                 continue
             out.append(Vulnerability(
                 pattern_name="NOIR_UNCONSTRAINED_INPUT",

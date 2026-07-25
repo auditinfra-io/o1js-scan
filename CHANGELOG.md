@@ -6,6 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`NOIR_UNCONSTRAINED_PUBLIC_INPUT`** (medium) — a new detection axis rather
+  than another suppression heuristic. Every prior rule asks "is this *private*
+  witness constrained?"; public inputs were explicitly skipped on the
+  assumption that they are "already bound". That assumption is wrong as a
+  security claim: a public input that reaches no constraint and no output means
+  the proof asserts nothing about it, so a verifier checking a proof against
+  (say) an unused `merkle_root: pub Field` believes membership was proven when
+  it was not — the dual of an under-constrained witness.
+  Deliberately MEDIUM: an unused public input is also a legitimate idiom for
+  binding a proof to a context (nonce / chain id / recipient), which is
+  lexically indistinguishable, so the rule does not gate CI by default.
+  Validated by mutating a real zkpassport circuit — silent on the original,
+  fires on the variant with the commitment check removed
+  (`fp_`/`tp_zkpassport_pub_comm.nr`). Zero findings across all ten corpus
+  repos, including ~780 real circuit entry points in zkpassport/circuits.
+
 ## [0.8.0] - 2026-07-25
 
 ### Changed
