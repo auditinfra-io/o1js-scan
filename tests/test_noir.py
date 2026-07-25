@@ -203,7 +203,65 @@ fn main(y: pub Field) {
 
 
 # ---------------------------------------------------------------------------
-# Rule 4 — `unsafe {}` missing a `// Safety:` comment
+# Rule 4 — discarded comparison result (unasserted Bool)
+# ---------------------------------------------------------------------------
+
+def test_discarded_equality_statement_fires_high():
+    src = """
+fn main(x: pub Field, y: pub Field) {
+    x == y;
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    f = [c for c in v if c.rule_id == "NOIR_UNASSERTED_BOOL"]
+    assert f and f[0].severity == Severity.HIGH
+
+
+def test_asserted_equality_does_not_fire():
+    src = "fn main(x: pub Field, y: pub Field) { assert(x == y); }"
+    assert "NOIR_UNASSERTED_BOOL" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_used_comparison_result_does_not_fire():
+    src = """
+fn main(x: pub Field, y: pub Field) {
+    let ok = x == y;
+    assert(ok);
+}
+"""
+    assert "NOIR_UNASSERTED_BOOL" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_unused_comparison_let_is_medium():
+    src = """
+fn main(x: pub Field, y: pub Field) {
+    let ok = x == y;
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    f = [c for c in v if c.rule_id == "NOIR_UNASSERTED_BOOL"]
+    assert f and f[0].severity == Severity.MEDIUM
+    assert f[0].evidence["witness"] == "ok"
+
+
+def test_comparison_inside_call_does_not_fire():
+    # the comparison is an argument, not a discarded statement
+    src = """
+fn check(b: bool) { assert(b); }
+fn main(x: pub Field, y: pub Field) {
+    check(x == y);
+}
+"""
+    assert "NOIR_UNASSERTED_BOOL" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_bool_return_expression_does_not_fire():
+    src = "fn is_eq(a: Field, b: Field) -> bool { a == b }"
+    assert "NOIR_UNASSERTED_BOOL" not in _rules(analyze_noir_file("m.nr", src))
+
+
+# ---------------------------------------------------------------------------
+# Rule 5 — `unsafe {}` missing a `// Safety:` comment
 # ---------------------------------------------------------------------------
 
 def test_missing_safety_comment_is_low():
