@@ -410,6 +410,31 @@ def test_present_safety_comment_no_finding():
     assert "NOIR_UNSAFE_MISSING_SAFETY" not in _rules(v)
 
 
+def test_non_adjacent_safety_comment_still_fires():
+    src = """
+fn main(x: Field) -> pub Field {
+    // Safety: this documents a different operation.
+    let y = x + 1;
+    let z = unsafe { hint(y) };
+    assert(z == y);
+    z
+}
+"""
+    assert "NOIR_UNSAFE_MISSING_SAFETY" in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_immediately_preceding_safety_comment_no_finding():
+    src = """
+fn main(x: Field) -> pub Field {
+    // Safety: hint is checked against x below.
+    let z = unsafe { hint(x) };
+    assert(z == x);
+    z
+}
+"""
+    assert "NOIR_UNSAFE_MISSING_SAFETY" not in _rules(analyze_noir_file("m.nr", src))
+
+
 # ---------------------------------------------------------------------------
 # Provenance / dispatch / env
 # ---------------------------------------------------------------------------
