@@ -648,13 +648,40 @@ class NoirLexer:
     # --- Rule 6: `unsafe {}` without a `// Safety:` note ------------------
 
     def _detect_unsafe_missing_safety(self, src: str, stripped: str) -> List[Vulnerability]:
+        def has_adjacent_safety_comment(unsafe_offset: int) -> bool:
+            unsafe_line = _line_of(src, unsafe_offset)
+            lines = src.splitlines()
+            line_text = lines[unsafe_line - 1] if 0 < unsafe_line <= len(lines) else ""
+
+            # Same-line `// Safety:` is attached to this unsafe block/statement.
+            if re.search(r"//\s*Safety\s*:", line_text, re.IGNORECASE):
+                return True
+
+            # Walk only the immediately preceding comment region. Blank lines do
+            # not break adjacency, but any code line does. Limit the region to a
+            # small number of non-empty comment lines so an older, unrelated
+            # Safety note cannot bless a later unsafe block.
+            comment_lines_seen = 0
+            for prev in range(unsafe_line - 2, -1, -1):
+                text = lines[prev].strip()
+                if not text:
+                    continue
+                if not text.startswith("//"):
+                    break
+                comment_lines_seen += 1
+                if comment_lines_seen > 2:
+                    break
+                if re.search(r"^//\s*Safety\s*:", text, re.IGNORECASE):
+                    return True
+            return False
+
         out: List[Vulnerability] = []
         for um in re.finditer(r"\bunsafe\s*\{", stripped):
             # Noir's own convention (and compiler lint) is a `// Safety:` comment
-            # on the block or the enclosing statement. Look back a few lines in
-            # the RAW source (comments are stripped in `stripped`).
-            back = src[max(0, um.start() - 300):um.start()]
-            if re.search(r"//\s*Safety\s*:", back, re.IGNORECASE):
+            # adjacent to the block or the enclosing statement. Check only the
+            # same line and the immediately preceding comment region in the RAW
+            # source (comments are stripped in `stripped`).
+            if has_adjacent_safety_comment(um.start()):
                 continue
             line = _line_of(src, um.start())
             out.append(Vulnerability(
