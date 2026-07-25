@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-25
+
+### Fixed
+- **ZKPassport circuits FP retune** (calibrated on `zkpassport/circuits@d3a75ac`):
+  767 → 321 findings; **0 HIGH / 0 MEDIUM** (remaining are LOW missing-Safety
+  hygiene). Tuple-`let` fixpoint for private `main` inputs; cross-module
+  `check_*` call-site binders; deferred Safety for ASN.1 length / re-verify /
+  hash-nonce wording; `assert(index != -1)` found-sentinel before `as u32`;
+  dead (unread) `unsafe` bindings no longer HIGH. Corpus fixtures
+  `fp_zkpassport_*.nr`. aztec-nr canary still 0 HIGH.
+
 ## [0.7.0] - 2026-07-25
 
 ### Added

@@ -219,17 +219,12 @@ def _reachable_to_constraint_or_output(body: str) -> Set[str]:
     for cm in re.finditer(r"\bif\b([^{;]{0,300})\{", body):
         seed |= _idents(cm.group(1))
 
-    lets = [(m.group(1), m.group(2)) for m in re.finditer(
-        r"\blet\s+(?:mut\s+)?(\w+)\s*=\s*([^;]{0,4000});", body)]
-    changed = True
-    while changed:
-        changed = False
-        for name, rhs in lets:
-            if name in seed:
-                for idt in _idents(rhs):
-                    if idt not in seed:
-                        seed.add(idt)
-                        changed = True
+    # Tuple lets matter for ZKPassport / passport circuits:
+    #   let (r, s) = split_array(dsc_signature);
+    #   let (nullifier, ...) = nullify(..., salted_dg1, ...);
+    # Without destructuring, inputs that only reach output via a helper return
+    # never join the reachable set (false MEDIUM NOIR_UNCONSTRAINED_INPUT).
+    _expand_constrained_through_lets(seed, body)
     return seed
 
 
@@ -337,12 +332,15 @@ def _helper_constraint_summaries(stripped: str) -> dict:
     return summaries
 
 
-# Call basenames that, by Aztec / Noir convention, re-constrain an oracle hint
-# even when the helper lives in another module (we only see the call site).
+# Call basenames that, by Aztec / Noir / ZKPassport convention, re-constrain an
+# oracle hint even when the helper lives in another module (call site only).
+# ``check_*`` covers passport integrity helpers (``check_dg1_sha256``,
+# ``check_signed_attributes_*``, ``check_expiry``, …) — broader than membership
+# alone. Hollow same-file ``confirm_*`` stubs are still filtered via summaries.
 _CONSTRAINT_HELPER_NAME_RE = re.compile(
     r"\b(?:"
     r"constrain_\w+|confirm_\w+|verify_\w+"
-    r"|check_(?:non_)?membership\w*"
+    r"|check_\w+"
     r"|public_data_storage_read"
     r")\s*\("
 )
@@ -456,9 +454,10 @@ def _adjacent_safety_comment_text(src: str, unsafe_offset: int) -> Optional[str]
     return None
 
 
-# Safety notes that document intentional non-local constraint (kernel / rollup /
-# discovery-only). Suppress HIGH only when this text is adjacent — failure mode
-# is "miss a FP", never "hide a missing local assert without documentation".
+# Safety notes that document intentional non-local / deferred / re-verify
+# constraint (kernel / rollup / discovery / ZKPassport ASN.1 length hints).
+# Suppress HIGH only when this text is adjacent — failure mode is "miss a FP",
+# never "hide a missing local assert without documentation".
 _DEFERRED_CONSTRAINT_SAFETY_RE = re.compile(
     r"(?is)"
     r"(?:"
@@ -478,8 +477,45 @@ _DEFERRED_CONSTRAINT_SAFETY_RE = re.compile(
     r"|honest\s+oracle"
     r"|fail\s+to\s+produce\s+a\s+proof"
     r"|inclusion\s+proof"
+    # ZKPassport / passport-circuit ASN.1 length + subarray-search hints:
+    r"|as\s+checked\s+below"
+    r"|checked\s+below"
+    r"|checked\s+in\s+the\s+\w[\w\s]*circuit"
+    r"|must\s+be\s+correct\s+for"
+    r"|fully\s+re-?verified"
+    r"|re-?verified\s+below"
+    r"|only\s+used\s+as\s+a\s+starting\s+point"
+    r"|verify\s+the\s+substring"
+    r"|bound\s+to\s+the\s+nonce"
+    r"|verifies\s+that\s+this\s+hash"
+    r"|to\s+use\s+for\s+hashing"
     r")"
 )
+
+
+def _idents_bound_by_constraint_helper_calls(
+    body: str,
+    local_fn_names: Optional[Set[str]] = None,
+    helper_summaries: Optional[dict] = None,
+) -> Set[str]:
+    """Identifiers passed into cross-module ``check_*`` / ``verify_*`` / … calls.
+
+    Same-file helpers that appear in ``local_fn_names`` but NOT in
+    ``helper_summaries`` are skipped (hollow return-only ``confirm_*``).
+    """
+    locals_ = local_fn_names or set()
+    summaries = helper_summaries or {}
+    bound: Set[str] = set()
+    for cm in _CONSTRAINT_HELPER_NAME_RE.finditer(body):
+        call = cm.group(0)
+        name_m = re.match(r"(\w+)\s*\(", call)
+        call_name = name_m.group(1) if name_m else ""
+        if call_name in locals_ and call_name not in summaries:
+            continue
+        args = _split_top_level(_paren_segment(body, cm.end() - 1), ",")
+        for arg in args:
+            bound |= _idents(arg)
+    return bound
 
 
 def _is_intentional_unconstrained_entropy(unsafe_body: str) -> bool:
@@ -572,18 +608,10 @@ class NoirLexer:
                         continue
                     constrained |= _idents(args[idx])
 
-        # Cross-module Aztec convention: `constrain_*` / `confirm_*` / `verify_*`
-        # call sites. Skip names defined in THIS file that are not assert-crediting
-        # (hollow confirm that only returns the hint — miss-not-hide).
-        for cm in _CONSTRAINT_HELPER_NAME_RE.finditer(body):
-            call = cm.group(0)
-            name_m = re.match(r"(\w+)\s*\(", call)
-            call_name = name_m.group(1) if name_m else ""
-            if call_name in locals_ and call_name not in summaries:
-                continue
-            args = _split_top_level(_paren_segment(body, cm.end() - 1), ",")
-            for arg in args:
-                constrained |= _idents(arg)
+        # Cross-module convention: `constrain_*` / `confirm_*` / `verify_*` /
+        # `check_*` call sites. Skip names defined in THIS file that are not
+        # assert-crediting (hollow confirm that only returns the hint — miss-not-hide).
+        constrained |= _idents_bound_by_constraint_helper_calls(body, locals_, summaries)
 
         _expand_constrained_through_lets(constrained, body)
 
@@ -609,6 +637,19 @@ class NoirLexer:
                 or _is_avm_opcode_hint(unsafe_body)
                 or _is_documented_deferred_constraint(safety_text)
             ):
+                continue
+
+            # Dead hint: bound from unsafe then never referenced. Not a soundness
+            # hole (nothing reads the free value); skip rather than HIGH (ZKPassport
+            # facematch codegen sometimes leaves unused ASN.1 length locals).
+            stmt_end = um.end() - 1 + len(unsafe_body) + 2  # past closing `}`
+            while stmt_end < len(body) and body[stmt_end] in " \t\r\n":
+                stmt_end += 1
+            if stmt_end < len(body) and body[stmt_end] == ";":
+                stmt_end += 1
+            rest = body[stmt_end:]
+            free = [w for w in free if re.search(r"\b" + re.escape(w) + r"\b", rest)]
+            if not free:
                 continue
 
             line = _line_of(src, body_offset + um.start())
@@ -672,6 +713,16 @@ class NoirLexer:
                     if re.fullmatch(r"[A-Za-z_]\w*", arg):
                         reachable.add(arg)
 
+        # Cross-module ``check_*`` / ``verify_*`` / … (ZKPassport integrity, ECDSA
+        # verify helpers, …). Method-style ``trees.check_*(...)`` is included —
+        # the helper name regex matches the basename after ``.``.
+        local_fn_names = {name for name, _b, _o in _functions(stripped)}
+        summaries = _helper_constraint_summaries(stripped)
+        reachable |= _idents_bound_by_constraint_helper_calls(
+            body, local_fn_names, summaries,
+        )
+        _expand_constrained_through_lets(reachable, body)
+
         out: List[Vulnerability] = []
         sig = re.search(r"\bfn\s+main\s*\(", stripped)
         line = _line_of(src, sig.start()) if sig else 0
@@ -708,13 +759,18 @@ class NoirLexer:
     @staticmethod
     def _has_range_bound(text: str, ident: str) -> bool:
         """True if ``ident`` is range-constrained in ``text`` — a comparison
-        assertion (`assert(ident < N)`), or an explicit bit-size assertion."""
+        assertion (`assert(ident < N)`), an explicit bit-size assertion, or a
+        found-sentinel (`assert(ident != -1)`) used by passport country-list
+        index hints before ``as u32`` indexing."""
         a = re.escape(ident)
         if re.search(r"\b" + a + r"\s*\.\s*assert(?:_max)?_bit_size\b", text):
             return True
         for am in re.finditer(r"\bassert(?:_eq)?\s*\(", text):
             seg = _paren_segment(text, am.end() - 1)
             if re.search(r"\b" + a + r"\b", seg) and re.search(r"[<>]=?", seg):
+                return True
+            # ZKPassport ``unsafe_get_index`` archetype: assert found, then index.
+            if re.search(r"\b" + a + r"\s*!=\s*-?\s*1\b", seg):
                 return True
         return False
 

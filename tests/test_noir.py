@@ -277,6 +277,57 @@ fn in_revertible_phase(counter: Field) -> bool {
     assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("ctx.nr", src))
 
 
+def test_zkpassport_check_helper_binds_asn1_length():
+    src = """
+fn check_dg1_sha256(e_content: [u8; 8], e_content_size: u32) {
+    assert(e_content_size <= 8);
+}
+fn main(e_content: [u8; 8]) {
+    // Safety: length must be correct for econtent as checked below
+    let e_content_size = unsafe { unsafe_get_asn1_element_length(e_content) };
+    check_dg1_sha256(e_content, e_content_size);
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("z.nr", src))
+
+
+def test_zkpassport_tuple_let_binds_private_input():
+    src = """
+fn nullify(salted_dg1: Field, secret: Field) -> (Field, Field) {
+    (salted_dg1, secret)
+}
+fn main(comm_in: pub Field, salted_dg1: Field, secret: Field) -> pub (Field, Field) {
+    let (nullifier, nt) = nullify(salted_dg1, secret);
+    (nullifier, nt)
+}
+"""
+    assert "NOIR_UNCONSTRAINED_INPUT" not in _rules(analyze_noir_file("z.nr", src))
+
+
+def test_zkpassport_found_sentinel_suppresses_index_cast():
+    src = """
+fn check_nationality(dg1: [u8; 3], list: [[u8; 3]; 4]) {
+    // Safety: unconstrained index hint
+    let country_index = unsafe { unsafe_get_index(list, dg1) };
+    assert(country_index != -1);
+    let code = list[country_index as u32];
+    assert_eq(dg1, code);
+}
+"""
+    assert "NOIR_UNCHECKED_CAST" not in _rules(analyze_noir_file("z.nr", src))
+
+
+def test_unused_unsafe_hint_is_not_high():
+    # Dead ASN.1 length local (facematch codegen) — not a soundness hole.
+    src = """
+fn main(tbs: [u8; 64]) -> pub Field {
+    let intermediate_1_tbs_len = unsafe { unsafe_get_asn1_element_length(tbs) };
+    0
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("z.nr", src))
+
+
 def test_generic_safety_alone_does_not_suppress_free_hint():
     # A bare Safety note is NOT enough — must still re-constrain (or match a
     # deferred/entropy/AVM pattern). Keeps the marquee TP honest.
