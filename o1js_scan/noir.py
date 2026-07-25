@@ -271,6 +271,197 @@ def _function_params(stripped: str, fn_name: str) -> List[str]:
     return out
 
 
+def _brace_segment(text: str, open_idx: int) -> str:
+    """Return the interior of the ``{...}`` whose opening brace is at ``open_idx``."""
+    if open_idx >= len(text) or text[open_idx] != "{":
+        return ""
+    depth = 0
+    i = open_idx
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_idx + 1:i]
+        i += 1
+    return text[open_idx + 1:]
+
+
+def _helper_constraint_summaries(stripped: str) -> dict:
+    """Map helper name → parameter positions that flow into a constraint/output.
+
+    Same shallow lexical contract as ``_detect_unconstrained_input``: one call
+    edge, free-function calls, positional args. Used so an ``unsafe`` hint
+    passed into ``confirm_hinted_note(...)`` / ``verify_*`` is treated as bound
+    when the callee constrains that parameter.
+    """
+    summaries: dict = {}
+    for fn_name, helper_body, _off in _functions(stripped):
+        helper_params = _function_params(stripped, fn_name)
+        if not helper_params:
+            continue
+        helper_reachable = _reachable_to_constraint_or_output(helper_body)
+        reachable_positions = {
+            idx for idx, param in enumerate(helper_params)
+            if param in helper_reachable
+        }
+        if reachable_positions:
+            summaries[fn_name] = reachable_positions
+    return summaries
+
+
+# Call basenames that, by Aztec / Noir convention, re-constrain an oracle hint
+# even when the helper lives in another module (we only see the call site).
+_CONSTRAINT_HELPER_NAME_RE = re.compile(
+    r"\b(?:"
+    r"constrain_\w+|confirm_\w+|verify_\w+"
+    r"|check_(?:non_)?membership\w*"
+    r"|public_data_storage_read"
+    r")\s*\("
+)
+
+
+def _let_bindings(body: str) -> List[Tuple[List[str], str]]:
+    """Simple and tuple ``let`` bindings as ``[(names, rhs), ...]``.
+
+    Tuple form matters for Aztec merkle proofs::
+
+        let (ok, exists) = check_non_membership_with_hasher(..., witness, ...);
+        assert(ok); assert(exists);
+
+    Without destructuring, ``witness`` never joins the constrained set even though
+    the asserted flags are exactly the proof that binds it.
+    """
+    out: List[Tuple[List[str], str]] = []
+    for m in re.finditer(
+        r"\blet\s+(?:mut\s+)?(\([^;]{0,400}?\)|\w+)\s*=\s*([^;]{0,4000});",
+        body,
+    ):
+        lhs, rhs = m.group(1), m.group(2)
+        if lhs.startswith("("):
+            names = [w for w in re.findall(r"\w+", lhs)
+                     if w != "mut" and not w.startswith("_")]
+        else:
+            names = [lhs] if not lhs.startswith("_") else []
+        if names:
+            out.append((names, rhs))
+    return out
+
+
+def _expand_constrained_through_lets(constrained: Set[str], body: str) -> None:
+    """Fixpoint: if any ``let`` name is constrained, add identifiers from its RHS."""
+    lets = _let_bindings(body)
+    changed = True
+    while changed:
+        changed = False
+        for names, rhs in lets:
+            if any(n in constrained for n in names):
+                for idt in _idents(rhs):
+                    if idt not in constrained:
+                        constrained.add(idt)
+                        changed = True
+
+
+def _has_adjacent_safety_comment(src: str, unsafe_offset: int) -> bool:
+    """True if a ``// Safety:`` note sits on the same line as ``unsafe`` or in
+    the immediately preceding comment region (Noir / aztec-nr convention)."""
+    return _adjacent_safety_comment_text(src, unsafe_offset) is not None
+
+
+def _adjacent_safety_comment_text(src: str, unsafe_offset: int) -> Optional[str]:
+    """Return the adjacent ``// Safety:`` comment block text, or ``None``.
+
+    Walks upward from the line containing ``unsafe_offset``, skipping blank lines
+    and a short ``let name =`` continuation (Aztec often splits
+    ``let x =`` / ``unsafe { ... }`` across two lines with Safety above the let).
+    """
+    unsafe_line = _line_of(src, unsafe_offset)
+    lines = src.splitlines()
+    collected: List[str] = []
+    line_text = lines[unsafe_line - 1] if 0 < unsafe_line <= len(lines) else ""
+
+    same = re.search(r"//\s*Safety\s*:(.*)$", line_text, re.IGNORECASE)
+    if same:
+        collected.append(same.group(0))
+
+    comment_lines_seen = 0
+    skipped_let_continuation = False
+    block: List[str] = []
+    for prev in range(unsafe_line - 2, -1, -1):
+        text = lines[prev].strip()
+        if not text:
+            continue
+        if text.startswith("//"):
+            comment_lines_seen += 1
+            # Aztec-nr Safety notes routinely span 3–6 lines; keep the region
+            # bounded so an older unrelated Safety cannot bless a later unsafe.
+            if comment_lines_seen > 8:
+                break
+            block.append(text)
+            continue
+        # Allow one `let name =` line between Safety and a following-line `unsafe`.
+        if (
+            not skipped_let_continuation
+            and re.fullmatch(r"let\s+(?:mut\s+)?[\w(),\s]+=", text)
+        ):
+            skipped_let_continuation = True
+            continue
+        break
+    block.reverse()
+    joined = "\n".join(block)
+    if re.search(r"^//\s*Safety\s*:", joined, re.IGNORECASE | re.MULTILINE):
+        return joined
+    if collected:
+        return "\n".join(collected)
+    return None
+
+
+# Safety notes that document intentional non-local constraint (kernel / rollup /
+# discovery-only). Suppress HIGH only when this text is adjacent — failure mode
+# is "miss a FP", never "hide a missing local assert without documentation".
+_DEFERRED_CONSTRAINT_SAFETY_RE = re.compile(
+    r"(?is)"
+    r"(?:"
+    r"kernel\s+(?:will\s+|circuits?\s+)?(?:validate|ensure|constrain)"
+    r"|private\s+kernel"
+    r"|validated\s+by\s+the\s+kernel"
+    r"|constrained\s+(?:by|in)\s+the\s+(?:base\s+)?rollup"
+    r"|constrained\s+against"
+    r"|are\s+constrained\s+to"
+    r"|AVM\s+(?:opcodes?\s+)?(?:are\s+)?constrained"
+    r"|only\s+yields\s+an\s+undiscoverable"
+    r"|untrusted"
+    r"|hint\s+to\s+check"
+    r"|read\s+request\s+validation"
+    r"|before\s+a\s+constrained\s+tag"
+    r")"
+)
+
+
+def _is_intentional_unconstrained_entropy(unsafe_body: str) -> bool:
+    """True when the ``unsafe`` block is solely ``random()`` — intentional
+    privacy entropy that must NOT be re-constrained (aztec-nr note/ephemeral
+    key archetypes). Only sound when paired with an adjacent Safety note."""
+    return bool(re.fullmatch(r"\s*random\s*\(\s*\)\s*", unsafe_body or ""))
+
+
+def _is_avm_opcode_hint(unsafe_body: str) -> bool:
+    """True when the ``unsafe`` block is an AVM opcode call (``avm::...``).
+    Aztec documents these as constrained by the AVM itself — only suppress with
+    an adjacent Safety note."""
+    return bool(re.match(r"\s*avm\s*::\s*\w+\s*\(", unsafe_body or ""))
+
+
+def _is_documented_deferred_constraint(safety_text: Optional[str]) -> bool:
+    """True when the Safety note documents kernel/rollup/discovery deferred binding."""
+    if not safety_text:
+        return False
+    return bool(_DEFERRED_CONSTRAINT_SAFETY_RE.search(safety_text))
+
+
 # ---------------------------------------------------------------------------
 # Lexer
 # ---------------------------------------------------------------------------
@@ -285,9 +476,12 @@ class NoirLexer:
             return []
 
         stripped = _strip_comments(content)
+        helper_summaries = _helper_constraint_summaries(stripped)
         vulns: List[Vulnerability] = []
         for name, body, offset in _functions(stripped):
-            vulns += self._detect_unconstrained_unsafe(content, body, offset, name)
+            vulns += self._detect_unconstrained_unsafe(
+                content, body, offset, name, helper_summaries,
+            )
         vulns += self._detect_unconstrained_input(content, stripped)
         vulns += self._detect_unchecked_cast(content, stripped)
         for name, body, offset in _functions(stripped):
@@ -299,7 +493,12 @@ class NoirLexer:
     # --- Rule 1: unconstrained `unsafe {}` result -------------------------
 
     def _detect_unconstrained_unsafe(
-        self, src: str, body: str, body_offset: int, fn_name: str,
+        self,
+        src: str,
+        body: str,
+        body_offset: int,
+        fn_name: str,
+        helper_summaries: Optional[dict] = None,
     ) -> List[Vulnerability]:
         # Identifiers that ARE bound by a constraint in this function body:
         # seed from assert/assert_eq arguments, then walk backward through simple
@@ -310,17 +509,32 @@ class NoirLexer:
         for am in re.finditer(r"\bassert(?:_eq)?\s*\(", body):
             constrained |= _idents(_paren_segment(body, am.end() - 1))
 
-        lets = [(m.group(1), m.group(2)) for m in re.finditer(
-            r"\blet\s+(?:mut\s+)?(\w+)\s*=\s*([^;]{0,4000});", body)]
-        changed = True
-        while changed:
-            changed = False
-            for name, rhs in lets:
-                if name in constrained:
-                    for idt in _idents(rhs):
-                        if idt not in constrained:
-                            constrained.add(idt)
-                            changed = True
+        # Same-file helpers: args passed into parameters the helper constrains
+        # (or returns) count as constrained — aztec-nr `confirm_hinted_note`,
+        # `verify_collapse_hints`, `public_data_storage_read`, etc.
+        summaries = helper_summaries or {}
+        for helper_name, reachable_positions in summaries.items():
+            if helper_name == fn_name:
+                continue
+            for cm in re.finditer(r"\b" + re.escape(helper_name) + r"\s*\(", body):
+                if cm.start() > 0 and body[cm.start() - 1] == ".":
+                    continue
+                args = _split_top_level(_paren_segment(body, cm.end() - 1), ",")
+                for idx in reachable_positions:
+                    if idx >= len(args):
+                        continue
+                    # Any ident in the arg (bare `hint`, `hint.field`, or a
+                    # struct literal mentioning the hint) is treated as bound.
+                    constrained |= _idents(args[idx])
+
+        # Cross-module Aztec convention: `constrain_*` / `confirm_*` / `verify_*`
+        # call sites (free function OR method) re-constrain their arguments.
+        for cm in _CONSTRAINT_HELPER_NAME_RE.finditer(body):
+            args = _split_top_level(_paren_segment(body, cm.end() - 1), ",")
+            for arg in args:
+                constrained |= _idents(arg)
+
+        _expand_constrained_through_lets(constrained, body)
 
         out: List[Vulnerability] = []
         for um in re.finditer(r"\blet\s+(?:mut\s+)?([\w(),\s]{0,200}?)\s*=\s*unsafe\s*\{", body):
@@ -330,6 +544,22 @@ class NoirLexer:
             free = [w for w in names if w not in constrained]
             if not free:
                 continue
+
+            # Intentional trust boundaries (only with adjacent `// Safety:`):
+            # - `unsafe { random() }` — privacy entropy the sender already knows
+            # - `unsafe { avm::opcode(...) }` — constrained by the AVM itself
+            # - Safety documents kernel/rollup/discovery deferred constraint
+            unsafe_body = _brace_segment(body, um.end() - 1)
+            unsafe_kw = body.find("unsafe", um.start(), um.end())
+            safety_off = body_offset + (unsafe_kw if unsafe_kw >= 0 else um.start())
+            safety_text = _adjacent_safety_comment_text(src, safety_off)
+            if safety_text and (
+                _is_intentional_unconstrained_entropy(unsafe_body)
+                or _is_avm_opcode_hint(unsafe_body)
+                or _is_documented_deferred_constraint(safety_text)
+            ):
+                continue
+
             line = _line_of(src, body_offset + um.start())
             witness = free[0]
             out.append(Vulnerability(
@@ -376,22 +606,9 @@ class NoirLexer:
         # treat that main identifier as reachable too. This is intentionally
         # bounded (one call edge, direct calls, positional args only) to keep the
         # scanner dependency-free and predictable.
-        helper_summaries: dict[str, Set[int]] = {}
-        for fn_name, helper_body, _helper_off in _functions(stripped):
-            if fn_name == "main":
+        for helper_name, reachable_positions in _helper_constraint_summaries(stripped).items():
+            if helper_name == "main":
                 continue
-            helper_params = _function_params(stripped, fn_name)
-            if not helper_params:
-                continue
-            helper_reachable = _reachable_to_constraint_or_output(helper_body)
-            reachable_positions = {
-                idx for idx, param in enumerate(helper_params)
-                if param in helper_reachable
-            }
-            if reachable_positions:
-                helper_summaries[fn_name] = reachable_positions
-
-        for helper_name, reachable_positions in helper_summaries.items():
             for cm in re.finditer(r"\b" + re.escape(helper_name) + r"\s*\(", body):
                 # Keep this to free-function calls, not method-style ``x.helper(...)``.
                 if cm.start() > 0 and body[cm.start() - 1] == ".":
@@ -648,40 +865,13 @@ class NoirLexer:
     # --- Rule 6: `unsafe {}` without a `// Safety:` note ------------------
 
     def _detect_unsafe_missing_safety(self, src: str, stripped: str) -> List[Vulnerability]:
-        def has_adjacent_safety_comment(unsafe_offset: int) -> bool:
-            unsafe_line = _line_of(src, unsafe_offset)
-            lines = src.splitlines()
-            line_text = lines[unsafe_line - 1] if 0 < unsafe_line <= len(lines) else ""
-
-            # Same-line `// Safety:` is attached to this unsafe block/statement.
-            if re.search(r"//\s*Safety\s*:", line_text, re.IGNORECASE):
-                return True
-
-            # Walk only the immediately preceding comment region. Blank lines do
-            # not break adjacency, but any code line does. Limit the region to a
-            # small number of non-empty comment lines so an older, unrelated
-            # Safety note cannot bless a later unsafe block.
-            comment_lines_seen = 0
-            for prev in range(unsafe_line - 2, -1, -1):
-                text = lines[prev].strip()
-                if not text:
-                    continue
-                if not text.startswith("//"):
-                    break
-                comment_lines_seen += 1
-                if comment_lines_seen > 2:
-                    break
-                if re.search(r"^//\s*Safety\s*:", text, re.IGNORECASE):
-                    return True
-            return False
-
         out: List[Vulnerability] = []
         for um in re.finditer(r"\bunsafe\s*\{", stripped):
             # Noir's own convention (and compiler lint) is a `// Safety:` comment
             # adjacent to the block or the enclosing statement. Check only the
             # same line and the immediately preceding comment region in the RAW
             # source (comments are stripped in `stripped`).
-            if has_adjacent_safety_comment(um.start()):
+            if _has_adjacent_safety_comment(src, um.start()):
                 continue
             line = _line_of(src, um.start())
             out.append(Vulnerability(

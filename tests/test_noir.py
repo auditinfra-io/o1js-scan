@@ -124,10 +124,190 @@ fn main(x: Field) {
     assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("m.nr", src))
 
 
+def test_confirm_helper_same_file_suppresses():
+    # Aztec-nr get_note archetype: unsafe hint passed into confirm_* helper
+    # that asserts on the param — must NOT fire HIGH.
+    src = """
+unconstrained fn view_note() -> Field { 0 }
+fn confirm_hinted_note(hinted_note: Field, slot: Field) {
+    assert(hinted_note != 0);
+    assert(slot != 0);
+}
+fn get_note(slot: Field) -> Field {
+    // Safety: The note is constrained below.
+    let hinted_note = unsafe { view_note() };
+    confirm_hinted_note(hinted_note, slot)
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("note.nr", src))
+
+
+def test_constrain_call_site_name_suppresses_cross_module_shape():
+    # Helper body not in this file — basename `constrain_*` still credits args.
+    src = """
+fn get_header(block_number: Field) -> Field {
+    // Safety: The header is constrained below.
+    let header = unsafe { get_block_header_at_internal(block_number) };
+    constrain_get_block_header_at_internal(header, block_number);
+    header
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("hdr.nr", src))
+
+
+def test_verify_helper_with_field_arg_suppresses():
+    # Struct/field args that mention the hint still bind the parent binding.
+    src = """
+fn verify_collapse_hints(input: Field, collapsed: Field) {
+    assert(collapsed == input);
+}
+fn collapse(input: Field) -> Field {
+    // Safety: The hints are verified by verify_collapse_hints.
+    let collapsed = unsafe { get_collapse_hints(input) };
+    verify_collapse_hints(input, collapsed);
+    collapsed
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("collapse.nr", src))
+
+
+def test_documented_random_entropy_suppresses():
+    # Intentional privacy entropy — Safety + unsafe { random() } must stay quiet.
+    src = """
+fn create_note(owner: Field) -> Field {
+    // Safety: We use the randomness to preserve privacy; the sender already
+    // knows the note pre-image and is trusted not to disclose it.
+    let randomness = unsafe { random() };
+    owner + randomness
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("life.nr", src))
+
+
+def test_random_without_safety_still_fires():
+    # Without Safety, random() is still an unconstrained witness (HIGH).
+    src = """
+fn create_note(owner: Field) -> Field {
+    let randomness = unsafe { random() };
+    owner + randomness
+}
+"""
+    fired = [x for x in analyze_noir_file("life.nr", src)
+             if x.rule_id == "NOIR_UNCONSTRAINED_WITNESS"]
+    assert fired and fired[0].evidence["witness"] == "randomness"
+
+
+def test_confirm_helper_does_not_suppress_unrelated_free_hint():
+    # confirm_* binds only its args — a sibling free unsafe stays HIGH.
+    src = """
+fn confirm_hinted_note(hinted_note: Field) { assert(hinted_note != 0); }
+fn get_note() -> Field {
+    // Safety: note constrained; other_hint is NOT.
+    let hinted_note = unsafe { view_note() };
+    let other_hint = unsafe { view_note() };
+    confirm_hinted_note(hinted_note);
+    other_hint
+}
+"""
+    fired = [x for x in analyze_noir_file("note.nr", src)
+             if x.rule_id == "NOIR_UNCONSTRAINED_WITNESS"]
+    assert len(fired) == 1
+    assert fired[0].evidence["witness"] == "other_hint"
+
+
+def test_tuple_let_asserted_flags_bind_membership_witness():
+    # Aztec nullifier non-inclusion: witness passed to check_non_membership_*;
+    # asserted return flags must bind the witness via tuple let fixpoint / name.
+    src = """
+fn assert_nullifier_did_not_exist_by(root: Field, nullifier: Field) {
+    // Safety: magical values for the proof below.
+    let (low_leaf_preimage, witness) = unsafe { get_low_nullifier_membership_witness(root, nullifier) };
+    assert(!low_leaf_preimage.is_empty());
+    let (non_inclusion, is_valid_low_leaf, low_leaf_exists) = check_non_membership_with_hasher(
+        nullifier,
+        low_leaf_preimage,
+        witness,
+        root,
+    );
+    assert(low_leaf_exists);
+    assert(is_valid_low_leaf);
+    assert(non_inclusion);
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("nullifier.nr", src))
+
+
+def test_public_data_storage_read_call_binds_witness():
+    src = """
+fn public_storage_historical_read(root: Field, index: Field) -> Field {
+    // Safety: The witness is only used as a magical value for the proof below.
+    let witness = unsafe { get_public_data_witness(root, index) };
+    public_data_storage_read(
+        root,
+        index,
+        MembershipWitness { leaf_index: witness.index, sibling_path: witness.path },
+        witness.leaf_preimage,
+    )
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("storage.nr", src))
+
+
+def test_avm_opcode_with_safety_suppresses():
+    src = """
+fn maybe_msg_sender() -> Field {
+    // Safety: AVM opcodes are constrained by the AVM itself
+    let maybe_msg_sender = unsafe { avm::sender() };
+    maybe_msg_sender
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("avm.nr", src))
+
+
+def test_kernel_deferred_safety_suppresses():
+    # Aztec private-context archetype: hint packed for kernel validation.
+    src = """
+fn in_revertible_phase(counter: Field) -> bool {
+    // Safety: Kernel will validate that the claim is correct by validating the
+    // expected counters.
+    let is_revertible = unsafe { is_execution_in_revertible_phase(counter) };
+    is_revertible
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("ctx.nr", src))
+
+
+def test_generic_safety_alone_does_not_suppress_free_hint():
+    # A bare Safety note is NOT enough — must still re-constrain (or match a
+    # deferred/entropy/AVM pattern). Keeps the marquee TP honest.
+    src = """
+fn main(x: Field) -> pub Field {
+    // Safety: hint is deterministic
+    let guess = unsafe { hint(x) };
+    guess * x
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" in _rules(analyze_noir_file("main.nr", src))
+
+
+def test_safety_above_split_let_unsafe_lines_is_adjacent():
+    # `let x =` on one line, `unsafe { ... }` on the next — Safety above the let.
+    src = """
+fn existing_handshake_secrets_or_else() -> Field {
+    // Safety: this only selects which source backs the tag. Secrets are
+    // constrained against the registry before a constrained tag is emitted.
+    let existing =
+        unsafe { get_existing_app_siloed_handshake_secrets() };
+    existing
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("tag.nr", src))
+    assert "NOIR_UNSAFE_MISSING_SAFETY" not in _rules(analyze_noir_file("tag.nr", src))
+
+
 # ---------------------------------------------------------------------------
 # Rule 2 — private input never constrained
 # ---------------------------------------------------------------------------
-
 # `secret` is a private witness the circuit never binds (no assert, not output).
 _UNCONSTRAINED_INPUT = """
 fn main(secret: Field, limit: pub Field) -> pub Field {
