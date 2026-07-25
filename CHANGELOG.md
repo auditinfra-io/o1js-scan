@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- README "Where this tool stops" section — states plainly that a clean run is
+  not an audit and a finding is a lead, not a verdict, and points readers who
+  need analysis beyond a lexical pass to where that work happens.
+
 ## [0.9.0] - 2026-07-26
 
 ### Added

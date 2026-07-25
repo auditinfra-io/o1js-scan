@@ -46,7 +46,7 @@ for the o1js and Noir vulnerable/fixed pairs.
 - [Usage](#usage) · [Suppressing a finding](#suppressing-a-reviewed-finding)
 - [GitHub Action](#github-action)
 - [What it detects — o1js](#what-it-detects-o1js) · [Noir](#what-it-detects-noir)
-- [Known limitations](#known-limitations)
+- [Known limitations](#known-limitations) · [Where this tool stops](#where-this-tool-stops)
 - [Compatibility](#compatibility) · [How it works](#how-it-works)
 - [Contributing](#roadmap--contributing)
 
@@ -347,6 +347,30 @@ for this dependency-free design, not bugs:
 These are the reason findings are a starting point for human review, not
 proofs. A dataflow-aware rewrite is deliberately out of scope for the
 lexical analyzer.
+
+## Where this tool stops
+
+o1js-scan is deliberately a **shallow, single-file lexical pass** — no parser,
+no dataflow, no solver. That is what makes it dependency-free and instant in
+CI, and it is also a hard ceiling. The limitations above aren't a backlog;
+they're consequences of the design.
+
+So it is worth being explicit about what this tool can and cannot tell you:
+
+- **A clean run is not an audit.** It means no *shape* this scanner recognizes
+  matched — not that the circuit is sound. Bug classes that need dataflow,
+  path sensitivity, or constraint solving are out of reach for a tool of this
+  shape, in any language.
+- **A finding is a lead, not a verdict.** Every rule here is a heuristic with
+  a documented false-positive class.
+
+That trade is the right one for a linter you run on every commit. If you're
+working on something where the difference matters — a protocol holding real
+value, a circuit you can't afford to get wrong — treat this as the first pass
+and budget for a real review.
+
+Deeper analysis is what [auditinfra](https://github.com/auditinfra-io) works
+on; this scanner is the part of it we can give away.
 
 ## Compatibility
 
