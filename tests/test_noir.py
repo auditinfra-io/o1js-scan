@@ -261,7 +261,61 @@ def test_bool_return_expression_does_not_fire():
 
 
 # ---------------------------------------------------------------------------
-# Rule 5 — `unsafe {}` missing a `// Safety:` comment
+# Rule 5 — constraint gated by a prover-controlled condition
+# ---------------------------------------------------------------------------
+
+def test_conditional_assert_on_witness_bool_fires():
+    src = """
+fn main(enabled: bool, x: Field, y: pub Field) {
+    if enabled {
+        assert(x == y);
+    }
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    f = [c for c in v if c.rule_id == "NOIR_CONDITIONAL_ASSERT"]
+    assert f and f[0].severity == Severity.MEDIUM
+    assert f[0].evidence["condition"] == "enabled"
+    # not also reported as an unconstrained input
+    assert "NOIR_UNCONSTRAINED_INPUT" not in _rules(v)
+
+
+def test_negated_witness_bool_condition_fires():
+    src = """
+fn main(skip: bool, x: Field, y: pub Field) {
+    if !skip {
+        assert(x == y);
+    }
+}
+"""
+    assert "NOIR_CONDITIONAL_ASSERT" in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_public_condition_does_not_fire():
+    src = """
+fn main(enabled: pub bool, x: Field, y: pub Field) {
+    if enabled {
+        assert(x == y);
+    }
+}
+"""
+    assert "NOIR_CONDITIONAL_ASSERT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_comparison_guard_does_not_fire():
+    # `if x != 0` is a legitimate guard, not a bare witness bool
+    src = """
+fn main(x: Field, y: pub Field) {
+    if x != 0 {
+        assert(y == x);
+    }
+}
+"""
+    assert "NOIR_CONDITIONAL_ASSERT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+# ---------------------------------------------------------------------------
+# Rule 6 — `unsafe {}` missing a `// Safety:` comment
 # ---------------------------------------------------------------------------
 
 def test_missing_safety_comment_is_low():

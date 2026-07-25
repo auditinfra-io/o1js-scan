@@ -25,6 +25,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     discarded (a bare `x == y;` statement, or a `let` bound to a comparison and
     never used); comparisons add no constraint on their own. Analog of o1js
     `O1JS_UNASSERTED_BOOL`.
+  - `NOIR_CONDITIONAL_ASSERT` (medium) — an `assert` gated by a prover-controlled
+    bare `bool` condition (`if flag { assert(...) }`), which the prover can skip
+    by setting the flag false. Scoped to bare witness bools.
   - `NOIR_UNSAFE_MISSING_SAFETY` (low) — an `unsafe` block missing a
     `// Safety:` comment.
   - New public API: `NoirLexer`, `analyze_noir_file`, `is_noir_source`,
