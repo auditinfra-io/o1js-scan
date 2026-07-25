@@ -4,6 +4,10 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly FP canary against upstream aztec-nr
+    - cron: "0 6 * * 1"
 
 jobs:
   test:
@@ -20,7 +24,25 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install
         run: pip install -e ".[dev]"
-      - name: Run tests
+      - name: Run tests (unit + Noir corpus)
         run: pytest -q
-      - name: Smoke-test the CLI
-        run: o1js-scan --help
+      - name: Smoke-test the CLI aliases
+        run: |
+          o1js-scan --help
+          noir-scan --help
+          noir-scan examples/noir_constrained.nr --lang noir --fail-on high
+
+  aztec-nr-canary:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e .
+      - name: Clone aztec-nr
+        run: git clone --depth 1 https://github.com/AztecProtocol/aztec-nr.git /tmp/aztec-nr
+      - name: Canary (0 HIGH)
+        run: bash scripts/aztec_nr_canary.sh /tmp/aztec-nr

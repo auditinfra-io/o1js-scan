@@ -1574,19 +1574,57 @@ def analyze_file(filepath: str, source: str) -> List[Vulnerability]:
     return O1jsLexer().analyze(source, Path(filepath))
 
 
-def analyze_project(root: str) -> List[Tuple[str, Vulnerability]]:
-    """Scan every o1js (``.ts``/``.js``/``.mjs``) and Noir (``.nr``) file under
-    ``root`` (skipping ``node_modules``). Returns ``[(filepath, vuln), ...]``."""
+# Directory basenames skipped when walking a project tree. Keep this list
+# documented in the README — Noir CI trees often have ``target/`` from nargo.
+_SKIP_DIR_NAMES = frozenset({
+    "node_modules", ".git", "target", "dist", "build",
+    "__pycache__", ".venv", "venv",
+})
+
+_O1JS_GLOBS = ("*.ts", "*.js", "*.mjs")
+_NOIR_GLOBS = ("*.nr",)
+
+
+def _path_is_skipped(path: Path) -> bool:
+    return any(part in _SKIP_DIR_NAMES for part in path.parts)
+
+
+def analyze_project(
+    root: str,
+    lang: str = "auto",
+) -> List[Tuple[str, Vulnerability]]:
+    """Scan o1js (``.ts``/``.js``/``.mjs``) and/or Noir (``.nr``) files under
+    ``root``.
+
+    ``lang`` is ``auto`` (both), ``o1js``, or ``noir``. Skips ``node_modules``,
+    ``target``, ``.git``, and other build/vendor directory basenames. Returns
+    ``[(filepath, vuln), ...]``.
+    """
     from .noir import NoirLexer, is_noir_source
+
+    lang = (lang or "auto").lower()
+    if lang not in ("auto", "o1js", "noir"):
+        raise ValueError(f"lang must be auto|o1js|noir, got {lang!r}")
 
     o1js_lexer = O1jsLexer()
     noir_lexer = NoirLexer()
     out: List[Tuple[str, Vulnerability]] = []
     base = Path(root)
-    paths = [base] if base.is_file() else [
-        p for pat in ("*.ts", "*.js", "*.mjs", "*.nr")
-        for p in base.rglob(pat) if "node_modules" not in str(p)
-    ]
+    globs: List[str] = []
+    if lang in ("auto", "o1js"):
+        globs.extend(_O1JS_GLOBS)
+    if lang in ("auto", "noir"):
+        globs.extend(_NOIR_GLOBS)
+
+    if base.is_file():
+        paths = [base]
+    else:
+        paths = [
+            p for pat in globs
+            for p in base.rglob(pat)
+            if not _path_is_skipped(p)
+        ]
+
     for p in paths:
         try:
             src = p.read_text(encoding="utf-8", errors="ignore")
@@ -1594,10 +1632,12 @@ def analyze_project(root: str) -> List[Tuple[str, Vulnerability]]:
             continue
         sp = str(p)
         if sp.endswith(".nr"):
+            if lang == "o1js":
+                continue
             if is_noir_source(src, sp):
                 for v in noir_lexer.analyze(src, p):
                     out.append((sp, v))
-        elif is_o1js_source(src, sp):
+        elif lang != "noir" and is_o1js_source(src, sp):
             for v in o1js_lexer.analyze(src, p):
                 out.append((sp, v))
     return out

@@ -6,6 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-25
+
+### Added
+- **Noir productization** — dual-brand docs/CLI; `noir-scan` console-script alias;
+  `--lang {auto,o1js,noir}`; skip `target/` / `.git` / build dirs; GitHub Action
+  `lang` input; Noir CI recipe + optional pre-commit snippet in README.
+- **`NOIR_UNUSED_CHECK_RESULT`** (high/medium) — `check_*` / `confirm_*` /
+  `verify_*` / `constrain_*` result discarded (bare call) or assigned and never
+  asserted.
+- **`NOIR_CONDITIONAL_CONSTRAIN`** (medium) — constrain/confirm/verify only under
+  a prover-controlled `if`, while an `unsafe` hint still reaches the output.
+- Annotated Noir recall corpus (`tests/corpus/noir/`) + `docs/noir_calibration.md`
+  (aztec-nr 21→0 HIGH story) + optional weekly/manual aztec-nr canary workflow.
+
+### Changed
+- Same-file helper credit for `unsafe` hints is **assert-only** (hollow
+  `confirm_*` that only returns the hint no longer suppresses the caller).
+- Cross-module name credit skips same-file helpers that are not assert-crediting.
+- Multi-line `// Safety:` adjacency widened (aztec-nr notes); split-line
+  `let x =` / `unsafe` Safety adjacency.
+- CONTRIBUTING documents the NoirLexer path.
+
 ## [0.6.0] - 2026-07-25
 
 ### Added

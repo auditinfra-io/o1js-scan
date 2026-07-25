@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "o1js-scan"
-version = "0.6.0"
+version = "0.7.0"
 description = "Static soundness analyzer for o1js / Mina zkApps and Noir circuits"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -29,6 +29,7 @@ Issues = "https://github.com/auditinfra-io/o1js-scan/issues"
 
 [project.scripts]
 o1js-scan = "o1js_scan.cli:main"
+noir-scan = "o1js_scan.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["o1js_scan*"]

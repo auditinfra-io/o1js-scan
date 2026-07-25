@@ -3,18 +3,24 @@
 [![CI](https://github.com/auditinfra-io/o1js-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/auditinfra-io/o1js-scan/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.8%2B-blue)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/o1js-scan.svg)](https://pypi.org/project/o1js-scan/)
 
-A fast, dependency-free static analyzer for **o1js / Mina zkApp** soundness bugs.
+A fast, dependency-free static analyzer for **zk circuit soundness bugs** in:
 
-o1js zkApps compile TypeScript `@method` bodies into Kimchi circuits. Just like
-Circom circuits, the security-critical bugs usually aren't in the proving system
-(that's upstream o1Labs infrastructure) — they're in the **application's own
-constraints**: witnesses the prover controls but the contract never binds, state
-reads that never assert a precondition, and account permissions that let a
-signature bypass the proof logic entirely.
+- **o1js / Mina zkApps** (TypeScript `.ts` / `.js`) — Kimchi circuits from `@method` bodies
+- **Noir** (`.nr`) — Aztec's Rust-like ZK DSL (including aztec-nr-shaped patterns)
 
-`o1js-scan` finds those. It's the o1js analog of under-constrained-signal
-scanning for Circom.
+The security-critical bugs usually aren't in the proving system — they're in the
+**application's own constraints**: witnesses the prover controls but the circuit
+never binds. `o1js-scan` is the under-constrained-signal scanner for Circom's
+cousins in the Mina and Noir ecosystems.
+
+```bash
+pip install o1js-scan
+o1js-scan path/to/zkapp          # o1js + Noir (auto)
+noir-scan path/to/circuits       # same binary — Noir-friendly alias
+noir-scan . --lang noir --fail-on high --sarif noir.sarif
+```
 
 ## Install
 
@@ -30,23 +36,29 @@ cd o1js-scan
 pip install -e .
 ```
 
-No third-party dependencies. Python 3.8+.
+No third-party dependencies. Python 3.8+. The `noir-scan` console script is
+installed alongside `o1js-scan` (same entry point).
 
 ## Usage
 
 ```bash
-# scan a directory (recursively; skips node_modules)
-o1js-scan path/to/zkapp/src
+# scan a directory (recursively; skips node_modules, target/, .git, …)
+o1js-scan path/to/project
+
+# Noir-only / o1js-only
+noir-scan circuits --lang noir
+o1js-scan src --lang o1js
 
 # scan a single file
 o1js-scan src/MyContract.ts
+noir-scan src/main.nr
 
 # machine-readable output for CI
 o1js-scan src --json
 
 # SARIF 2.1.0 for GitHub code scanning (writes o1js-scan.sarif by default)
 o1js-scan src --sarif
-o1js-scan src --sarif report.sarif   # or a named file, or - for stdout
+noir-scan . --lang noir --sarif noir.sarif
 
 # choose which severity fails CI (critical|high|medium|low|none; default high)
 o1js-scan src --fail-on medium
@@ -62,6 +74,9 @@ or `--fail-on medium` to gate more strictly. A missing scan path exits `2` with
 an error on stderr, so a typo can't silently pass CI as a clean run. Every run
 prints a one-line summary (counts by severity and the gate verdict) to stderr.
 
+**Directories skipped when walking a tree:** `node_modules`, `target` (nargo),
+`.git`, `dist`, `build`, `__pycache__`, `.venv`, `venv`.
+
 ### Suppressing a reviewed finding
 
 Silence a finding you've triaged without loosening the gate, with an inline
@@ -74,6 +89,10 @@ this.send({ to, amount });  // o1js-scan-disable-line O1JS_UNCONSTRAINED_WITNESS
 this.send({ to, amount });
 ```
 
+```nr
+let inv = unsafe { hint(x) };  // o1js-scan-disable-line NOIR_UNCONSTRAINED_WITNESS
+```
+
 List one or more rule ids to suppress only those; a bare directive (no ids)
 suppresses every rule on the target line.
 
@@ -82,7 +101,7 @@ As a library:
 ```python
 from o1js_scan import analyze_file, analyze_project
 
-for path, finding in analyze_project("src"):
+for path, finding in analyze_project("src", lang="auto"):
     print(path, finding.rule_id, finding.severity.value, finding.title)
 ```
 
@@ -105,21 +124,51 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: auditinfra-io/o1js-scan@v0.6.0
+      - uses: auditinfra-io/o1js-scan@v0.7.0
         with:
           path: src              # optional, defaults to the repo root
-          # version: 0.6.0       # optional, pin the scanner version
+          lang: auto             # auto | o1js | noir
+          # version: 0.7.0       # optional, pin the scanner version
           # fail-on-findings: true   # optional, fail the job on any high/critical
 ```
 
-Inputs: `path` (default `.`), `version` (PyPI version to install, default latest),
-`upload-sarif` (default `true`), `fail-on-findings` (default `false` — by default
-the scan reports as alerts without failing the build). SARIF upload needs
-`security-events: write` and code scanning enabled (on by default for public
-repos; private repos need GitHub Advanced Security). To gate the build instead of
-(or in addition to) uploading alerts, set `fail-on-findings: true`.
+### Noir-only CI recipe
 
-## What it detects
+```yaml
+- uses: auditinfra-io/o1js-scan@v0.7.0
+  with:
+    path: .
+    lang: noir
+    fail-on-findings: true
+```
+
+Or without the Action:
+
+```bash
+pip install o1js-scan
+noir-scan . --lang noir --fail-on high --sarif noir.sarif
+```
+
+### pre-commit (optional)
+
+```yaml
+# .pre-commit-config.yaml
+- repo: local
+  hooks:
+    - id: noir-scan
+      name: noir-scan
+      entry: noir-scan
+      language: system
+      pass_filenames: false
+      args: [".", "--lang", "noir", "--fail-on", "high"]
+```
+
+Inputs: `path` (default `.`), `lang` (`auto`|`o1js`|`noir`, default `auto`),
+`version` (PyPI version to install, default latest), `upload-sarif` (default
+`true`), `fail-on-findings` (default `false`). SARIF upload needs
+`security-events: write` and code scanning enabled.
+
+## What it detects (o1js)
 
 | Rule | Severity | What it means |
 |------|----------|---------------|
@@ -135,7 +184,7 @@ repos; private repos need GitHub Advanced Security). To gate the build instead o
 | `MissingRangeCheck` | high | A raw `Field` (not the range-checked `UInt64`/`UInt32`) is used as a transfer amount. A `Field` is an element mod p and is not range-bounded. |
 | `O1JS_WEAK_PERMISSIONS` | high / medium | `editState` / `send` permission set to `proofOrSignature()` or `none()`, letting the zkApp account key bypass the circuit by signing. |
 
-### False-positive guards
+### False-positive guards (o1js)
 
 The analyzer is designed to stay quiet on correct code:
 
@@ -172,27 +221,41 @@ The analyzer is designed to stay quiet on correct code:
 - Comments and string literals are stripped before analysis, so an `assert`
   inside a string can't create a false result.
 
-## Noir circuits (experimental)
+## What it detects (Noir)
 
 The same soundness idea — under-constrained witnesses — applies to
-[Noir](https://noir-lang.org) (`.nr`) circuits, Aztec's Rust-like ZK DSL. Point
-the scanner at `.nr` files (or a mixed tree) and it analyzes them with a Noir
-rule set; `.ts`/`.js` files still go through the o1js rules. Same lexical,
-dependency-free approach.
+[Noir](https://noir-lang.org) (`.nr`) circuits. Point the scanner at `.nr`
+files (or use `--lang noir`) and it analyzes them with the Noir rule set.
+Same lexical, dependency-free approach. Calibrated against aztec-nr oracle /
+`unsafe` idioms — see [`docs/noir_calibration.md`](docs/noir_calibration.md).
 
 | Rule | Severity | What it means |
 |------|----------|---------------|
-| `NOIR_UNCONSTRAINED_WITNESS` | high | A value bound from an `unsafe { ... }` block — the result of an `unconstrained fn` (oracle / Brillig hint) — that is never re-constrained by an `assert` / `assert_eq`. The hint runs **outside** the circuit, so a malicious prover can return anything; it is sound only if the circuit re-derives and asserts it (e.g. `assert(x * inv == 1)`). Direct analog of `O1JS_UNCONSTRAINED_PROVABLE_WITNESS`. A one-hop `let` is followed, so a hint asserted through an intermediate local is not flagged. |
-| `NOIR_UNCONSTRAINED_INPUT` | medium | A private (witness) input of `fn main` that flows into **no** `assert` / `assert_eq` and is **not** part of the public output — a forgotten-constraint bug where the proof binds nothing about it. Reachability to a constraint or the return is expanded to a fixpoint through `let` bindings (so a witness bound via a hash commitment, or any chain of locals, is not flagged). Public (`pub`) and `_`-prefixed inputs are ignored. Analog of `O1JS_UNCONSTRAINED_WITNESS`. |
-| `NOIR_UNCHECKED_CAST` | medium | A prover-controlled value (a private input or an `unsafe` result) cast to a narrow unsigned type (`as u8`/`u16`/`u32`) with **no** range assertion. A narrowing cast **truncates** (keeps the low bits) — it does not prove the original fits — so a prover can supply a large value whose low bits pass while the true value differs. Scoped to those two witness sources (loop counters and known-small locals are not flagged). Analog of o1js `MissingRangeCheck`. |
-| `NOIR_UNASSERTED_BOOL` | high / medium | A comparison (`==`/`!=`/`<=`/`>=`) whose `bool` result is **discarded** — a bare `x == y;` statement (high) or a `let` bound to a comparison that is never used (medium). A comparison adds **no** constraint on its own; the circuit computes the check and throws it away, so it proves nothing. Wrap it in `assert(...)`. Analog of o1js `O1JS_UNASSERTED_BOOL`. |
-| `NOIR_CONDITIONAL_ASSERT` | medium | An `assert` runs inside `if <flag> { ... }` where `<flag>` is a prover-controlled bare `bool` (a private input or `unsafe` result). A constraint inside a conditional is only enforced when the condition holds, so the prover sets `<flag>` false to **skip** the check. Enforce it unconditionally, or constrain the flag. Scoped to bare witness bools (legitimate comparison guards like `if x != 0` are not flagged). |
-| `NOIR_UNSAFE_MISSING_SAFETY` | low | An `unsafe { ... }` block with no `// Safety:` comment. This is Noir's own convention (the compiler warns on it) and a review-hygiene signal — every `unsafe` result must be re-constrained, and the note documents how. Informational; does not fail CI. |
+| `NOIR_UNCONSTRAINED_WITNESS` | high | A value bound from an `unsafe { ... }` block — the result of an `unconstrained fn` (oracle / Brillig hint) — that is never re-constrained by an `assert` / `assert_eq` (or a confirming helper / merkle check). The hint runs **outside** the circuit. Analog of `O1JS_UNCONSTRAINED_PROVABLE_WITNESS`. |
+| `NOIR_UNCONSTRAINED_INPUT` | medium | A private (witness) input of `fn main` that flows into **no** `assert` / `assert_eq` and is **not** part of the public output. Analog of `O1JS_UNCONSTRAINED_WITNESS`. |
+| `NOIR_UNCHECKED_CAST` | medium | A prover-controlled value cast to a narrow unsigned type (`as u8`/`u16`/`u32`) with **no** range assertion. Analog of o1js `MissingRangeCheck`. |
+| `NOIR_UNASSERTED_BOOL` | high / medium | A comparison whose `bool` result is **discarded**. Analog of o1js `O1JS_UNASSERTED_BOOL`. |
+| `NOIR_CONDITIONAL_ASSERT` | medium | An `assert` inside `if <flag> { ... }` where `<flag>` is a prover-controlled bare `bool`. |
+| `NOIR_CONDITIONAL_CONSTRAIN` | medium | A `constrain_*` / `confirm_*` / `verify_*` call only under a prover-controlled `if`, while an `unsafe` hint still reaches the output. |
+| `NOIR_UNUSED_CHECK_RESULT` | high / medium | A `check_*` / `confirm_*` / `verify_*` / `constrain_*` result is discarded (bare call) or assigned and never asserted — the check does not bind the circuit. |
+| `NOIR_UNSAFE_MISSING_SAFETY` | low | An `unsafe { ... }` block with no adjacent `// Safety:` comment. Informational; does not fail CI at default `--fail-on high`. |
 
-This is an early rule set (two rules); contributions of new Noir rules and
-false-positive archetypes are welcome. As with the o1js rules, findings are a
-starting point for review, and the same aliasing/name-matching limitations
-below apply.
+### False-positive guards (Noir)
+
+- **Assert / let-hop / same-file confirm helpers** bind `unsafe` hints.
+- **Call-site names** `constrain_*` / `confirm_*` / `verify_*` /
+  `check_(non_)membership*` / `public_data_storage_read` credit args (with
+  unused-result detection for discarded checks).
+- **Documented intentional unconstrained** (requires adjacent `// Safety:`):
+  `random()`, `avm::…`, and kernel/rollup/discovery deferred wording.
+- **Tuple `let` + asserted flags** bind merkle witnesses passed into membership checks.
+
+Example:
+
+```bash
+noir-scan examples/noir_unconstrained.nr   # HIGH NOIR_UNCONSTRAINED_WITNESS
+noir-scan examples/noir_constrained.nr     # clean
+```
 
 ## Known limitations
 
@@ -236,6 +299,9 @@ for this dependency-free design, not bugs:
   followed — failure mode is a false positive on correct code that wraps the
   idiom, not a missed real bug.
 
+- **Noir cross-crate helpers** are recognized by **name convention** only (no
+  `Nargo.toml` / import resolution). Prefer miss over false positive.
+
 These are the reason findings are a starting point for human review, not
 proofs. A dataflow-aware rewrite is deliberately out of scope for the
 lexical analyzer.
@@ -252,18 +318,21 @@ The 2.x owner-auth idiom `this.sender.getAndRequireSignature()` is recognized
 as signature-gating. (Legacy `assertEquals` preconditions are still accepted,
 so older code isn't broken either.)
 
+Noir analysis targets Noir syntax used by Aztec / nargo projects (`.nr`); it
+does not invoke `nargo` or compile circuits.
+
 ## How it works
 
-It's a lexical analyzer, not a full TypeScript parser — o1js code is
-decorator + brace-delimited-method-body shaped and regex-tractable, and the
-output is meant to be triaged by a human. That keeps it dependency-free and
-instant to run in CI. Findings are a starting point for review, not proofs.
+It's a lexical analyzer, not a full TypeScript or Noir parser — o1js and Noir
+sources are brace-delimited and regex-tractable, and the output is meant to be
+triaged by a human. That keeps it dependency-free and instant to run in CI.
+Findings are a starting point for review, not proofs.
 
 ## Roadmap / contributing
 
 Contributions welcome — new rule families, more FP guards, and real-world
-calibration archetypes are all valuable. Please add a test to `tests/` for any
-new rule or guard. Run the suite with:
+calibration archetypes are all valuable. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Run the suite with:
 
 ```bash
 pip install -e ".[dev]"

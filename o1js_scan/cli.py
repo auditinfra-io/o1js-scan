@@ -1,6 +1,7 @@
-"""Command-line entry point for o1js-scan.
+"""Command-line entry point for o1js-scan / noir-scan.
 
-    o1js-scan <path> [--json | --sarif [FILE]] [--fail-on LEVEL]
+    o1js-scan <path> [--lang LANG] [--json | --sarif [FILE]] [--fail-on LEVEL]
+    noir-scan <path> ...   # same binary (Noir-friendly alias)
 
 Exits 1 when a finding at or above the ``--fail-on`` level (default ``high``)
 is present, 0 otherwise, and 2 when the scan path does not exist.
@@ -20,15 +21,35 @@ from .lexer import analyze_project
 from .vuln import meets_threshold
 
 _FAIL_ON_CHOICES = ("critical", "high", "medium", "low", "none")
+_LANG_CHOICES = ("auto", "o1js", "noir")
+
+
+def _prog_name(argv: Optional[List[str]]) -> str:
+    """Prefer the invoked binary name so ``noir-scan --help`` reads as Noir."""
+    if argv is not None:
+        return "o1js-scan"
+    name = Path(sys.argv[0]).name
+    if name.endswith("noir-scan") or name == "noir-scan":
+        return "noir-scan"
+    return "o1js-scan"
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    prog = _prog_name(argv)
     ap = argparse.ArgumentParser(
-        prog="o1js-scan",
-        description="o1js (Mina/Kimchi) zkApp application-layer soundness scanner.",
+        prog=prog,
+        description=(
+            "Static soundness scanner for o1js / Mina zkApps and Noir circuits "
+            "(under-constrained witnesses, unsafe hints, range casts)."
+        ),
     )
     ap.add_argument("path", help="file or directory to scan")
-    ap.add_argument("--version", action="version", version=f"o1js-scan {__version__}")
+    ap.add_argument("--version", action="version", version=f"{prog} {__version__}")
+    ap.add_argument(
+        "--lang", choices=_LANG_CHOICES, default="auto", metavar="LANG",
+        help="which sources to analyze "
+             f"({'|'.join(_LANG_CHOICES)}; default: auto = both).",
+    )
     ap.add_argument("--json", action="store_true", help="emit JSONL findings")
     ap.add_argument(
         "--sarif", nargs="?", const="o1js-scan.sarif", default=None, metavar="FILE",
@@ -45,10 +66,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Fail loudly on a missing path. Otherwise a typo'd scan target silently
     # produces zero findings and exit 0 — a green CI run that scanned nothing.
     if not Path(args.path).exists():
-        print(f"o1js-scan: path not found: {args.path}", file=sys.stderr)
+        print(f"{prog}: path not found: {args.path}", file=sys.stderr)
         return 2
 
-    findings = analyze_project(args.path)
+    findings = analyze_project(args.path, lang=args.lang)
 
     gate = any(meets_threshold(v.severity.value, args.fail_on) for _f, v in findings)
 
@@ -64,7 +85,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(doc)
             return 1 if gate else 0
         Path(args.sarif).write_text(doc, encoding="utf-8")
-        print(f"o1js-scan: wrote SARIF to {args.sarif}", file=sys.stderr)
+        print(f"{prog}: wrote SARIF to {args.sarif}", file=sys.stderr)
 
     if args.json:
         for fp, v in findings:
@@ -83,14 +104,18 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"{v.severity.value.upper():<8} {v.rule_id:<34} "
                   f"{Path(fp).name}:{line}  fn={v.function}  {v.title}")
 
-    print(_summary(findings, args.fail_on, gate), file=sys.stderr)
+    print(_summary(prog, findings, args.fail_on, gate, args.lang), file=sys.stderr)
     return 1 if gate else 0
 
 
-def _summary(findings, fail_on: str, gate: bool) -> str:
+def _summary(prog: str, findings, fail_on: str, gate: bool, lang: str) -> str:
     """One-line stderr summary: counts by severity and the gate outcome."""
     if not findings:
-        return "o1js-scan: no findings (or no o1js files found)"
+        if lang == "noir":
+            return f"{prog}: no findings (or no Noir .nr files found)"
+        if lang == "o1js":
+            return f"{prog}: no findings (or no o1js files found)"
+        return f"{prog}: no findings (or no Noir / o1js sources found)"
     counts = Counter(v.severity.value.lower() for _f, v in findings)
     by_sev = ", ".join(
         f"{counts[s]} {s}" for s in ("critical", "high", "medium", "low", "info")
@@ -99,7 +124,7 @@ def _summary(findings, fail_on: str, gate: bool) -> str:
     files = len({fp for fp, _v in findings})
     verdict = (f"fails (--fail-on {fail_on})" if gate
                else f"passes (--fail-on {fail_on})")
-    return (f"o1js-scan: {len(findings)} finding(s) [{by_sev}] "
+    return (f"{prog}: {len(findings)} finding(s) [{by_sev}] "
             f"in {files} file(s) — {verdict}")
 
 

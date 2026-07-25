@@ -186,6 +186,19 @@ def _has_any_comparison(text: str) -> bool:
     return False
 
 
+def _reachable_to_assert(body: str) -> Set[str]:
+    """Identifiers that flow into an ``assert`` / ``assert_eq`` only (fixpoint
+    through ``let``, including tuple destructuring). Used for same-file helper
+    summaries so a hollow ``confirm_*`` that only *returns* the hint does not
+    credit the caller."""
+    seed: Set[str] = set()
+    for am in re.finditer(r"\bassert(?:_eq)?\s*\(", body):
+        seed |= _idents(_paren_segment(body, am.end() - 1))
+    # Expand through lets (including tuples) until fixpoint.
+    _expand_constrained_through_lets(seed, body)
+    return seed
+
+
 def _reachable_to_constraint_or_output(body: str) -> Set[str]:
     """Identifiers in ``body`` that flow into a constraint (`assert`/`assert_eq`),
     any comparison, or the returned value, expanded to a fixpoint through `let`
@@ -255,8 +268,16 @@ def _function_params(stripped: str, fn_name: str) -> List[str]:
     """Lexically parse parameter names for ``fn_name``. This intentionally
     mirrors ``_main_params`` but returns names only so helper-call summaries can
     map arguments by position without needing Noir type semantics.
+
+    Supports Noir generics between the name and the parameter list
+    (``fn confirm_hinted_notes<Note, let M: u32>(...)``).
     """
-    m = re.search(r"\b(?:unconstrained\s+)?fn\s+" + re.escape(fn_name) + r"\s*\(([^)]{0,2000})\)", stripped)
+    m = re.search(
+        r"\b(?:unconstrained\s+)?fn\s+"
+        + re.escape(fn_name)
+        + r"(?:\s*<[^;{]{0,800}?>)?\s*\(([^)]{0,4000})\)",
+        stripped,
+    )
     if not m:
         return []
     out: List[str] = []
@@ -266,6 +287,7 @@ def _function_params(stripped: str, fn_name: str) -> List[str]:
             continue
         name, _, _typ = part.partition(":")
         name = re.sub(r"^\s*mut\s+", "", name).strip()
+        name = re.sub(r"^&\s*(?:mut\s+)?", "", name).strip()
         if re.fullmatch(r"\w+", name):
             out.append(name)
     return out
@@ -291,22 +313,24 @@ def _brace_segment(text: str, open_idx: int) -> str:
 
 
 def _helper_constraint_summaries(stripped: str) -> dict:
-    """Map helper name → parameter positions that flow into a constraint/output.
+    """Map helper name → parameter positions that the helper constrains.
 
-    Same shallow lexical contract as ``_detect_unconstrained_input``: one call
-    edge, free-function calls, positional args. Used so an ``unsafe`` hint
-    passed into ``confirm_hinted_note(...)`` / ``verify_*`` is treated as bound
-    when the callee constrains that parameter.
+    If the helper body contains any ``assert`` / ``assert_eq``, every parameter
+    that appears as a whole word in the body is credited (Aztec helpers often
+    rename params in loops before asserting). Helpers with **no** asserts are
+    treated as hollow and credit nothing — miss-not-hide for return-only
+    ``confirm_*`` stubs.
     """
     summaries: dict = {}
     for fn_name, helper_body, _off in _functions(stripped):
         helper_params = _function_params(stripped, fn_name)
         if not helper_params:
             continue
-        helper_reachable = _reachable_to_constraint_or_output(helper_body)
+        if not re.search(r"\bassert(?:_eq)?\s*\(", helper_body):
+            continue
         reachable_positions = {
             idx for idx, param in enumerate(helper_params)
-            if param in helper_reachable
+            if re.search(r"\b" + re.escape(param) + r"\b", helper_body)
         }
         if reachable_positions:
             summaries[fn_name] = reachable_positions
@@ -321,6 +345,19 @@ _CONSTRAINT_HELPER_NAME_RE = re.compile(
     r"|check_(?:non_)?membership\w*"
     r"|public_data_storage_read"
     r")\s*\("
+)
+
+# Subset used for unused-check-result. Bare ``verify_*`` / ``confirm_*`` /
+# ``constrain_*`` calls are often unit side-effect helpers (assert inside) —
+# only membership ``check_*`` bare discards and let-bound unused results fire.
+_CHECK_RESULT_NAME_RE = re.compile(
+    r"\b(?:"
+    r"constrain_\w+|confirm_\w+|verify_\w+"
+    r"|check_(?:non_)?membership\w*"
+    r")\s*\("
+)
+_BARE_UNUSED_CHECK_RE = re.compile(
+    r"\bcheck_(?:non_)?membership\w*\s*\("
 )
 
 
@@ -396,9 +433,9 @@ def _adjacent_safety_comment_text(src: str, unsafe_offset: int) -> Optional[str]
             continue
         if text.startswith("//"):
             comment_lines_seen += 1
-            # Aztec-nr Safety notes routinely span 3–6 lines; keep the region
-            # bounded so an older unrelated Safety cannot bless a later unsafe.
-            if comment_lines_seen > 8:
+            # Aztec-nr Safety notes can span a dozen lines; keep a hard cap so an
+            # older unrelated Safety cannot bless a later unsafe.
+            if comment_lines_seen > 20:
                 break
             block.append(text)
             continue
@@ -437,6 +474,10 @@ _DEFERRED_CONSTRAINT_SAFETY_RE = re.compile(
     r"|hint\s+to\s+check"
     r"|read\s+request\s+validation"
     r"|before\s+a\s+constrained\s+tag"
+    r"|malicious\s+oracle"
+    r"|honest\s+oracle"
+    r"|fail\s+to\s+produce\s+a\s+proof"
+    r"|inclusion\s+proof"
     r")"
 )
 
@@ -477,15 +518,20 @@ class NoirLexer:
 
         stripped = _strip_comments(content)
         helper_summaries = _helper_constraint_summaries(stripped)
+        local_fn_names = {name for name, _b, _o in _functions(stripped)}
         vulns: List[Vulnerability] = []
         for name, body, offset in _functions(stripped):
             vulns += self._detect_unconstrained_unsafe(
-                content, body, offset, name, helper_summaries,
+                content, body, offset, name, helper_summaries, local_fn_names,
             )
         vulns += self._detect_unconstrained_input(content, stripped)
         vulns += self._detect_unchecked_cast(content, stripped)
         for name, body, offset in _functions(stripped):
             vulns += self._detect_unasserted_bool(content, body, offset, name)
+            vulns += self._detect_unused_check_result(content, body, offset, name)
+            vulns += self._detect_conditional_constrain(
+                content, body, offset, name, stripped,
+            )
         vulns += self._detect_conditional_assert(content, stripped)
         vulns += self._detect_unsafe_missing_safety(content, stripped)
         return _apply_suppressions(content, vulns)
@@ -499,6 +545,7 @@ class NoirLexer:
         body_offset: int,
         fn_name: str,
         helper_summaries: Optional[dict] = None,
+        local_fn_names: Optional[Set[str]] = None,
     ) -> List[Vulnerability]:
         # Identifiers that ARE bound by a constraint in this function body:
         # seed from assert/assert_eq arguments, then walk backward through simple
@@ -509,10 +556,10 @@ class NoirLexer:
         for am in re.finditer(r"\bassert(?:_eq)?\s*\(", body):
             constrained |= _idents(_paren_segment(body, am.end() - 1))
 
-        # Same-file helpers: args passed into parameters the helper constrains
-        # (or returns) count as constrained — aztec-nr `confirm_hinted_note`,
-        # `verify_collapse_hints`, `public_data_storage_read`, etc.
+        # Same-file helpers: args passed into parameters the helper *asserts*
+        # count as constrained — aztec-nr `confirm_hinted_note`, etc.
         summaries = helper_summaries or {}
+        locals_ = local_fn_names or set()
         for helper_name, reachable_positions in summaries.items():
             if helper_name == fn_name:
                 continue
@@ -523,13 +570,17 @@ class NoirLexer:
                 for idx in reachable_positions:
                     if idx >= len(args):
                         continue
-                    # Any ident in the arg (bare `hint`, `hint.field`, or a
-                    # struct literal mentioning the hint) is treated as bound.
                     constrained |= _idents(args[idx])
 
         # Cross-module Aztec convention: `constrain_*` / `confirm_*` / `verify_*`
-        # call sites (free function OR method) re-constrain their arguments.
+        # call sites. Skip names defined in THIS file that are not assert-crediting
+        # (hollow confirm that only returns the hint — miss-not-hide).
         for cm in _CONSTRAINT_HELPER_NAME_RE.finditer(body):
+            call = cm.group(0)
+            name_m = re.match(r"(\w+)\s*\(", call)
+            call_name = name_m.group(1) if name_m else ""
+            if call_name in locals_ and call_name not in summaries:
+                continue
             args = _split_top_level(_paren_segment(body, cm.end() - 1), ",")
             for arg in args:
                 constrained |= _idents(arg)
@@ -792,6 +843,182 @@ class NoirLexer:
                     f"`O1JS_UNASSERTED_BOOL`."
                 ),
                 evidence={"witness": name, "function": fn_name, "framework": "noir"},
+            ))
+        return out
+
+    # --- Rule 5b: unused check / confirm / verify result ------------------
+
+    def _detect_unused_check_result(
+        self, src: str, body: str, body_offset: int, fn_name: str,
+    ) -> List[Vulnerability]:
+        """Flag check/confirm/verify/constrain calls whose result is discarded.
+
+        Closes the FN hole where call-site name credit binds ``unsafe`` args
+        even when the check's return value is never asserted.
+        """
+        asserted: Set[str] = set()
+        for am in re.finditer(r"\bassert(?:_eq)?\s*\(", body):
+            asserted |= _idents(_paren_segment(body, am.end() - 1))
+        _expand_constrained_through_lets(asserted, body)
+
+        out: List[Vulnerability] = []
+
+        # (a) bare discarded membership-check call as a terminated statement.
+        # verify_/confirm_/constrain_ bare calls are allowed (side-effect assert).
+        for stmt, off, terminated in _top_level_statements(body):
+            if not terminated:
+                continue
+            s = stmt.strip()
+            m = _BARE_UNUSED_CHECK_RE.match(s)
+            if not m:
+                continue
+            depth = 0
+            i = m.end() - 1
+            while i < len(s):
+                if s[i] == "(":
+                    depth += 1
+                elif s[i] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        i += 1
+                        break
+                i += 1
+            if s[i:].strip():
+                continue
+            line = _line_of(src, body_offset + off + (stmt.find(m.group(0))))
+            out.append(Vulnerability(
+                pattern_name="NOIR_UNUSED_CHECK_RESULT",
+                severity=Severity.HIGH,
+                function=fn_name,
+                location=(line, 0),
+                origin_tier=NOIR_ORIGIN_TIER,
+                rule_id="NOIR_UNUSED_CHECK_RESULT",
+                title=f"Unused check/confirm result in `{fn_name}`",
+                description=(
+                    f"A `{m.group(0).rstrip('(')}` call's result is discarded. Calling a "
+                    f"membership check does not constrain the circuit unless its return "
+                    f"value is asserted (or used to gate an effect). Bind the result with "
+                    f"`assert(...)` — analog of unused verification."
+                ),
+                evidence={"function": fn_name, "call": m.group(0).rstrip("("),
+                          "framework": "noir"},
+            ))
+
+        # (b) let-bound check result never asserted
+        for names, rhs in _let_bindings(body):
+            cm = _CHECK_RESULT_NAME_RE.search(rhs)
+            if not cm:
+                continue
+            if any(n in asserted for n in names):
+                continue
+            line_off = body.find(f"let {names[0]}") if names else 0
+            if line_off < 0:
+                line_off = 0
+            line = _line_of(src, body_offset + max(line_off, 0))
+            out.append(Vulnerability(
+                pattern_name="NOIR_UNUSED_CHECK_RESULT",
+                severity=Severity.MEDIUM,
+                function=fn_name,
+                location=(line, 0),
+                origin_tier=NOIR_ORIGIN_TIER,
+                rule_id="NOIR_UNUSED_CHECK_RESULT",
+                title=f"Check result `{names[0]}` never asserted in `{fn_name}`",
+                description=(
+                    f"`{names[0]}` holds the result of a check/confirm/verify call but is "
+                    f"never asserted. The check's return value must gate the circuit "
+                    f"(e.g. `assert({names[0]})`); otherwise the prover can ignore it."
+                ),
+                evidence={"witness": names[0], "function": fn_name, "framework": "noir"},
+            ))
+        return out
+
+    # --- Rule 5c: constrain/confirm gated by prover-controlled condition --
+
+    def _detect_conditional_constrain(
+        self, src: str, body: str, body_offset: int, fn_name: str, stripped: str,
+    ) -> List[Vulnerability]:
+        """``constrain_*`` / ``confirm_*`` / ``verify_*`` only under a
+        prover-controlled ``if``, while an ``unsafe`` hint still reaches output.
+        """
+        if fn_name == "main":
+            controlled = {
+                n for n, is_pub in _main_params(stripped)
+                if not is_pub and not n.startswith("_")
+            }
+        else:
+            controlled = {
+                n for n in _function_params(stripped, fn_name)
+                if not n.startswith("_")
+            }
+        for um in re.finditer(r"\blet\s+(?:mut\s+)?([\w(),\s]{0,200}?)\s*=\s*unsafe\s*\{", body):
+            controlled |= {w for w in re.findall(r"\w+", um.group(1))
+                           if w != "mut" and not w.startswith("_")}
+        if not controlled:
+            return []
+
+        unsafe_names = {
+            w for um in re.finditer(
+                r"\blet\s+(?:mut\s+)?([\w(),\s]{0,200}?)\s*=\s*unsafe\s*\{", body)
+            for w in re.findall(r"\w+", um.group(1))
+            if w != "mut" and not w.startswith("_")
+        }
+        output_idents = _idents(_trailing_expr(body))
+        for rm in re.finditer(r"\breturn\b([^;]{0,4000});", body):
+            output_idents |= _idents(rm.group(1))
+        if not (unsafe_names & output_idents):
+            return []
+
+        out: List[Vulnerability] = []
+        n = len(body)
+        for im in re.finditer(r"\bif\b", body):
+            j = im.end()
+            depth = 0
+            while j < n:
+                c = body[j]
+                if c in "([":
+                    depth += 1
+                elif c in ")]":
+                    depth -= 1
+                elif c == "{" and depth == 0:
+                    break
+                j += 1
+            if j >= n or body[j] != "{":
+                continue
+            cond = body[im.end():j].strip()
+            core = cond[1:].strip() if cond.startswith("!") else cond
+            if not re.fullmatch(r"\w+", core) or core not in controlled:
+                continue
+            depth = 0
+            k = j
+            while k < n:
+                c = body[k]
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                k += 1
+            block = body[j + 1:k]
+            if not _CONSTRAINT_HELPER_NAME_RE.search(block):
+                continue
+            line = _line_of(src, body_offset + im.start())
+            out.append(Vulnerability(
+                pattern_name="NOIR_CONDITIONAL_CONSTRAIN",
+                severity=Severity.MEDIUM,
+                function=fn_name,
+                location=(line, 0),
+                origin_tier=NOIR_ORIGIN_TIER,
+                rule_id="NOIR_CONDITIONAL_CONSTRAIN",
+                title=f"Constrain/confirm gated by prover-controlled `{core}` in `{fn_name}`",
+                description=(
+                    f"A `constrain_*` / `confirm_*` / `verify_*` call runs inside "
+                    f"`if {cond} {{ ... }}`, and `{core}` is prover-controlled, while an "
+                    f"`unsafe` hint still reaches the function output. The prover can set "
+                    f"`{core}` false to skip the constrain and leave the hint free. Enforce "
+                    f"the constrain unconditionally, or constrain `{core}` itself."
+                ),
+                evidence={"condition": core, "function": fn_name, "framework": "noir"},
             ))
         return out
 

@@ -305,6 +305,84 @@ fn existing_handshake_secrets_or_else() -> Field {
     assert "NOIR_UNSAFE_MISSING_SAFETY" not in _rules(analyze_noir_file("tag.nr", src))
 
 
+def test_unused_check_result_bare_call_fires_high():
+    src = """
+fn main(w: Field) {
+    // Safety: membership proof discarded
+    let witness = unsafe { get_w() };
+    check_non_membership_with_hasher(w, witness);
+}
+"""
+    fired = [x for x in analyze_noir_file("m.nr", src)
+             if x.rule_id == "NOIR_UNUSED_CHECK_RESULT"]
+    assert fired and fired[0].severity == Severity.HIGH
+
+
+def test_unused_check_result_let_never_asserted_fires_medium():
+    src = """
+fn main(w: Field) {
+    // Safety: ok unused
+    let witness = unsafe { get_w() };
+    let ok = check_non_membership_with_hasher(w, witness);
+}
+"""
+    fired = [x for x in analyze_noir_file("m.nr", src)
+             if x.rule_id == "NOIR_UNUSED_CHECK_RESULT"]
+    assert fired and fired[0].severity == Severity.MEDIUM
+
+
+def test_asserted_check_result_does_not_fire_unused():
+    src = """
+fn main(w: Field) {
+    // Safety: asserted
+    let witness = unsafe { get_w() };
+    let ok = check_non_membership_with_hasher(w, witness);
+    assert(ok);
+}
+"""
+    assert "NOIR_UNUSED_CHECK_RESULT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_hollow_confirm_helper_does_not_suppress_unsafe():
+    src = """
+fn confirm_hinted_note(hinted_note: Field) -> Field { hinted_note }
+fn get_note() -> Field {
+    // Safety: looks constrained but helper is hollow
+    let hinted_note = unsafe { view_note() };
+    confirm_hinted_note(hinted_note)
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" in _rules(analyze_noir_file("note.nr", src))
+
+
+def test_conditional_constrain_fires_medium():
+    src = """
+fn main(flag: bool) -> pub Field {
+    // Safety: mode-gated
+    let hint = unsafe { get_h() };
+    if flag {
+        constrain_hint(hint);
+    }
+    hint
+}
+"""
+    fired = [x for x in analyze_noir_file("m.nr", src)
+             if x.rule_id == "NOIR_CONDITIONAL_CONSTRAIN"]
+    assert fired and fired[0].severity == Severity.MEDIUM
+
+
+def test_unconditional_constrain_does_not_fire_conditional_rule():
+    src = """
+fn main() -> pub Field {
+    // Safety: constrained below
+    let hint = unsafe { get_h() };
+    constrain_hint(hint);
+    hint
+}
+"""
+    assert "NOIR_CONDITIONAL_CONSTRAIN" not in _rules(analyze_noir_file("m.nr", src))
+
+
 # ---------------------------------------------------------------------------
 # Rule 2 — private input never constrained
 # ---------------------------------------------------------------------------

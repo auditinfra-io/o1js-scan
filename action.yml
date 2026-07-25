@@ -1,5 +1,5 @@
 name: 'o1js-scan'
-description: 'Static soundness scanner for o1js / Mina zkApps. Surfaces findings in GitHub code scanning.'
+description: 'Static soundness scanner for o1js / Mina zkApps and Noir circuits. Surfaces findings in GitHub code scanning.'
 author: 'auditinfra-io'
 branding:
   icon: 'shield'
@@ -10,6 +10,10 @@ inputs:
     description: 'File or directory to scan.'
     required: false
     default: '.'
+  lang:
+    description: 'Which sources to analyze: auto (both), o1js, or noir.'
+    required: false
+    default: 'auto'
   version:
     description: 'o1js-scan version to install from PyPI (empty = latest).'
     required: false
@@ -51,7 +55,7 @@ runs:
       run: |
         # Always produce a (possibly empty) SARIF so the upload step can run
         # even when the scan finds high-severity issues (non-zero exit).
-        o1js-scan "${{ inputs.path }}" --sarif o1js-scan.sarif || true
+        o1js-scan "${{ inputs.path }}" --lang "${{ inputs.lang }}" --sarif o1js-scan.sarif || true
         echo "sarif-file=o1js-scan.sarif" >> "$GITHUB_OUTPUT"
 
     - name: Upload SARIF to code scanning
@@ -64,4 +68,4 @@ runs:
     - name: Enforce finding gate
       if: ${{ inputs.fail-on-findings == 'true' }}
       shell: bash
-      run: o1js-scan "${{ inputs.path }}"
+      run: o1js-scan "${{ inputs.path }}" --lang "${{ inputs.lang }}"

@@ -1,7 +1,8 @@
 # Contributing to o1js-scan
 
-Thanks for helping make o1js zkApps safer. Contributions of new rule families,
-false-positive guards, and real-world calibration archetypes are all welcome.
+Thanks for helping make o1js zkApps and Noir circuits safer. Contributions of
+new rule families, false-positive guards, and real-world calibration archetypes
+are all welcome.
 
 ## Development setup
 
@@ -21,24 +22,38 @@ dependency is `pytest`.
 - **Every rule change needs a test.** Add both a positive case (the rule fires)
   and at least one negative case (a false-positive guard) to `tests/`.
 - **Stay quiet on correct code.** A new rule that produces noise on idiomatic
-  o1js is worse than no rule. When in doubt, prefer a false negative (miss) over
-  a false positive — this tool's output is meant to be trusted enough to triage.
+  o1js or Noir (including aztec-nr) is worse than no rule. When in doubt, prefer
+  a false negative (miss) over a false positive — this tool's output is meant to
+  be trusted enough to triage.
 - **Lexical, not a full parser.** The analyzer is deliberately regex/brace-based
   so it stays dependency-free and instant. New rules should fit that model.
 - **Findings are leads, not proofs.** Descriptions should tell a reviewer what to
   check and why, not assert that a bug definitely exists.
 
-## Adding a rule
+## Adding an o1js rule
 
 1. Add the detection method to `O1jsLexer` in `o1js_scan/lexer.py`.
 2. Give it a stable `rule_id` and a clear `title` + `description`.
 3. Add tests to `tests/test_lexer.py` covering the positive case and the FP guards.
-4. Document the rule in the table in `README.md`.
+4. Document the rule in the o1js table in `README.md`.
+
+## Adding a Noir rule
+
+1. Add the detection method to `NoirLexer` in `o1js_scan/noir.py` and wire it from
+   `NoirLexer.analyze`.
+2. Give it a stable `rule_id` prefixed with `NOIR_` and a clear `title` +
+   `description`. Prefer failure mode **miss** over **false positive** when
+   adding suppressions (Safety notes, confirm/verify helpers, etc.).
+3. Add tests to `tests/test_noir.py` (positive + FP guards). If the rule belongs
+   in the recall corpus, also add an annotated fixture under
+   `tests/corpus/noir/` (`// @recall-rule NOIR_…`).
+4. Document the rule in the Noir table in `README.md`.
+5. Re-check aztec-nr-shaped FP fixtures stay quiet (see `docs/noir_calibration.md`).
 
 ## Reporting issues
 
-Please include a minimal o1js snippet that reproduces the false positive or
-missed detection — that's the fastest path to a fix and it usually becomes the
+Please include a minimal o1js or Noir snippet that reproduces the false positive
+or missed detection — that's the fastest path to a fix and it usually becomes the
 regression test.
 
 For false positives specifically, use the **False-positive report** issue
