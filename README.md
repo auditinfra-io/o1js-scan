@@ -172,6 +172,24 @@ The analyzer is designed to stay quiet on correct code:
 - Comments and string literals are stripped before analysis, so an `assert`
   inside a string can't create a false result.
 
+## Noir circuits (experimental)
+
+The same soundness idea — under-constrained witnesses — applies to
+[Noir](https://noir-lang.org) (`.nr`) circuits, Aztec's Rust-like ZK DSL. Point
+the scanner at `.nr` files (or a mixed tree) and it analyzes them with a Noir
+rule set; `.ts`/`.js` files still go through the o1js rules. Same lexical,
+dependency-free approach.
+
+| Rule | Severity | What it means |
+|------|----------|---------------|
+| `NOIR_UNCONSTRAINED_WITNESS` | high | A value bound from an `unsafe { ... }` block — the result of an `unconstrained fn` (oracle / Brillig hint) — that is never re-constrained by an `assert` / `assert_eq`. The hint runs **outside** the circuit, so a malicious prover can return anything; it is sound only if the circuit re-derives and asserts it (e.g. `assert(x * inv == 1)`). Direct analog of `O1JS_UNCONSTRAINED_PROVABLE_WITNESS`. A one-hop `let` is followed, so a hint asserted through an intermediate local is not flagged. |
+| `NOIR_UNSAFE_MISSING_SAFETY` | low | An `unsafe { ... }` block with no `// Safety:` comment. This is Noir's own convention (the compiler warns on it) and a review-hygiene signal — every `unsafe` result must be re-constrained, and the note documents how. Informational; does not fail CI. |
+
+This is an early rule set (two rules); contributions of new Noir rules and
+false-positive archetypes are welcome. As with the o1js rules, findings are a
+starting point for review, and the same aliasing/name-matching limitations
+below apply.
+
 ## Known limitations
 
 The analyzer is a **lexical, name-matching** pass, not a dataflow engine.

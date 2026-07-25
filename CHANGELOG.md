@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Experimental Noir (`.nr`) support.** `analyze_file` / `analyze_project`
+  now dispatch by extension: `.nr` files are analyzed as Noir circuits, others
+  as o1js. New rules:
+  - `NOIR_UNCONSTRAINED_WITNESS` (high) — an `unsafe { ... }` result (an
+    unconstrained oracle / Brillig hint) never re-constrained by `assert` /
+    `assert_eq`. Follows one `let` hop. Analog of
+    `O1JS_UNCONSTRAINED_PROVABLE_WITNESS`.
+  - `NOIR_UNSAFE_MISSING_SAFETY` (low) — an `unsafe` block missing a
+    `// Safety:` comment.
+  - New public API: `NoirLexer`, `analyze_noir_file`, `is_noir_source`,
+    `NOIR_ORIGIN_TIER`; env kill-switch `AUDIT_NOIR_LEXER=0`.
+  - `examples/noir_unconstrained.nr` (vulnerable) and `noir_constrained.nr`
+    (fixed).
+
 ## [0.5.0] - 2026-07-24
 
 ### Added

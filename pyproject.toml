@@ -9,7 +9,7 @@ description = "Static application-layer soundness analyzer for o1js / Mina zkApp
 readme = "README.md"
 requires-python = ">=3.8"
 license = { file = "LICENSE" }
-keywords = ["o1js", "mina", "zk", "zkapp", "security", "static-analysis", "audit"]
+keywords = ["o1js", "mina", "noir", "aztec", "zk", "zkapp", "circuit", "security", "static-analysis", "audit"]
 authors = [{ name = "o1js-scan contributors" }]
 classifiers = [
     "Development Status :: 4 - Beta",
