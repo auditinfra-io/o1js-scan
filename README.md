@@ -183,6 +183,7 @@ dependency-free approach.
 | Rule | Severity | What it means |
 |------|----------|---------------|
 | `NOIR_UNCONSTRAINED_WITNESS` | high | A value bound from an `unsafe { ... }` block — the result of an `unconstrained fn` (oracle / Brillig hint) — that is never re-constrained by an `assert` / `assert_eq`. The hint runs **outside** the circuit, so a malicious prover can return anything; it is sound only if the circuit re-derives and asserts it (e.g. `assert(x * inv == 1)`). Direct analog of `O1JS_UNCONSTRAINED_PROVABLE_WITNESS`. A one-hop `let` is followed, so a hint asserted through an intermediate local is not flagged. |
+| `NOIR_UNCONSTRAINED_INPUT` | medium | A private (witness) input of `fn main` that flows into **no** `assert` / `assert_eq` and is **not** part of the public output — a forgotten-constraint bug where the proof binds nothing about it. Reachability to a constraint or the return is expanded to a fixpoint through `let` bindings (so a witness bound via a hash commitment, or any chain of locals, is not flagged). Public (`pub`) and `_`-prefixed inputs are ignored. Analog of `O1JS_UNCONSTRAINED_WITNESS`. |
 | `NOIR_UNSAFE_MISSING_SAFETY` | low | An `unsafe { ... }` block with no `// Safety:` comment. This is Noir's own convention (the compiler warns on it) and a review-hygiene signal — every `unsafe` result must be re-constrained, and the note documents how. Informational; does not fail CI. |
 
 This is an early rule set (two rules); contributions of new Noir rules and

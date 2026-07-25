@@ -31,7 +31,13 @@ import re
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
-from .lexer import _apply_suppressions, _line_of, _paren_segment, _strip_comments
+from .lexer import (
+    _apply_suppressions,
+    _line_of,
+    _paren_segment,
+    _split_top_level,
+    _strip_comments,
+)
 from .vuln import Severity, Vulnerability
 
 # Tier bucket stamped onto every finding this module emits.
@@ -110,6 +116,64 @@ def _idents(text: str) -> Set[str]:
     return set(_IDENT_RE.findall(text))
 
 
+def _trailing_expr(body: str) -> str:
+    """The implicit-return expression of a Noir body: the text after the last
+    top-level ``;`` (Noir returns the trailing expression of a block)."""
+    depth = 0
+    last = -1
+    for i, c in enumerate(body):
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == ";" and depth == 0:
+            last = i
+    return body[last + 1:]
+
+
+def _reachable_to_constraint_or_output(body: str) -> Set[str]:
+    """Identifiers in ``body`` that flow into a constraint (`assert`/`assert_eq`)
+    or the returned value, expanded to a fixpoint through `let` bindings. An
+    input NOT in this set influences neither an assertion nor the output."""
+    seed: Set[str] = set()
+    for am in re.finditer(r"\bassert(?:_eq)?\s*\(", body):
+        seed |= _idents(_paren_segment(body, am.end() - 1))
+    for rm in re.finditer(r"\breturn\b([^;]{0,4000});", body):
+        seed |= _idents(rm.group(1))
+    seed |= _idents(_trailing_expr(body))
+
+    lets = [(m.group(1), m.group(2)) for m in re.finditer(
+        r"\blet\s+(?:mut\s+)?(\w+)\s*=\s*([^;]{0,4000});", body)]
+    changed = True
+    while changed:
+        changed = False
+        for name, rhs in lets:
+            if name in seed:
+                for idt in _idents(rhs):
+                    if idt not in seed:
+                        seed.add(idt)
+                        changed = True
+    return seed
+
+
+def _main_params(stripped: str) -> List[Tuple[str, bool]]:
+    """Parameters of ``fn main`` as ``[(name, is_public), ...]``. A Noir input is
+    public when its type is prefixed with ``pub`` (``x: pub Field``)."""
+    m = re.search(r"\bfn\s+main\s*\(([^)]{0,2000})\)", stripped)
+    if not m:
+        return []
+    out: List[Tuple[str, bool]] = []
+    for part in _split_top_level(m.group(1), ","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        name, _, typ = part.partition(":")
+        name = re.sub(r"^\s*mut\s+", "", name).strip()
+        if re.fullmatch(r"\w+", name):
+            out.append((name, bool(re.match(r"\s*pub\b", typ))))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Lexer
 # ---------------------------------------------------------------------------
@@ -127,6 +191,7 @@ class NoirLexer:
         vulns: List[Vulnerability] = []
         for name, body, offset in _functions(stripped):
             vulns += self._detect_unconstrained_unsafe(content, body, offset, name)
+        vulns += self._detect_unconstrained_input(content, stripped)
         vulns += self._detect_unsafe_missing_safety(content, stripped)
         return _apply_suppressions(content, vulns)
 
@@ -182,7 +247,53 @@ class NoirLexer:
             ))
         return out
 
-    # --- Rule 2: `unsafe {}` without a `// Safety:` note ------------------
+    # --- Rule 2: private circuit input bound to nothing -------------------
+
+    def _detect_unconstrained_input(self, src: str, stripped: str) -> List[Vulnerability]:
+        params = _main_params(stripped)
+        if not params:
+            return []
+        body = None
+        for name, b, _off in _functions(stripped):
+            if name == "main":
+                body = b
+                break
+        if body is None:
+            return []
+        reachable = _reachable_to_constraint_or_output(body)
+
+        out: List[Vulnerability] = []
+        sig = re.search(r"\bfn\s+main\s*\(", stripped)
+        line = _line_of(src, sig.start()) if sig else 0
+        for name, is_pub in params:
+            # public inputs are already bound (they're part of the statement);
+            # `_`-prefixed params are conventionally intentionally-unused.
+            if is_pub or name.startswith("_") or name in reachable:
+                continue
+            out.append(Vulnerability(
+                pattern_name="NOIR_UNCONSTRAINED_INPUT",
+                severity=Severity.MEDIUM,
+                function="main",
+                location=(line, 0),
+                origin_tier=NOIR_ORIGIN_TIER,
+                rule_id="NOIR_UNCONSTRAINED_INPUT",
+                title=f"Private input `{name}` is never constrained in `main`",
+                description=(
+                    f"`{name}` is a private (witness) input of the circuit `main`, but it "
+                    f"flows into no `assert` / `assert_eq` and is not part of the public "
+                    f"output. The proof therefore binds nothing about `{name}` — a classic "
+                    f"forgotten-constraint bug (the prover can pick any value). Constrain it "
+                    f"(e.g. `assert(hash({name}) == commitment)`) or expose it in the output, "
+                    f"or drop the input. Direct analog of an under-constrained signal."
+                ),
+                evidence={
+                    "witness": name, "function": "main",
+                    "witness_source": "private_input", "framework": "noir",
+                },
+            ))
+        return out
+
+    # --- Rule 3: `unsafe {}` without a `// Safety:` note ------------------
 
     def _detect_unsafe_missing_safety(self, src: str, stripped: str) -> List[Vulnerability]:
         out: List[Vulnerability] = []

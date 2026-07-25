@@ -109,7 +109,54 @@ fn main(x: Field) {
 
 
 # ---------------------------------------------------------------------------
-# Rule 2 — `unsafe {}` missing a `// Safety:` comment
+# Rule 2 — private input never constrained
+# ---------------------------------------------------------------------------
+
+# `secret` is a private witness the circuit never binds (no assert, not output).
+_UNCONSTRAINED_INPUT = """
+fn main(secret: Field, limit: pub Field) -> pub Field {
+    assert(limit < 100);
+    limit
+}
+"""
+
+
+def test_unconstrained_input_fires_medium():
+    v = analyze_noir_file("main.nr", _UNCONSTRAINED_INPUT)
+    f = [x for x in v if x.rule_id == "NOIR_UNCONSTRAINED_INPUT"]
+    assert f and f[0].severity == Severity.MEDIUM
+    assert f[0].evidence["witness"] == "secret"
+
+
+def test_input_used_in_assert_does_not_fire():
+    src = "fn main(x: Field, y: pub Field) { assert(x == y); }"
+    assert "NOIR_UNCONSTRAINED_INPUT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_input_in_public_output_does_not_fire():
+    src = "fn main(a: Field, b: Field) -> pub Field { a * b }"
+    assert "NOIR_UNCONSTRAINED_INPUT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_input_bound_via_let_chain_does_not_fire():
+    # a -> t -> asserted, through two `let` hops (fixpoint reachability)
+    src = """
+fn main(a: Field) {
+    let t = a + 1;
+    let u = t * 2;
+    assert(u == 4);
+}
+"""
+    assert "NOIR_UNCONSTRAINED_INPUT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_public_input_never_flagged():
+    src = "fn main(x: pub Field) -> pub Field { x }"
+    assert "NOIR_UNCONSTRAINED_INPUT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+# ---------------------------------------------------------------------------
+# Rule 3 — `unsafe {}` missing a `// Safety:` comment
 # ---------------------------------------------------------------------------
 
 def test_missing_safety_comment_is_low():
