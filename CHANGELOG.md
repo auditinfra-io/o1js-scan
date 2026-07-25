@@ -21,6 +21,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     or `unsafe` result) cast to a narrow unsigned type (`as u8`/`u16`/`u32`)
     with no range assertion; the cast truncates. Analog of o1js
     `MissingRangeCheck`.
+  - `NOIR_UNASSERTED_BOOL` (high/medium) — a comparison whose `bool` result is
+    discarded (a bare `x == y;` statement, or a `let` bound to a comparison and
+    never used); comparisons add no constraint on their own. Analog of o1js
+    `O1JS_UNASSERTED_BOOL`.
   - `NOIR_UNSAFE_MISSING_SAFETY` (low) — an `unsafe` block missing a
     `// Safety:` comment.
   - New public API: `NoirLexer`, `analyze_noir_file`, `is_noir_source`,

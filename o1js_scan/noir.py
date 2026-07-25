@@ -131,16 +131,76 @@ def _trailing_expr(body: str) -> str:
     return body[last + 1:]
 
 
+def _top_level_statements(body: str) -> List[Tuple[str, int, bool]]:
+    """Split ``body`` into ``(text, start_offset, terminated)`` statements at
+    depth-0 ``;``. ``terminated`` is False for the trailing expression (the
+    block's implicit return), which is not a discarded statement."""
+    out: List[Tuple[str, int, bool]] = []
+    depth = 0
+    start = 0
+    for i, c in enumerate(body):
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == ";" and depth == 0:
+            out.append((body[start:i], start, True))
+            start = i + 1
+    if start < len(body) and body[start:].strip():
+        out.append((body[start:], start, False))
+    return out
+
+
+def _has_eq_comparison(text: str) -> bool:
+    """True if ``text`` contains a depth-0 ``==``/``!=``/``<=``/``>=`` operator
+    (the unambiguous comparisons — never generics or shifts)."""
+    depth = 0
+    for i in range(len(text) - 1):
+        c = text[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif depth == 0 and text[i:i + 2] in ("==", "!=", "<=", ">="):
+            return True
+    return False
+
+
+def _has_any_comparison(text: str) -> bool:
+    """Lenient: any depth-0 comparison, including bare ``<``/``>`` (but not
+    ``::<`` generics or ``<<``/``>>`` shifts). Used only to widen reachability."""
+    if _has_eq_comparison(text):
+        return True
+    depth = 0
+    n = len(text)
+    for i, c in enumerate(text):
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif depth == 0 and c in "<>":
+            prev = text[i - 1] if i > 0 else ""
+            nxt = text[i + 1] if i + 1 < n else ""
+            if prev not in ":<>" and nxt not in "<>":
+                return True
+    return False
+
+
 def _reachable_to_constraint_or_output(body: str) -> Set[str]:
-    """Identifiers in ``body`` that flow into a constraint (`assert`/`assert_eq`)
-    or the returned value, expanded to a fixpoint through `let` bindings. An
-    input NOT in this set influences neither an assertion nor the output."""
+    """Identifiers in ``body`` that flow into a constraint (`assert`/`assert_eq`),
+    any comparison, or the returned value, expanded to a fixpoint through `let`
+    bindings. An input NOT in this set influences neither a check nor the output.
+    (Comparisons are included so a discarded-comparison input is diagnosed by
+    the more specific NOIR_UNASSERTED_BOOL rule, not double-reported here.)"""
     seed: Set[str] = set()
     for am in re.finditer(r"\bassert(?:_eq)?\s*\(", body):
         seed |= _idents(_paren_segment(body, am.end() - 1))
     for rm in re.finditer(r"\breturn\b([^;]{0,4000});", body):
         seed |= _idents(rm.group(1))
     seed |= _idents(_trailing_expr(body))
+    for stmt, _off, _term in _top_level_statements(body):
+        if _has_any_comparison(stmt):
+            seed |= _idents(stmt)
 
     lets = [(m.group(1), m.group(2)) for m in re.finditer(
         r"\blet\s+(?:mut\s+)?(\w+)\s*=\s*([^;]{0,4000});", body)]
@@ -193,6 +253,8 @@ class NoirLexer:
             vulns += self._detect_unconstrained_unsafe(content, body, offset, name)
         vulns += self._detect_unconstrained_input(content, stripped)
         vulns += self._detect_unchecked_cast(content, stripped)
+        for name, body, offset in _functions(stripped):
+            vulns += self._detect_unasserted_bool(content, body, offset, name)
         vulns += self._detect_unsafe_missing_safety(content, stripped)
         return _apply_suppressions(content, vulns)
 
@@ -358,7 +420,76 @@ class NoirLexer:
             ))
         return out
 
-    # --- Rule 4: `unsafe {}` without a `// Safety:` note ------------------
+    # --- Rule 4: discarded comparison (unasserted Bool) -------------------
+
+    _STMT_KEYWORDS = (
+        "let", "assert", "return", "for", "if", "else", "while", "loop",
+        "unsafe", "break", "continue", "constrain", "fn", "mut",
+    )
+
+    def _detect_unasserted_bool(
+        self, src: str, body: str, body_offset: int, fn_name: str,
+    ) -> List[Vulnerability]:
+        out: List[Vulnerability] = []
+
+        # (a) a comparison evaluated as a statement and discarded
+        for stmt, off, terminated in _top_level_statements(body):
+            if not terminated:
+                continue  # trailing expression is the return value, not discarded
+            s = stmt.strip()
+            if not s or s.startswith(self._STMT_KEYWORDS):
+                continue
+            # an assignment (`x = ...`) is not a bare predicate
+            if re.search(r"[^=!<>]=[^=]", s):
+                continue
+            if not _has_eq_comparison(s):
+                continue
+            line = _line_of(src, body_offset + off + (len(stmt) - len(stmt.lstrip())))
+            out.append(Vulnerability(
+                pattern_name="NOIR_UNASSERTED_BOOL",
+                severity=Severity.HIGH,
+                function=fn_name,
+                location=(line, 0),
+                origin_tier=NOIR_ORIGIN_TIER,
+                rule_id="NOIR_UNASSERTED_BOOL",
+                title=f"Comparison result discarded in `{fn_name}`",
+                description=(
+                    f"`{s[:60]}` is evaluated as a statement and thrown away. In Noir a "
+                    f"comparison returns a `bool` and adds NO constraint on its own — the "
+                    f"circuit computes the check and ignores the result, so it proves "
+                    f"nothing. Wrap it in `assert(...)` (e.g. `assert({s[:40]});`). Analog of "
+                    f"o1js `O1JS_UNASSERTED_BOOL`."
+                ),
+                evidence={"function": fn_name, "expr": s[:80], "framework": "noir"},
+            ))
+
+        # (b) a `let` bound to a comparison whose result is never used
+        for lm in re.finditer(r"\blet\s+(?:mut\s+)?(\w+)\s*=\s*([^;]{0,4000});", body):
+            name, rhs = lm.group(1), lm.group(2)
+            if name.startswith("_") or not _has_eq_comparison(rhs):
+                continue
+            if len(re.findall(r"\b" + re.escape(name) + r"\b", body)) > 1:
+                continue  # referenced elsewhere → used
+            line = _line_of(src, body_offset + lm.start())
+            out.append(Vulnerability(
+                pattern_name="NOIR_UNASSERTED_BOOL",
+                severity=Severity.MEDIUM,
+                function=fn_name,
+                location=(line, 0),
+                origin_tier=NOIR_ORIGIN_TIER,
+                rule_id="NOIR_UNASSERTED_BOOL",
+                title=f"Unused comparison result `{name}` in `{fn_name}`",
+                description=(
+                    f"`{name}` holds a comparison result that is never asserted, returned, "
+                    f"or otherwise used. The comparison constrains nothing — likely a "
+                    f"forgotten `assert({name})`. Assert it or remove it. Analog of o1js "
+                    f"`O1JS_UNASSERTED_BOOL`."
+                ),
+                evidence={"witness": name, "function": fn_name, "framework": "noir"},
+            ))
+        return out
+
+    # --- Rule 5: `unsafe {}` without a `// Safety:` note ------------------
 
     def _detect_unsafe_missing_safety(self, src: str, stripped: str) -> List[Vulnerability]:
         out: List[Vulnerability] = []
