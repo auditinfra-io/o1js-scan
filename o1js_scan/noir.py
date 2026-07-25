@@ -282,17 +282,25 @@ class NoirLexer:
         self, src: str, body: str, body_offset: int, fn_name: str,
     ) -> List[Vulnerability]:
         # Identifiers that ARE bound by a constraint in this function body:
-        # everything mentioned inside an assert/assert_eq, plus one `let` hop
-        # (a value asserted through an intermediate local — e.g. a `remainder`
-        # computed from the hint and then asserted).
-        asserted: Set[str] = set()
+        # seed from assert/assert_eq arguments, then walk backward through simple
+        # `let name = rhs;` bindings until the constrained set reaches a
+        # fixpoint. This mirrors `_reachable_to_constraint_or_output` so an
+        # unsafe hint re-derived through multiple locals is treated as bound.
+        constrained: Set[str] = set()
         for am in re.finditer(r"\bassert(?:_eq)?\s*\(", body):
-            asserted |= _idents(_paren_segment(body, am.end() - 1))
-        hop: Set[str] = set()
-        for lm in re.finditer(r"\blet\s+(?:mut\s+)?(\w+)\s*=\s*([^;]{0,4000});", body):
-            if lm.group(1) in asserted:
-                hop |= _idents(lm.group(2))
-        constrained = asserted | hop
+            constrained |= _idents(_paren_segment(body, am.end() - 1))
+
+        lets = [(m.group(1), m.group(2)) for m in re.finditer(
+            r"\blet\s+(?:mut\s+)?(\w+)\s*=\s*([^;]{0,4000});", body)]
+        changed = True
+        while changed:
+            changed = False
+            for name, rhs in lets:
+                if name in constrained:
+                    for idt in _idents(rhs):
+                        if idt not in constrained:
+                            constrained.add(idt)
+                            changed = True
 
         out: List[Vulnerability] = []
         for um in re.finditer(r"\blet\s+(?:mut\s+)?([\w(),\s]{0,200}?)\s*=\s*unsafe\s*\{", body):
