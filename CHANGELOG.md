@@ -17,6 +17,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `NOIR_UNCONSTRAINED_INPUT` (medium) — a private `fn main` input that
     reaches neither a constraint nor the public output (reachability taken to
     a fixpoint through `let` bindings). Analog of `O1JS_UNCONSTRAINED_WITNESS`.
+  - `NOIR_UNCHECKED_CAST` (medium) — a prover-controlled value (private input
+    or `unsafe` result) cast to a narrow unsigned type (`as u8`/`u16`/`u32`)
+    with no range assertion; the cast truncates. Analog of o1js
+    `MissingRangeCheck`.
   - `NOIR_UNSAFE_MISSING_SAFETY` (low) — an `unsafe` block missing a
     `// Safety:` comment.
   - New public API: `NoirLexer`, `analyze_noir_file`, `is_noir_source`,

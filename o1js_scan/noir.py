@@ -192,6 +192,7 @@ class NoirLexer:
         for name, body, offset in _functions(stripped):
             vulns += self._detect_unconstrained_unsafe(content, body, offset, name)
         vulns += self._detect_unconstrained_input(content, stripped)
+        vulns += self._detect_unchecked_cast(content, stripped)
         vulns += self._detect_unsafe_missing_safety(content, stripped)
         return _apply_suppressions(content, vulns)
 
@@ -293,7 +294,71 @@ class NoirLexer:
             ))
         return out
 
-    # --- Rule 3: `unsafe {}` without a `// Safety:` note ------------------
+    # --- Rule 3: narrowing cast of an unbounded witness -------------------
+
+    @staticmethod
+    def _has_range_bound(text: str, ident: str) -> bool:
+        """True if ``ident`` is range-constrained in ``text`` — a comparison
+        assertion (`assert(ident < N)`), or an explicit bit-size assertion."""
+        a = re.escape(ident)
+        if re.search(r"\b" + a + r"\s*\.\s*assert(?:_max)?_bit_size\b", text):
+            return True
+        for am in re.finditer(r"\bassert(?:_eq)?\s*\(", text):
+            seg = _paren_segment(text, am.end() - 1)
+            if re.search(r"\b" + a + r"\b", seg) and re.search(r"[<>]=?", seg):
+                return True
+        return False
+
+    def _detect_unchecked_cast(self, src: str, stripped: str) -> List[Vulnerability]:
+        # Prover-controlled value sources this tool already models: private
+        # `main` inputs and `unsafe {}` results. Scoping the rule to these keeps
+        # it high-signal (loop counters / known-small locals are not flagged).
+        controlled: Set[str] = {
+            n for n, is_pub in _main_params(stripped)
+            if not is_pub and not n.startswith("_")
+        }
+        for um in re.finditer(r"\blet\s+(?:mut\s+)?([\w(),\s]{0,200}?)\s*=\s*unsafe\s*\{", stripped):
+            controlled |= {w for w in re.findall(r"\w+", um.group(1))
+                           if w != "mut" and not w.startswith("_")}
+        if not controlled:
+            return []
+
+        out: List[Vulnerability] = []
+        seen: Set[Tuple[str, int]] = set()
+        # narrowing casts to a small unsigned type truncate (take the low bits)
+        for cm in re.finditer(r"\b([A-Za-z_]\w*)\s+as\s+(u8|u16|u32)\b", stripped):
+            ident, ty = cm.group(1), cm.group(2)
+            if ident not in controlled or self._has_range_bound(stripped, ident):
+                continue
+            line = _line_of(src, cm.start())
+            if (ident, line) in seen:
+                continue
+            seen.add((ident, line))
+            out.append(Vulnerability(
+                pattern_name="NOIR_UNCHECKED_CAST",
+                severity=Severity.MEDIUM,
+                function="",
+                location=(line, 0),
+                origin_tier=NOIR_ORIGIN_TIER,
+                rule_id="NOIR_UNCHECKED_CAST",
+                title=f"Narrowing cast `{ident} as {ty}` without a range check",
+                description=(
+                    f"`{ident}` is a prover-controlled value (a private input or an "
+                    f"`unsafe` result) cast to `{ty}` with no range assertion. A cast to a "
+                    f"smaller unsigned type TRUNCATES (keeps the low bits) — it does NOT "
+                    f"prove the original fits — so a prover can supply a large `{ident}` "
+                    f"whose low bits pass while the true value differs. Range-check "
+                    f"`{ident}` before the cast (e.g. `assert({ident} < BOUND)` or an "
+                    f"explicit bit-size assertion). Analog of o1js `MissingRangeCheck`."
+                ),
+                evidence={
+                    "witness": ident, "cast_to": ty,
+                    "witness_source": "narrowing_cast", "framework": "noir",
+                },
+            ))
+        return out
+
+    # --- Rule 4: `unsafe {}` without a `// Safety:` note ------------------
 
     def _detect_unsafe_missing_safety(self, src: str, stripped: str) -> List[Vulnerability]:
         out: List[Vulnerability] = []

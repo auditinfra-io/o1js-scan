@@ -156,7 +156,54 @@ def test_public_input_never_flagged():
 
 
 # ---------------------------------------------------------------------------
-# Rule 3 — `unsafe {}` missing a `// Safety:` comment
+# Rule 3 — narrowing cast of an unbounded witness (range-check analog)
+# ---------------------------------------------------------------------------
+
+def test_unchecked_cast_fires_medium():
+    # `x` is a private input cast to u8 with no range assertion on it.
+    src = """
+fn main(x: Field, out: pub Field) {
+    let b = x as u8;
+    assert(b == out);
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    f = [c for c in v if c.rule_id == "NOIR_UNCHECKED_CAST"]
+    assert f and f[0].severity == Severity.MEDIUM
+    assert f[0].evidence["witness"] == "x" and f[0].evidence["cast_to"] == "u8"
+
+
+def test_range_bounded_cast_does_not_fire():
+    src = """
+fn main(x: Field, out: pub Field) {
+    assert(x < 256);
+    let b = x as u8;
+    assert(b == out);
+}
+"""
+    assert "NOIR_UNCHECKED_CAST" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_public_input_cast_does_not_fire():
+    # public inputs are not prover-controlled witnesses
+    src = "fn main(x: pub Field) -> pub u8 { x as u8 }"
+    assert "NOIR_UNCHECKED_CAST" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_cast_of_non_witness_local_does_not_fire():
+    # a constant/derived local that is not a tracked witness source
+    src = """
+fn main(y: pub Field) {
+    let k = 42;
+    let b = k as u8;
+    assert(b as Field == y);
+}
+"""
+    assert "NOIR_UNCHECKED_CAST" not in _rules(analyze_noir_file("m.nr", src))
+
+
+# ---------------------------------------------------------------------------
+# Rule 4 — `unsafe {}` missing a `// Safety:` comment
 # ---------------------------------------------------------------------------
 
 def test_missing_safety_comment_is_low():
