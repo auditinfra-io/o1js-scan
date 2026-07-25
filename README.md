@@ -279,6 +279,7 @@ Same lexical, dependency-free approach. Calibrated against aztec-nr oracle /
 | `NOIR_CONDITIONAL_ASSERT` | medium | An `assert` inside `if <flag> { ... }` where `<flag>` is a prover-controlled bare `bool`. |
 | `NOIR_CONDITIONAL_CONSTRAIN` | medium | A `constrain_*` / `confirm_*` / `verify_*` call only under a prover-controlled `if`, while an `unsafe` hint still reaches the output. |
 | `NOIR_UNUSED_CHECK_RESULT` | high / medium | A `check_*` / `confirm_*` / `verify_*` / `constrain_*` result is discarded (bare call) or assigned and never asserted — the check does not bind the circuit. |
+| `NOIR_VACUOUS_CONSTRAINT` | high / medium | A constraint that is satisfied by construction: a self-comparison (`assert(x == x)`, `assert_eq(x, x)`, `x >= x`) or a constant condition (`assert(true)`). It adds no restriction, but the line *reads* as a check — which makes it more dangerous than a missing constraint, because review stops there. HIGH for a self-comparison (almost always a typo for a real check: `assert(computed == expected)` mistyped as `assert(expected == expected)`); MEDIUM for a constant, which is more often a placeholder. `x != x` is **not** flagged — that is unsatisfiable, a liveness bug rather than a silent soundness hole. |
 | `NOIR_UNSAFE_MISSING_SAFETY` | low | An `unsafe { ... }` block with no adjacent `// Safety:` comment. Informational; does not fail CI at default `--fail-on high`. |
 
 ### False-positive guards (Noir)

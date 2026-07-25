@@ -1000,3 +1000,77 @@ fn main(leaf: Field, nonce: pub Field) {
         "fn main(leaf: Field, nonce: pub Field) {  "
         "// o1js-scan-disable-line NOIR_UNCONSTRAINED_PUBLIC_INPUT")
     assert "NOIR_UNCONSTRAINED_PUBLIC_INPUT" not in _rules(analyze_noir_file("m.nr", src2))
+
+
+# ---------------------------------------------------------------------------
+# NOIR_VACUOUS_CONSTRAINT — constraints satisfied by construction
+# ---------------------------------------------------------------------------
+
+def test_self_comparison_fires_high():
+    v = analyze_noir_file("m.nr", "fn main(x: pub Field) { assert(x == x); }")
+    f = [c for c in v if c.rule_id == "NOIR_VACUOUS_CONSTRAINT"]
+    assert f and f[0].severity == Severity.HIGH
+    assert f[0].evidence["expr"] == "x == x"
+
+
+def test_assert_eq_same_operands_fires_high():
+    v = analyze_noir_file("m.nr", "fn main(x: pub Field) { assert_eq(x, x); }")
+    f = [c for c in v if c.rule_id == "NOIR_VACUOUS_CONSTRAINT"]
+    assert f and f[0].severity == Severity.HIGH
+
+
+def test_method_form_assert_eq_self_fires():
+    v = analyze_noir_file("m.nr", "fn main(x: pub Field) { x.assert_eq(x); }")
+    assert "NOIR_VACUOUS_CONSTRAINT" in _rules(v)
+
+
+def test_constant_true_is_medium():
+    src = "fn main(x: pub Field) { assert(true); assert(x != 0); }"
+    f = [c for c in analyze_noir_file("m.nr", src)
+         if c.rule_id == "NOIR_VACUOUS_CONSTRAINT"]
+    assert f and f[0].severity == Severity.MEDIUM
+
+
+def test_reflexive_ordering_ops_fire():
+    for op in (">=", "<="):
+        src = f"fn main(x: pub Field) {{ assert(x {op} x); }}"
+        assert "NOIR_VACUOUS_CONSTRAINT" in _rules(analyze_noir_file("m.nr", src)), op
+
+
+def test_message_argument_does_not_hide_vacuity():
+    src = 'fn main(x: pub Field) { assert(x == x, "should hold"); }'
+    assert "NOIR_VACUOUS_CONSTRAINT" in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_whitespace_insensitive_comparison():
+    src = "fn main(x: pub Field) { assert( x  ==   x ); }"
+    assert "NOIR_VACUOUS_CONSTRAINT" in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_real_comparison_does_not_fire():
+    for src in (
+        "fn main(a: pub Field, b: pub Field) { assert(a == b); }",
+        "fn main(a: pub Field, b: pub Field) { assert_eq(a, b); }",
+        "fn main(a: pub Field, b: pub Field) { assert(a >= b); }",
+        "fn main(x: pub Field) { assert(hash(x) == commitment(x)); }",
+    ):
+        assert "NOIR_VACUOUS_CONSTRAINT" not in _rules(analyze_noir_file("m.nr", src)), src
+
+
+def test_distinct_indices_do_not_fire():
+    # arr[i] and arr[j] are different expressions — a real check.
+    src = ("fn main(arr: pub [Field; 4], i: pub u32, j: pub u32) "
+           "{ assert(arr[i] == arr[j]); }")
+    assert "NOIR_VACUOUS_CONSTRAINT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_always_false_self_comparison_not_flagged():
+    # `x != x` is unsatisfiable — a liveness bug, not the silent soundness hole
+    # this rule targets. Deliberately out of scope.
+    src = "fn main(x: pub Field) { assert(x != x); }"
+    assert "NOIR_VACUOUS_CONSTRAINT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_vacuous_constraint_suppressed_in_test_code():
+    src = "fn t(x: Field) { assert(x == x); }"
+    assert analyze_noir_file("src/tests/mod.nr", src) == []
