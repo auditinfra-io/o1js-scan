@@ -33,6 +33,30 @@ $ echo $?
 `amount.assertLessThanOrEqual(balance)` ties the amount to the recorded value,
 so the high-severity finding is gone and the run passes.
 
+## Noir — an unconstrained `unsafe` result
+
+The same soundness idea in a Noir (`.nr`) circuit: the result of an
+unconstrained hint used without re-constraining it.
+
+```console
+$ o1js-scan examples/noir_unconstrained.nr
+HIGH     NOIR_UNCONSTRAINED_WITNESS         noir_unconstrained.nr:16  fn=main  Unconstrained `unsafe` result `inv` in `main`
+LOW      NOIR_UNSAFE_MISSING_SAFETY         noir_unconstrained.nr:16  fn=  `unsafe` block without a `// Safety:` comment
+o1js-scan: 2 finding(s) [1 high, 1 low] in 1 file(s) — fails (--fail-on high)
+$ echo $?
+1
+```
+
+`inv` comes from `unsafe { inverse_hint(x) }` — a prover-controlled hint — and
+is returned without ever asserting `x * inv == 1`. The fixed version binds it:
+
+```console
+$ o1js-scan examples/noir_constrained.nr
+o1js-scan: no findings (or no o1js files found)
+$ echo $?
+0
+```
+
 ## Suppressing a reviewed finding
 
 If you've triaged a finding and want to keep CI green without loosening the

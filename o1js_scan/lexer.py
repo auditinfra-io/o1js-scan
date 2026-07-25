@@ -1566,18 +1566,25 @@ def _method_param_blob(src: str, meth: "_Method") -> str:
 
 
 def analyze_file(filepath: str, source: str) -> List[Vulnerability]:
-    """Analyze a single file's ``source`` text."""
+    """Analyze a single file's ``source`` text. Dispatches to the Noir analyzer
+    for ``.nr`` files and the o1js analyzer otherwise."""
+    if str(filepath).endswith(".nr"):
+        from .noir import NoirLexer
+        return NoirLexer().analyze(source, Path(filepath))
     return O1jsLexer().analyze(source, Path(filepath))
 
 
 def analyze_project(root: str) -> List[Tuple[str, Vulnerability]]:
-    """Scan every o1js ``.ts``/``.js`` file under ``root`` (skipping
-    ``node_modules``). Returns ``[(filepath, vuln), ...]``."""
-    lexer = O1jsLexer()
+    """Scan every o1js (``.ts``/``.js``/``.mjs``) and Noir (``.nr``) file under
+    ``root`` (skipping ``node_modules``). Returns ``[(filepath, vuln), ...]``."""
+    from .noir import NoirLexer, is_noir_source
+
+    o1js_lexer = O1jsLexer()
+    noir_lexer = NoirLexer()
     out: List[Tuple[str, Vulnerability]] = []
     base = Path(root)
     paths = [base] if base.is_file() else [
-        p for pat in ("*.ts", "*.js", "*.mjs")
+        p for pat in ("*.ts", "*.js", "*.mjs", "*.nr")
         for p in base.rglob(pat) if "node_modules" not in str(p)
     ]
     for p in paths:
@@ -1585,8 +1592,12 @@ def analyze_project(root: str) -> List[Tuple[str, Vulnerability]]:
             src = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if not is_o1js_source(src, str(p)):
-            continue
-        for v in lexer.analyze(src, p):
-            out.append((str(p), v))
+        sp = str(p)
+        if sp.endswith(".nr"):
+            if is_noir_source(src, sp):
+                for v in noir_lexer.analyze(src, p):
+                    out.append((sp, v))
+        elif is_o1js_source(src, sp):
+            for v in o1js_lexer.analyze(src, p):
+                out.append((sp, v))
     return out
