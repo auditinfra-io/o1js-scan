@@ -24,7 +24,7 @@ from .lexer import (
 from .noir import NOIR_ORIGIN_TIER, NoirLexer, analyze_noir_file, is_noir_source
 from .vuln import Severity, Vulnerability
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 __all__ = [
     "O1jsLexer",
