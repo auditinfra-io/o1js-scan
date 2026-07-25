@@ -251,6 +251,26 @@ def _main_params(stripped: str) -> List[Tuple[str, bool]]:
     return out
 
 
+def _function_params(stripped: str, fn_name: str) -> List[str]:
+    """Lexically parse parameter names for ``fn_name``. This intentionally
+    mirrors ``_main_params`` but returns names only so helper-call summaries can
+    map arguments by position without needing Noir type semantics.
+    """
+    m = re.search(r"\b(?:unconstrained\s+)?fn\s+" + re.escape(fn_name) + r"\s*\(([^)]{0,2000})\)", stripped)
+    if not m:
+        return []
+    out: List[str] = []
+    for part in _split_top_level(m.group(1), ","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        name, _, _typ = part.partition(":")
+        name = re.sub(r"^\s*mut\s+", "", name).strip()
+        if re.fullmatch(r"\w+", name):
+            out.append(name)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Lexer
 # ---------------------------------------------------------------------------
@@ -350,6 +370,39 @@ class NoirLexer:
         if body is None:
             return []
         reachable = _reachable_to_constraint_or_output(body)
+
+        # Shallow lexical interprocedural summary: if ``main`` passes a simple
+        # identifier to a helper parameter that the helper constrains or returns,
+        # treat that main identifier as reachable too. This is intentionally
+        # bounded (one call edge, direct calls, positional args only) to keep the
+        # scanner dependency-free and predictable.
+        helper_summaries: dict[str, Set[int]] = {}
+        for fn_name, helper_body, _helper_off in _functions(stripped):
+            if fn_name == "main":
+                continue
+            helper_params = _function_params(stripped, fn_name)
+            if not helper_params:
+                continue
+            helper_reachable = _reachable_to_constraint_or_output(helper_body)
+            reachable_positions = {
+                idx for idx, param in enumerate(helper_params)
+                if param in helper_reachable
+            }
+            if reachable_positions:
+                helper_summaries[fn_name] = reachable_positions
+
+        for helper_name, reachable_positions in helper_summaries.items():
+            for cm in re.finditer(r"\b" + re.escape(helper_name) + r"\s*\(", body):
+                # Keep this to free-function calls, not method-style ``x.helper(...)``.
+                if cm.start() > 0 and body[cm.start() - 1] == ".":
+                    continue
+                args = _split_top_level(_paren_segment(body, cm.end() - 1), ",")
+                for idx in reachable_positions:
+                    if idx >= len(args):
+                        continue
+                    arg = args[idx].strip()
+                    if re.fullmatch(r"[A-Za-z_]\w*", arg):
+                        reachable.add(arg)
 
         out: List[Vulnerability] = []
         sig = re.search(r"\bfn\s+main\s*\(", stripped)

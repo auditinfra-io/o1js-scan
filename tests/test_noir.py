@@ -166,6 +166,34 @@ fn main(a: Field) {
     assert "NOIR_UNCONSTRAINED_INPUT" not in _rules(analyze_noir_file("m.nr", src))
 
 
+def test_input_constrained_by_helper_call_does_not_fire():
+    src = """
+fn require_equal(candidate: Field, expected: pub Field) {
+    assert(candidate == expected);
+}
+
+fn main(secret: Field, commitment: pub Field) {
+    require_equal(secret, commitment);
+}
+"""
+    assert "NOIR_UNCONSTRAINED_INPUT" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_input_passed_to_unconstraining_helper_still_fires():
+    src = """
+fn observe(candidate: Field, expected: pub Field) {
+    let ignored = candidate + expected;
+}
+
+fn main(secret: Field, commitment: pub Field) {
+    observe(secret, commitment);
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    f = [x for x in v if x.rule_id == "NOIR_UNCONSTRAINED_INPUT"]
+    assert f and f[0].evidence["witness"] == "secret"
+
+
 def test_public_input_never_flagged():
     src = "fn main(x: pub Field) -> pub Field { x }"
     assert "NOIR_UNCONSTRAINED_INPUT" not in _rules(analyze_noir_file("m.nr", src))
