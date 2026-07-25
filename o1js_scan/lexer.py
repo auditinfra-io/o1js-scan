@@ -1565,12 +1565,15 @@ def _method_param_blob(src: str, meth: "_Method") -> str:
     return m2.group("p") if m2 else ""
 
 
-def analyze_file(filepath: str, source: str) -> List[Vulnerability]:
+def analyze_file(
+    filepath: str, source: str, include_tests: bool = False,
+) -> List[Vulnerability]:
     """Analyze a single file's ``source`` text. Dispatches to the Noir analyzer
-    for ``.nr`` files and the o1js analyzer otherwise."""
+    for ``.nr`` files and the o1js analyzer otherwise. ``include_tests`` applies
+    to Noir only."""
     if str(filepath).endswith(".nr"):
         from .noir import NoirLexer
-        return NoirLexer().analyze(source, Path(filepath))
+        return NoirLexer(include_tests=include_tests).analyze(source, Path(filepath))
     return O1jsLexer().analyze(source, Path(filepath))
 
 
@@ -1592,6 +1595,7 @@ def _path_is_skipped(path: Path) -> bool:
 def analyze_project(
     root: str,
     lang: str = "auto",
+    include_tests: bool = False,
 ) -> List[Tuple[str, Vulnerability]]:
     """Scan o1js (``.ts``/``.js``/``.mjs``) and/or Noir (``.nr``) files under
     ``root``.
@@ -1607,7 +1611,7 @@ def analyze_project(
         raise ValueError(f"lang must be auto|o1js|noir, got {lang!r}")
 
     o1js_lexer = O1jsLexer()
-    noir_lexer = NoirLexer()
+    noir_lexer = NoirLexer(include_tests=include_tests)
     out: List[Tuple[str, Vulnerability]] = []
     base = Path(root)
     globs: List[str] = []

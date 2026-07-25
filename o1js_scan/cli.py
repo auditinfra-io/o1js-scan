@@ -50,6 +50,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="which sources to analyze "
              f"({'|'.join(_LANG_CHOICES)}; default: auto = both).",
     )
+    ap.add_argument(
+        "--include-tests", action="store_true",
+        help="also report findings in Noir test code (test_*.nr / *_test.nr, "
+             "test/ and tests/ directories, #[test] functions, and mod test "
+             "blocks). Excluded by default: Noir tests intentionally build "
+             "invalid values in `unsafe` blocks to prove the asserts reject them.",
+    )
     ap.add_argument("--json", action="store_true", help="emit JSONL findings")
     ap.add_argument(
         "--sarif", nargs="?", const="o1js-scan.sarif", default=None, metavar="FILE",
@@ -69,7 +76,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"{prog}: path not found: {args.path}", file=sys.stderr)
         return 2
 
-    findings = analyze_project(args.path, lang=args.lang)
+    findings = analyze_project(
+        args.path, lang=args.lang, include_tests=args.include_tests,
+    )
 
     gate = any(meets_threshold(v.severity.value, args.fail_on) for _f, v in findings)
 

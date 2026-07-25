@@ -58,3 +58,16 @@ jobs:
         run: git clone --depth 1 https://github.com/AztecProtocol/aztec-nr.git /tmp/aztec-nr
       - name: Canary (0 HIGH)
         run: bash scripts/aztec_nr_canary.sh /tmp/aztec-nr
+
+  noirlang-canary:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e .
+      - name: Canary (noir-lang + zkEmail, classified budgets)
+        run: bash scripts/noirlang_canary.sh

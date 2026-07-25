@@ -773,3 +773,157 @@ fn main(x: Field) -> pub Field {
 }
 """
     assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("m.nr", src))
+
+
+# ---------------------------------------------------------------------------
+# Test-context suppression (FP class 1) — three detection routes
+# ---------------------------------------------------------------------------
+
+# A genuinely unconstrained hint. Fires in production; must be silent in tests.
+_FREE_HINT_BODY = """
+fn helper_builds_invalid() {
+    // Safety: test code
+    let bogus = unsafe { __hint() };
+    consume(bogus)
+}
+"""
+
+
+def test_production_path_still_fires():
+    v = analyze_noir_file("src/lib.nr", _FREE_HINT_BODY)
+    assert "NOIR_UNCONSTRAINED_WITNESS" in _rules(v)
+
+
+def test_route_a_test_filename_suppresses():
+    for path in ("src/bignum_test.nr", "src/test_helpers.nr",
+                 "src/tests/mod.nr", "circuits/test/mod.nr"):
+        assert analyze_noir_file(path, _FREE_HINT_BODY) == [], path
+
+
+def test_route_b_test_attribute_suppresses():
+    src = """
+#[test]
+fn t_free_hint() {
+    // Safety: test code
+    let bogus = unsafe { __hint() };
+    consume(bogus)
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("lib.nr", src))
+
+
+def test_route_b_test_attribute_with_args_suppresses():
+    src = """
+#[test(should_fail_with = "call to assert_max_bit_size")]
+fn t_free_hint() {
+    // Safety: test code
+    let bogus = unsafe { __hint() };
+    consume(bogus)
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("lib.nr", src))
+
+
+def test_route_c_mod_test_is_block_scoped():
+    # noir_sort archetype: `mod test {}` at the bottom of a production file.
+    # The production fn above it must STILL fire; only the mod is suppressed.
+    src = """
+fn production_free_hint() {
+    // Safety: prod
+    let bogus = unsafe { __hint() };
+    consume(bogus)
+}
+
+mod test {
+    fn helper_free_hint() {
+        // Safety: test code
+        let bogus2 = unsafe { __hint() };
+        consume(bogus2)
+    }
+}
+"""
+    v = analyze_noir_file("lib.nr", src)
+    fired = [x for x in v if x.rule_id == "NOIR_UNCONSTRAINED_WITNESS"]
+    assert len(fired) == 1, [x.evidence.get("witness") for x in fired]
+    assert fired[0].evidence["witness"] == "bogus"
+
+
+def test_include_tests_reenables_findings():
+    assert "NOIR_UNCONSTRAINED_WITNESS" in _rules(
+        analyze_noir_file("src/bignum_test.nr", _FREE_HINT_BODY, include_tests=True)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Assert-family seeding (FP classes 2 and 3)
+# ---------------------------------------------------------------------------
+
+def test_method_form_assert_constrains_receiver():
+    src = """
+fn f(x: Field) -> Field {
+    // Safety: bound below
+    let h = unsafe { hint(x) };
+    let combined = h * 2 - x;
+    combined.assert_max_bit_size::<240>();
+    h
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("f.nr", src))
+
+
+def test_indexed_receiver_credits_base_identifier():
+    src = """
+fn f(x: Field) -> Field {
+    // Safety: bound below
+    let chunks = unsafe { split(x) };
+    chunks[0].assert_max_bit_size::<8>();
+    chunks[0]
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("f.nr", src))
+
+
+def test_suffixed_assert_callback_constrains_args():
+    src = """
+fn f(input: [Field; 4]) -> [Field; 4] {
+    // Safety: bound below
+    let sorted = unsafe { qsort(input) };
+    for i in 0..3 {
+        sortfn_assert(sorted[i], sorted[i + 1]);
+    }
+    sorted
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("f.nr", src))
+
+
+def test_type_annotated_let_propagates_constraint():
+    # `let raw: Field = ...` used not to parse as a binding, orphaning the hint
+    # from the assert that binds it (noir_json_parser build_transcript).
+    src = """
+fn f(j: Field) {
+    // Safety: bound below
+    let raw_transcript = unsafe { build(j) };
+    let raw: Field = raw_transcript[0];
+    let diff: Field = raw - expected(j);
+    assert(diff == 0);
+}
+"""
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(analyze_noir_file("f.nr", src))
+
+
+def test_unrelated_hint_still_fires_alongside_asserted_one():
+    # The permissive assert family must not blanket-suppress a sibling free hint.
+    src = """
+fn f(x: Field) -> Field {
+    // Safety: bound below
+    let bound = unsafe { hint(x) };
+    let free = unsafe { hint(x) };
+    bound.assert_max_bit_size::<32>();
+    free
+}
+"""
+    fired = [x for x in analyze_noir_file("f.nr", src)
+             if x.rule_id == "NOIR_UNCONSTRAINED_WITNESS"]
+    assert len(fired) == 1
+    assert fired[0].evidence["witness"] == "free"

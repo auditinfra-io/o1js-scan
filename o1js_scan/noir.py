@@ -186,14 +186,123 @@ def _has_any_comparison(text: str) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Test-context detection
+# ---------------------------------------------------------------------------
+#
+# Noir tests deliberately build invalid values inside `unsafe` blocks to prove
+# the surrounding asserts reject them, so an "unconstrained hint" in test code
+# is the point of the test, not a circuit bug. Findings from test contexts are
+# suppressed by default; `--include-tests` turns them back on.
+
+_TEST_FILE_RE = re.compile(r"(?:^|/)(?:test_[^/]*\.nr|[^/]*_test\.nr)$")
+
+
+def _is_test_path(filepath: str) -> bool:
+    """True for ``*_test.nr`` / ``test_*.nr`` filenames, or any path under a
+    ``test/`` or ``tests/`` directory."""
+    p = str(filepath).replace("\\", "/")
+    if _TEST_FILE_RE.search(p):
+        return True
+    return any(seg in ("test", "tests") for seg in p.split("/")[:-1])
+
+
+def _matching_brace(text: str, open_idx: int) -> int:
+    """Index of the ``}`` matching the ``{`` at ``open_idx`` (or end of text)."""
+    depth = 0
+    for i in range(open_idx, len(text)):
+        c = text[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(text) - 1
+
+
+def _test_line_ranges(content: str, stripped: str) -> List[Tuple[int, int]]:
+    """Inclusive ``(first_line, last_line)`` spans covering test code:
+
+    * a ``mod test { ... }`` / ``mod tests { ... }`` block — block-scoped, since
+      libraries commonly put one at the bottom of an otherwise production file;
+    * a function carrying a ``#[test]`` / ``#[test(...)]`` attribute.
+    """
+    ranges: List[Tuple[int, int]] = []
+    for m in re.finditer(r"\bmod\s+tests?\s*\{", stripped):
+        close = _matching_brace(stripped, m.end() - 1)
+        ranges.append((_line_of(content, m.start()), _line_of(content, close)))
+
+    fn_spans = [(off, off + len(body)) for _n, body, off in _functions(stripped)]
+    for m in re.finditer(r"#\s*\[\s*test\b[^\]]{0,200}\]", stripped):
+        nxt = [(s, e) for s, e in fn_spans if s > m.end()]
+        if nxt:
+            start, end = min(nxt)
+            ranges.append((_line_of(content, m.start()), _line_of(content, end)))
+    return ranges
+
+
+def _in_ranges(line: int, ranges: List[Tuple[int, int]]) -> bool:
+    return any(lo <= line <= hi for lo, hi in ranges)
+
+
+# Any call whose function name CONTAINS "assert", with optional turbofish:
+#   assert(...)                      assert_eq(...)
+#   assert_max_bit_size::<240>(...)  sortfn_assert(...)   my_assert(...)
+# Noir's constraining vocabulary is far wider than assert/assert_eq, and
+# user-supplied callbacks are conventionally named ``*_assert``. Matching the
+# family (rather than a fixed alternation) is deliberately permissive; the
+# paired tp_ mutation fixtures bound it by proving each rule still fires when
+# the constraining construct is actually removed.
+_ASSERT_CALL_RE = re.compile(r"\b\w*assert\w*\s*(?:::<[^>]{0,200}>)?\s*\(")
+
+
+def _expr_start(text: str, end: int) -> int:
+    """Index where the expression ending at ``end`` (exclusive) begins, walking
+    left across balanced ``()``/``[]`` — e.g. the ``chunks[0]`` in
+    ``chunks[0].assert_max_bit_size::<8>()``."""
+    i = end - 1
+    depth = 0
+    while i >= 0:
+        c = text[i]
+        if c in ")]":
+            depth += 1
+        elif c in "([":
+            if depth == 0:
+                break
+            depth -= 1
+        elif depth == 0 and not (c.isalnum() or c in "_.:"):
+            break
+        i -= 1
+    return i + 1
+
+
+def _seed_from_asserts(text: str) -> Set[str]:
+    """Identifiers constrained by assert-like calls in ``text``.
+
+    Seeds from the argument list, and — for the METHOD form
+    ``<receiver>.assert_xxx(...)`` — from the RECEIVER expression too, since
+    that is the value being constrained::
+
+        lt_parameter.assert_max_bit_size::<240>();   # constrains lt_parameter
+    """
+    seed: Set[str] = set()
+    for am in _ASSERT_CALL_RE.finditer(text):
+        seed |= _idents(_paren_segment(text, am.end() - 1))
+        j = am.start() - 1
+        while j >= 0 and text[j].isspace():
+            j -= 1
+        if j >= 0 and text[j] == ".":
+            seed |= _idents(text[_expr_start(text, j):j])
+    return seed
+
+
 def _reachable_to_assert(body: str) -> Set[str]:
-    """Identifiers that flow into an ``assert`` / ``assert_eq`` only (fixpoint
-    through ``let``, including tuple destructuring). Used for same-file helper
+    """Identifiers that flow into an assert-family call only (fixpoint through
+    ``let``, including tuple destructuring). Used for same-file helper
     summaries so a hollow ``confirm_*`` that only *returns* the hint does not
     credit the caller."""
-    seed: Set[str] = set()
-    for am in re.finditer(r"\bassert(?:_eq)?\s*\(", body):
-        seed |= _idents(_paren_segment(body, am.end() - 1))
+    seed = _seed_from_asserts(body)
     # Expand through lets (including tuples) until fixpoint.
     _expand_constrained_through_lets(seed, body)
     return seed
@@ -205,9 +314,7 @@ def _reachable_to_constraint_or_output(body: str) -> Set[str]:
     bindings. An input NOT in this set influences neither a check nor the output.
     (Comparisons are included so a discarded-comparison input is diagnosed by
     the more specific NOIR_UNASSERTED_BOOL rule, not double-reported here.)"""
-    seed: Set[str] = set()
-    for am in re.finditer(r"\bassert(?:_eq)?\s*\(", body):
-        seed |= _idents(_paren_segment(body, am.end() - 1))
+    seed = _seed_from_asserts(body)
     for rm in re.finditer(r"\breturn\b([^;]{0,4000});", body):
         seed |= _idents(rm.group(1))
     seed |= _idents(_trailing_expr(body))
@@ -321,7 +428,7 @@ def _helper_constraint_summaries(stripped: str) -> dict:
         helper_params = _function_params(stripped, fn_name)
         if not helper_params:
             continue
-        if not re.search(r"\bassert(?:_eq)?\s*\(", helper_body):
+        if not _ASSERT_CALL_RE.search(helper_body):
             continue
         reachable_positions = {
             idx for idx, param in enumerate(helper_params)
@@ -371,8 +478,15 @@ def _let_bindings(body: str) -> List[Tuple[List[str], str]]:
     the asserted flags are exactly the proof that binds it.
     """
     out: List[Tuple[List[str], str]] = []
+    # The optional ``: Type`` annotation must be tolerated or the fixpoint
+    # breaks on ordinary code: ``let raw: Field = raw_transcript[i];`` used to
+    # not match at all, orphaning ``raw_transcript`` from the assert that binds
+    # it. The type alternation allows ``;`` only inside ``[...]`` so array types
+    # (``[Field; N]``) parse without swallowing the next statement.
     for m in re.finditer(
-        r"\blet\s+(?:mut\s+)?(\([^;]{0,400}?\)|\w+)\s*=\s*([^;]{0,4000});",
+        r"\blet\s+(?:mut\s+)?(\([^;]{0,400}?\)|\w+)\s*"
+        r"(?::\s*(?:[^=;\[]|\[[^\]]{0,200}\]){0,200})?"
+        r"=\s*([^;]{0,4000});",
         body,
     ):
         lhs, rhs = m.group(1), m.group(2)
@@ -544,12 +658,21 @@ def _is_documented_deferred_constraint(safety_text: Optional[str]) -> bool:
 # ---------------------------------------------------------------------------
 
 class NoirLexer:
-    """Lexical soundness analyzer for Noir circuit source."""
+    """Lexical soundness analyzer for Noir circuit source.
+
+    ``include_tests=True`` disables test-context suppression (test filenames,
+    ``#[test]`` functions, and ``mod test``/``mod tests`` blocks).
+    """
+
+    def __init__(self, include_tests: bool = False) -> None:
+        self.include_tests = include_tests
 
     def analyze(self, content: str, file_path: Optional[Path] = None) -> List[Vulnerability]:
         if os.environ.get("AUDIT_NOIR_LEXER", "1") == "0":
             return []
         if not is_noir_source(content, str(file_path or "")):
+            return []
+        if not self.include_tests and _is_test_path(str(file_path or "")):
             return []
 
         stripped = _strip_comments(content)
@@ -570,6 +693,13 @@ class NoirLexer:
             )
         vulns += self._detect_conditional_assert(content, stripped)
         vulns += self._detect_unsafe_missing_safety(content, stripped)
+        if not self.include_tests:
+            ranges = _test_line_ranges(content, stripped)
+            if ranges:
+                vulns = [
+                    v for v in vulns
+                    if not _in_ranges(v.location[0] if v.location else 0, ranges)
+                ]
         return _apply_suppressions(content, vulns)
 
     # --- Rule 1: unconstrained `unsafe {}` result -------------------------
@@ -584,13 +714,12 @@ class NoirLexer:
         local_fn_names: Optional[Set[str]] = None,
     ) -> List[Vulnerability]:
         # Identifiers that ARE bound by a constraint in this function body:
-        # seed from assert/assert_eq arguments, then walk backward through simple
-        # `let name = rhs;` bindings until the constrained set reaches a
-        # fixpoint. This mirrors `_reachable_to_constraint_or_output` so an
-        # unsafe hint re-derived through multiple locals is treated as bound.
-        constrained: Set[str] = set()
-        for am in re.finditer(r"\bassert(?:_eq)?\s*\(", body):
-            constrained |= _idents(_paren_segment(body, am.end() - 1))
+        # seed from the assert family (arguments plus method-call receivers),
+        # then walk backward through `let name = rhs;` bindings until the
+        # constrained set reaches a fixpoint. This mirrors
+        # `_reachable_to_constraint_or_output` so an unsafe hint re-derived
+        # through multiple locals is treated as bound.
+        constrained: Set[str] = _seed_from_asserts(body)
 
         # Same-file helpers: args passed into parameters the helper *asserts*
         # count as constrained — aztec-nr `confirm_hinted_note`, etc.
@@ -765,7 +894,7 @@ class NoirLexer:
         a = re.escape(ident)
         if re.search(r"\b" + a + r"\s*\.\s*assert(?:_max)?_bit_size\b", text):
             return True
-        for am in re.finditer(r"\bassert(?:_eq)?\s*\(", text):
+        for am in _ASSERT_CALL_RE.finditer(text):
             seg = _paren_segment(text, am.end() - 1)
             if re.search(r"\b" + a + r"\b", seg) and re.search(r"[<>]=?", seg):
                 return True
@@ -912,9 +1041,7 @@ class NoirLexer:
         Closes the FN hole where call-site name credit binds ``unsafe`` args
         even when the check's return value is never asserted.
         """
-        asserted: Set[str] = set()
-        for am in re.finditer(r"\bassert(?:_eq)?\s*\(", body):
-            asserted |= _idents(_paren_segment(body, am.end() - 1))
+        asserted: Set[str] = _seed_from_asserts(body)
         _expand_constrained_through_lets(asserted, body)
 
         out: List[Vulnerability] = []
@@ -1122,7 +1249,7 @@ class NoirLexer:
                         break
                 k += 1
             block = stripped[j + 1:k]
-            if not re.search(r"\bassert(?:_eq)?\s*\(", block):
+            if not _ASSERT_CALL_RE.search(block):
                 continue
             line = _line_of(src, im.start())
             out.append(Vulnerability(
@@ -1177,6 +1304,12 @@ class NoirLexer:
         return out
 
 
-def analyze_noir_file(filepath: str, source: str) -> List[Vulnerability]:
-    """Analyze a single Noir file's ``source`` text."""
-    return NoirLexer().analyze(source, Path(filepath))
+def analyze_noir_file(
+    filepath: str, source: str, include_tests: bool = False,
+) -> List[Vulnerability]:
+    """Analyze a single Noir file's ``source`` text.
+
+    ``include_tests=True`` reports findings from test code too (suppressed by
+    default; see ``_is_test_path`` / ``_test_line_ranges``).
+    """
+    return NoirLexer(include_tests=include_tests).analyze(source, Path(filepath))

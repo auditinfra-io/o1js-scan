@@ -4,6 +4,11 @@ Each ``tests/corpus/noir/*.nr`` is self-describing via annotations:
 
 - ``// @recall-rule NOIR_…`` — expect that rule at >= ``@recall-min-severity``
 - ``// @recall-rule NONE`` + ``// @recall-expect-absent RULE`` — expect RULE absent
+- ``// @scan-as <path>`` — analyze under this filename instead of the fixture's
+  own path. Fixtures live under ``tests/``, which the analyzer treats as test
+  code and skips, so by default each fixture is analyzed under its bare
+  basename (i.e. as production code). Test-context fixtures use this to opt
+  into a test-shaped path such as ``src/tests/bignum_test.nr``.
 
 Drop a new annotated ``.nr`` to extend coverage — no test edit required.
 """
@@ -32,6 +37,7 @@ def _annotations(text: str) -> dict:
     rule = None
     min_sev = "high"
     absent = []
+    scan_as = None
     for line in text.splitlines():
         m = re.search(r"@recall-rule\s+(\S+)", line)
         if m:
@@ -42,7 +48,10 @@ def _annotations(text: str) -> dict:
         m = re.search(r"@recall-expect-absent\s+(\S+)", line)
         if m:
             absent.append(m.group(1))
-    return {"rule": rule, "min_sev": min_sev, "absent": absent}
+        m = re.search(r"@scan-as\s+(\S+)", line)
+        if m:
+            scan_as = m.group(1)
+    return {"rule": rule, "min_sev": min_sev, "absent": absent, "scan_as": scan_as}
 
 
 def _corpus_files():
@@ -56,7 +65,10 @@ def test_noir_corpus_fixture(path: Path):
     src = path.read_text(encoding="utf-8")
     meta = _annotations(src)
     assert meta["rule"], f"{path.name}: missing @recall-rule"
-    vulns = analyze_noir_file(str(path), src)
+    # Analyze under the fixture's basename by default: the corpus lives under
+    # tests/, which the analyzer suppresses as test code, but these fixtures
+    # stand in for production circuits. `@scan-as` opts into a test-shaped path.
+    vulns = analyze_noir_file(meta["scan_as"] or path.name, src)
     rules = {v.rule_id for v in vulns}
 
     if meta["rule"] == "NONE":
