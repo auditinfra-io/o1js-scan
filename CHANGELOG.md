@@ -6,10 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-25
+
 ### Added
-- **Experimental Noir (`.nr`) support.** `analyze_file` / `analyze_project`
-  now dispatch by extension: `.nr` files are analyzed as Noir circuits, others
-  as o1js. New rules:
+- **Experimental Noir (`.nr`) support** — a whole new language.
+  `analyze_file` / `analyze_project` now dispatch by extension: `.nr` files are
+  analyzed as Noir circuits, `.ts`/`.js`/`.mjs` as o1js. New rules:
   - `NOIR_UNCONSTRAINED_WITNESS` (high) — an `unsafe { ... }` result (an
     unconstrained oracle / Brillig hint) never re-constrained by `assert` /
     `assert_eq`. Follows one `let` hop. Analog of
@@ -34,6 +36,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `NOIR_ORIGIN_TIER`; env kill-switch `AUDIT_NOIR_LEXER=0`.
   - `examples/noir_unconstrained.nr` (vulnerable) and `noir_constrained.nr`
     (fixed).
+- New o1js rules:
+  - `O1JS_UNVERIFIED_PROOF` (high) — a `@method` parameter typed as `Proof<...>`
+    / `SelfProof` / `DynamicProof` / `*Proof` that is never `.verify()`'d;
+    passing a proof does not verify it, so its `publicOutput` is unconstrained.
+  - `O1JS_UNASSERTED_BOOL` (high/medium) — an o1js predicate
+    (`equals`/`lessThanOrEqual`/…) whose `Bool` result adds no constraint unless
+    asserted or used; high when discarded, medium when assigned but unused.
+  - `O1JS_UNCONSTRAINED_SENDER` (high/medium) — `this.sender.getUnconstrained()`
+    returns the sender without proving it; flagged when that value flows into an
+    assert / state `.set` / `send`. Prefer `getAndRequireSignature()`.
+
+### Fixed
+- Cross-method binding false positives: a witness bound in an undecorated
+  same-class helper is now recognized, with auth-suppression refinements for the
+  sender / proof rules.
 
 ## [0.5.0] - 2026-07-24
 
@@ -95,7 +112,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the chained `amount.lessThanOrEqual(bal).assertTrue()` form) are now
   recognized as binding a witness to on-chain state.
 
-[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/auditinfra-io/o1js-scan/releases/tag/v0.4.0
 [0.3.0]: https://github.com/auditinfra-io/o1js-scan/releases/tag/v0.3.0

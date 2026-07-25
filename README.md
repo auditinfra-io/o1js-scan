@@ -105,10 +105,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: auditinfra-io/o1js-scan@v0.5.0
+      - uses: auditinfra-io/o1js-scan@v0.6.0
         with:
           path: src              # optional, defaults to the repo root
-          # version: 0.5.0       # optional, pin the scanner version
+          # version: 0.6.0       # optional, pin the scanner version
           # fail-on-findings: true   # optional, fail the job on any high/critical
 ```
 
