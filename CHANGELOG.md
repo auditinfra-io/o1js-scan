@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Ruff lint configuration (`[tool.ruff]`) and a `lint` CI job; the codebase
+  passes `ruff check .` clean.
+- `py.typed` marker (PEP 561) so downstream type checkers see the package's
+  type hints; `Typing :: Typed` and per-version Python classifiers.
+- `Repository` and `Changelog` project URLs.
+
+### Changed
+- README: added a table of contents and a runnable example with real output.
+
 ## [0.7.1] - 2026-07-25
 
 ### Fixed

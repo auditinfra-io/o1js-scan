@@ -22,6 +22,34 @@ noir-scan path/to/circuits       # same binary — Noir-friendly alias
 noir-scan . --lang noir --fail-on high --sarif noir.sarif
 ```
 
+### Example
+
+Given a vault whose `withdraw` amount is a prover-controlled witness that is
+never bound to on-chain state:
+
+```console
+$ o1js-scan examples/vulnerable_vault.ts
+HIGH     O1JS_UNCONSTRAINED_WITNESS         vulnerable_vault.ts:23  fn=withdraw  Unconstrained witness `amount` flows to send_amount in `withdraw`
+LOW      O1JS_UNCONSTRAINED_RECIPIENT       vulnerable_vault.ts:23  fn=withdraw  Recipient `to` is prover-chosen in `withdraw`
+o1js-scan: 2 finding(s) [1 high, 1 low] in 1 file(s) — fails (--fail-on high)
+$ echo $?
+1
+```
+
+The `HIGH` finding is the drainable bug; the fixed contract
+(`examples/safe_vault.ts`) scans clean and exits `0`. See [`examples/`](examples/)
+for the o1js and Noir vulnerable/fixed pairs.
+
+## Contents
+
+- [Install](#install)
+- [Usage](#usage) · [Suppressing a finding](#suppressing-a-reviewed-finding)
+- [GitHub Action](#github-action)
+- [What it detects — o1js](#what-it-detects-o1js) · [Noir](#what-it-detects-noir)
+- [Known limitations](#known-limitations)
+- [Compatibility](#compatibility) · [How it works](#how-it-works)
+- [Contributing](#roadmap--contributing)
+
 ## Install
 
 ```bash
@@ -332,11 +360,12 @@ Findings are a starting point for review, not proofs.
 
 Contributions welcome — new rule families, more FP guards, and real-world
 calibration archetypes are all valuable. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
-Run the suite with:
+Run the tests and linter with:
 
 ```bash
 pip install -e ".[dev]"
-pytest
+pytest          # 154 tests
+ruff check .    # lint
 ```
 
 ## License

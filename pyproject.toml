@@ -15,17 +15,28 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
 ]
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "ruff>=0.6"]
 
 [project.urls]
 Homepage = "https://github.com/auditinfra-io/o1js-scan"
+Repository = "https://github.com/auditinfra-io/o1js-scan"
 Issues = "https://github.com/auditinfra-io/o1js-scan/issues"
+Changelog = "https://github.com/auditinfra-io/o1js-scan/blob/main/CHANGELOG.md"
 
 [project.scripts]
 o1js-scan = "o1js_scan.cli:main"
@@ -34,5 +45,18 @@ noir-scan = "o1js_scan.cli:main"
 [tool.setuptools.packages.find]
 include = ["o1js_scan*"]
 
+[tool.setuptools.package-data]
+o1js_scan = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 100
+
+[tool.ruff.lint]
+# Correctness- and import-focused: pyflakes, bugbear, pycodestyle, isort.
+# Line length (E501) and ambiguous names (E741) are intentionally not enforced.
+select = ["E", "F", "W", "B", "I"]
+ignore = ["E501", "E741"]
