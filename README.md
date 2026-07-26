@@ -369,8 +369,9 @@ working on something where the difference matters — a protocol holding real
 value, a circuit you can't afford to get wrong — treat this as the first pass
 and budget for a real review.
 
-Deeper analysis is what [auditinfra](https://github.com/auditinfra-io) works
-on; this scanner is the part of it we can give away.
+Deeper analysis is what [Proofplay Logic](https://github.com/auditinfra-io)
+works on; this scanner is the part of it we can give away. If you want a
+circuit looked at properly, reach out: `auditinfracorp@proton.me`.
 
 ## Compatibility
 

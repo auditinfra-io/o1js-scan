@@ -10,7 +10,8 @@ readme = "README.md"
 requires-python = ">=3.8"
 license = { file = "LICENSE" }
 keywords = ["o1js", "mina", "noir", "aztec", "zk", "zkapp", "circuit", "security", "static-analysis", "audit"]
-authors = [{ name = "o1js-scan contributors" }]
+authors = [{ name = "Dan", email = "auditinfracorp@proton.me" }]
+maintainers = [{ name = "Proofplay Logic", email = "auditinfracorp@proton.me" }]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
