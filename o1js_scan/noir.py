@@ -218,6 +218,7 @@ _UNCONSTRAINED_SUPPRESSED_RULES = frozenset({
     "NOIR_UNUSED_CHECK_RESULT",
     "NOIR_UNCONSTRAINED_WITNESS",
     "NOIR_UNSAFE_MISSING_SAFETY",
+    "NOIR_UNCONSTRAINED_ARRAY_INDEX",
 })
 # NOIR_UNCONSTRAINED_INPUT / NOIR_UNCONSTRAINED_PUBLIC_INPUT are deliberately
 # absent: they concern `fn main`, the circuit entry point, which cannot itself
@@ -441,6 +442,31 @@ def _controlled_witnesses(stripped: str) -> Set[str]:
     for um in re.finditer(r"\blet\s+(?:mut\s+)?([\w(),\s]{0,200}?)\s*=\s*unsafe\s*\{", stripped):
         controlled |= {w for w in re.findall(r"\w+", um.group(1))
                        if w != "mut" and not w.startswith("_")}
+    return controlled
+
+
+def _controlled_with_derived(stripped: str) -> Set[str]:
+    """``_controlled_witnesses`` expanded forward through simple
+    ``let name = rhs;`` aliases to a fixpoint, so multi-hop derivations of a
+    prover-controlled value are treated as prover-controlled too.
+
+    Shared by the narrowing-cast and array-index rules: both ask the same
+    question ("can the prover choose this value?") about different sinks.
+    """
+    controlled = _controlled_witnesses(stripped)
+    if not controlled:
+        return controlled
+    lets = [(m.group(1), m.group(2)) for m in re.finditer(
+        r"\blet\s+(?:mut\s+)?(\w+)\s*=\s*([^;]{0,4000});", stripped)]
+    changed = True
+    while changed:
+        changed = False
+        for name, rhs in lets:
+            if name in controlled or name.startswith("_"):
+                continue
+            if any(idt in controlled for idt in _idents(rhs)):
+                controlled.add(name)
+                changed = True
     return controlled
 
 
@@ -781,6 +807,7 @@ class NoirLexer:
             )
         vulns += self._detect_unconstrained_input(content, stripped)
         vulns += self._detect_unchecked_cast(content, stripped)
+        vulns += self._detect_array_index(content, stripped)
         for name, body, offset in _functions(stripped):
             vulns += self._detect_unasserted_bool(content, body, offset, name)
             vulns += self._detect_unused_check_result(content, body, offset, name)
@@ -1048,25 +1075,11 @@ class NoirLexer:
         # Prover-controlled value sources this tool already models: private
         # `main` inputs and `unsafe {}` results. Scoping the rule to these keeps
         # it high-signal (loop counters / known-small locals are not flagged).
-        controlled = _controlled_witnesses(stripped)
+        # Propagated forward through `let` aliases so multi-hop derivations of a
+        # private input / `unsafe` result are covered.
+        controlled = _controlled_with_derived(stripped)
         if not controlled:
             return []
-
-        # Propagate controlled-ness forward through simple `let name = rhs;`
-        # aliases/derived values before looking for casts. This intentionally
-        # mirrors the lexical let-binding shape used by the reachability rules
-        # above and expands to a fixpoint so multi-hop derivations are covered.
-        lets = [(m.group(1), m.group(2)) for m in re.finditer(
-            r"\blet\s+(?:mut\s+)?(\w+)\s*=\s*([^;]{0,4000});", stripped)]
-        changed = True
-        while changed:
-            changed = False
-            for name, rhs in lets:
-                if name in controlled or name.startswith("_"):
-                    continue
-                if any(idt in controlled for idt in _idents(rhs)):
-                    controlled.add(name)
-                    changed = True
 
         out: List[Vulnerability] = []
         seen: Set[Tuple[str, int]] = set()
@@ -1099,6 +1112,122 @@ class NoirLexer:
                 evidence={
                     "witness": ident, "cast_to": ty,
                     "witness_source": "narrowing_cast", "framework": "noir",
+                },
+            ))
+        return out
+
+    # --- Rule 3b: prover-chosen array index ------------------------------
+
+    @staticmethod
+    def _pinned_by_equality(text: str, ident: str) -> bool:
+        """True if ``ident`` appears in an EQUALITY assertion, which fixes it to
+        a single value and so removes the prover's freedom to choose it.
+
+        Only ``==`` and the ``assert_eq`` family count. ``!=`` is excluded on
+        purpose: a disequality rules out one value and leaves the rest free,
+        which is not pinning. (The one ``!=`` idiom that does matter here — the
+        ``!= -1`` found-sentinel — is handled by ``_has_range_bound``.)
+
+        Deliberately separate from ``_has_range_bound`` so this cannot loosen
+        NOIR_UNCHECKED_CAST, whose threat model — truncation — is not
+        neutralized by an equality on the pre-cast value.
+        """
+        a = re.escape(ident)
+        for am in _ASSERT_CALL_RE.finditer(text):
+            seg = _paren_segment(text, am.end() - 1)
+            if not re.search(r"\b" + a + r"\b", seg):
+                continue
+            if "assert_eq" in am.group(0) or re.search(r"(?<![=!<>])==(?!=)", seg):
+                return True
+        return False
+
+    @staticmethod
+    def _cast_sources(text: str, ident: str) -> Set[str]:
+        """Idents ``Y`` for which ``let ident = Y as T;`` appears.
+
+        Noir constrains the value BEFORE the cast (``index.assert_max_bit_size
+        ::<8>(); let i = index as u32;``), so a bound on the cast source is a
+        bound on the index. Without this hop the rule misreads that idiom —
+        noir_json_parser's literal scan is exactly this shape.
+        """
+        return set(re.findall(
+            r"\blet\s+(?:mut\s+)?" + re.escape(ident)
+            + r"\s*=\s*([A-Za-z_]\w{0,120})\s+as\s+\w{1,40}\s*;", text))
+
+    @classmethod
+    def _read_result_pinned(cls, text: str, arr: str, idx: str) -> bool:
+        """True when the value read out of ``arr[idx]`` is itself pinned by an
+        equality assertion.
+
+        This is the indirect — and more common — way a selector is constrained:
+        the circuit does not bound the index, it asserts that what came back is
+        what was expected (``let e = t[i]; assert_eq(e, expected);``). A prover
+        who moves ``i`` then fails that assertion, so the choice is not free.
+        """
+        pat = re.escape(arr) + r"\s*\[\s*" + re.escape(idx) + r"\b"
+        for lm in re.finditer(
+                r"\blet\s+(?:mut\s+)?(\w{1,120})\s*=\s*([^;]{0,4000});", text):
+            if re.search(pat, lm.group(2)) and cls._pinned_by_equality(text, lm.group(1)):
+                return True
+        return False
+
+    # `arr[i]` / `arr[i as u32]` — an identifier index, optionally cast. A
+    # literal index (`arr[3]`) and a type annotation (`[Field; N]`) cannot match:
+    # both require an identifier immediately before the bracket.
+    _INDEX_RE = re.compile(
+        r"\b([A-Za-z_]\w{0,120})\s*\[\s*([A-Za-z_]\w{0,120})"
+        r"(?:\s+as\s+\w{0,40})?\s*\]"
+    )
+
+    def _detect_array_index(self, src: str, stripped: str) -> List[Vulnerability]:
+        controlled = _controlled_with_derived(stripped)
+        if not controlled:
+            return []
+
+        out: List[Vulnerability] = []
+        seen: Set[Tuple[str, int]] = set()
+        for im in self._INDEX_RE.finditer(stripped):
+            arr, idx = im.group(1), im.group(2)
+            if idx not in controlled:
+                continue
+            # Suppress on ANY check at all — a range bound on the index, an
+            # equality on the index, or an equality on the value read back.
+            # This conjunction is deliberately conservative: it reports only
+            # indices where the prover's choice is completely unchecked. See
+            # docs/noir_calibration.md for the recall this trades away.
+            checked = {idx} | self._cast_sources(stripped, idx)
+            if (any(self._has_range_bound(stripped, c) for c in checked)
+                    or any(self._pinned_by_equality(stripped, c) for c in checked)
+                    or self._read_result_pinned(stripped, arr, idx)):
+                continue
+            line = _line_of(src, im.start())
+            if (idx, line) in seen:
+                continue
+            seen.add((idx, line))
+            out.append(Vulnerability(
+                pattern_name="NOIR_UNCONSTRAINED_ARRAY_INDEX",
+                severity=Severity.MEDIUM,
+                function="",
+                location=(line, 0),
+                origin_tier=NOIR_ORIGIN_TIER,
+                rule_id="NOIR_UNCONSTRAINED_ARRAY_INDEX",
+                title=f"Array index `{arr}[{idx}]` is prover-chosen and unconstrained",
+                description=(
+                    f"`{idx}` is a prover-controlled value (a private input or an "
+                    f"`unsafe` result) used to index `{arr}`, with no assertion "
+                    f"pinning or bounding it. Noir's implicit bounds check only "
+                    f"establishes that the index is IN RANGE — it does not establish "
+                    f"that it is the CORRECT index. A malicious prover is therefore "
+                    f"free to select any element of `{arr}` and still produce a "
+                    f"verifying proof, which breaks selector-style lookups (Merkle "
+                    f"path positions, note selection, allow-list membership). "
+                    f"Constrain `{idx}` — assert its bound (`assert({idx} < N)`) when "
+                    f"the range is what matters, or assert the value read back "
+                    f"(`assert_eq({arr}[{idx}], expected)`) when the selection is."
+                ),
+                evidence={
+                    "witness": idx, "array": arr,
+                    "witness_source": "array_index", "framework": "noir",
                 },
             ))
         return out

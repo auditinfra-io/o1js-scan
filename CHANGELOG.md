@@ -6,6 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`NOIR_UNCONSTRAINED_ARRAY_INDEX`** (MEDIUM) — a prover-controlled value used
+  as an array index with no check of any kind on it. Noir's implicit bounds
+  check proves the index is *in range*, never that it is the *correct* index, so
+  the prover stays free to select any element and still verify — the
+  selector-freedom bug behind Merkle path positions, note selection and
+  allow-list membership. Deliberately framed as soundness, not as the
+  completeness/"proof failure" argument the equivalent rule elsewhere uses.
+  Suppressed when the index is range-bounded, pinned by an equality, bounded
+  before a cast, or when the value read back is itself pinned by `assert_eq`.
+  Measured across all ten pinned Noir repos: **one** new finding
+  (`noir_json_parser` `keymap.nr`, classified UNREVIEWED), zero elsewhere, no
+  pre-existing finding changed. One FP found and fixed during the pass rather
+  than accepted. Known recall gap — a range bound alone does not make a selector
+  sound but is suppressed for precision — is recorded in
+  `docs/noir_calibration.md`. Three paired mutation fixtures.
+
 ### Fixed
 - **Constraint-absence rules no longer fire inside `unconstrained fn` bodies.**
   Brillig code runs outside the circuit and emits no constraints, so a rule

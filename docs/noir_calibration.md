@@ -206,3 +206,80 @@ caught by its tp_ twin going silent. Pairs: `fp_/tp_zkemail_lte_240`,
 Fixtures live under `tests/`, which the analyzer treats as test code, so the
 harness analyzes each by its bare basename; `// @scan-as <path>` opts a fixture
 into a test-shaped path.
+
+## `NOIR_UNCONSTRAINED_ARRAY_INDEX` (0.11)
+
+Added after diffing the rule set against
+[NethermindEth/aztec-lint](https://github.com/NethermindEth/aztec-lint), whose
+`NOIR020` ("array indexing without bounds validation") was the one
+soundness-relevant rule in its catalog with no counterpart here.
+
+### The threat model is deliberately NOT aztec-lint's
+
+aztec-lint motivates `NOIR020` with *"unchecked indexing can cause invalid
+behavior and proof failures"* — a **completeness** argument. Out-of-range
+indexing in Noir makes the proof fail; a failing prover is not a soundness bug,
+and this scanner does not report liveness issues.
+
+The soundness bug in the same syntax is **selector freedom**: the implicit
+bounds check establishes that the index is *in range*, never that it is the
+*correct* index. Where the index picks a Merkle path position, a note, or an
+allow-list entry, an unchecked index lets a malicious prover choose which
+element the statement is about and still verify. That is what this rule reports,
+and the description string says so.
+
+### Suppression is a conjunction, on purpose
+
+A finding requires that the prover's choice be unchecked in **every** way the
+tool can recognise:
+
+1. no range bound on the index (`assert(i < N)`, `assert_max_bit_size`, the
+   `!= -1` found-sentinel),
+2. no equality pinning the index (`==` / `assert_eq`; `!=` does **not** count —
+   it excludes one value and leaves the rest free),
+3. no range bound or equality on the **cast source** where the index is
+   `let i = src as u32;` — Noir constrains before the cast,
+4. no equality pinning the **value read back** (`let e = t[i];
+   assert_eq(e, expected);`) — moving the index then breaks that assertion.
+
+### Known recall gap, stated rather than hidden
+
+Guard (1) is unsound as a *selector* argument: a range bound stops the prover
+leaving the array, not choosing within it. It is suppressed anyway, because
+without it the rule fires on essentially every dynamic index in the corpus. The
+rule is therefore tuned for precision and will miss bounded-but-unpinned
+selectors. `fp_array_index_bounded.nr` carries this note inline.
+
+### Measurement — all ten pinned Noir repos
+
+| Repo | New findings |
+|---|---|
+| aztec-nr | 0 |
+| zkpassport/circuits | 0 |
+| noir-bignum, noir_base64, noir_rsa, noir_sort, noir_string_search, nodash, zkemail.nr | 0 |
+| noir_json_parser | **1** |
+
+Pre-existing findings are unchanged everywhere (aztec-nr 0 HIGH / 0 MEDIUM,
+zkpassport 0/0, zkemail.nr 6, noir-bignum 4). No HIGH budget in
+`scripts/noirlang_canary.sh` moves — the rule is MEDIUM.
+
+### Classification of the one finding
+
+| Location | Verdict | Reasoning |
+|---|---|---|
+| `noir_json_parser` `src/keymap.nr` :138 (`json_entries_packed[root_index]`) | **UNREVIEWED** | `root_index` comes from `unsafe { __find_root_entry(...) }`. The circuit asserts two properties *of the selected entry* — `packed_entry.value != 0` and `entry.parent_index == 0` — but never that only one entry satisfies them. If two entries can, the prover picks the root. Whether that is reachable depends on how `json_entries_packed` is built earlier in the sort pass, which is a cross-procedure invariant a lexical tool cannot settle. Reported as a weak-predicate selector, not claimed as a bug. |
+
+One FP was found and **fixed** during this pass rather than accepted:
+`src/json.nr` :663 asserted `index.assert_max_bit_size::<8>()` on the pre-cast
+value and indexed with `index as u32`. That is guard (3) above, bounded by
+`fp_/tp_jsonparser_index_bitsize.nr`.
+
+The Noir rule set still has **no confirmed wild true positive**.
+
+### Fixtures
+
+Three paired mutation fixtures, each `tp_` differing from its `fp_` by exactly
+one deleted line: `fp_/tp_array_index` (range bound), `fp_/tp_array_index_pinned`
+(equality on the read result), `fp_/tp_jsonparser_index_bitsize` (bound before
+the cast). `fp_zkpassport_index_cast.nr` now also asserts this rule's absence,
+so the real `!= -1` sentinel idiom guards both rules.
