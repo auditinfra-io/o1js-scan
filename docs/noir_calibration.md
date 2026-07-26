@@ -114,15 +114,26 @@ addressed here". That was the criterion not being met. Both have now been read:
 **Neither is a true positive**, so the Noir rule set still has no confirmed wild
 true positive.
 
-**These are a systematic FP class, not two one-offs.** `NOIR_UNCHECKED_CAST`
-(and, by the same argument, any rule whose premise is "this should have been
-constrained") does not check whether its enclosing function is
-`unconstrained fn`. Every narrowing cast in every Brillig helper in any codebase
-is a candidate. It has not been fixed in this pass — the scope here was
-consistency and coverage across the backends, and the brief explicitly asked
-that Noir behaviour not be retuned. The fix is well-defined for a later pass:
-suppress cast/constraint-absence rules inside `unconstrained fn` bodies, with
-the usual paired mutation fixture.
+**These were a systematic FP class, not two one-offs** — and it has now been
+**fixed**. `NOIR_UNCHECKED_CAST` (and any rule whose premise is "a constraint
+that should exist is missing") did not check whether its enclosing function was
+`unconstrained fn`, so every narrowing cast in every Brillig helper in any
+codebase was a candidate.
+
+Constraint-absence rules are now suppressed inside `unconstrained fn` bodies via
+an explicit deny-list (`_UNCONSTRAINED_SUPPRESSED_RULES`), so a rule added later
+defaults to **firing** there rather than being silently hidden — the safe bias
+for a security tool. `NOIR_UNCONSTRAINED_INPUT` / `NOIR_UNCONSTRAINED_PUBLIC_INPUT`
+are deliberately excluded: they concern `fn main`, which cannot be unconstrained.
+
+Effect on the corpus: `noir_json_parser` MEDIUM **2 → 0**. Nothing else changed
+across the ten Noir repos, and the Mina true positives are untouched.
+
+Bounded by a paired mutation fixture (`fp_`/`tp_unconstrained_body_cast.nr`):
+identical bodies, the only difference being the `unconstrained` keyword. The
+tp_ twin fires, so the suppression silences Brillig bodies and not circuit code.
+A unit test also pins the `[Field; N]` signature case — the `;` inside an array
+type truncates a naive span walk and would silently un-suppress the body.
 
 ### Fixes in this pass
 

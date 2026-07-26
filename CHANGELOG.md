@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Constraint-absence rules no longer fire inside `unconstrained fn` bodies.**
+  Brillig code runs outside the circuit and emits no constraints, so a rule
+  whose premise is "a constraint that should exist is missing" cannot apply
+  there — a narrowing cast is not missing a range check when there is no
+  circuit to under-constrain. This was the systematic FP class identified (and
+  deferred) in 0.10.0; `noir_json_parser` MEDIUM 2 → 0, no other corpus change.
+  Implemented as an explicit deny-list so a future rule defaults to firing
+  inside unconstrained code rather than being silently hidden, and bounded by a
+  paired mutation fixture whose twins differ only by the `unconstrained`
+  keyword. Soundness of a Brillig hint is still checked where it belongs — at
+  the caller's `unsafe { ... }` site.
+
 ## [0.10.0] - 2026-07-26
 
 ### Added
