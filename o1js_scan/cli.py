@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -26,6 +27,9 @@ _LANG_CHOICES = ("auto", "o1js", "noir")
 
 def _prog_name(argv: Optional[List[str]]) -> str:
     """Prefer the invoked binary name so ``noir-scan --help`` reads as Noir."""
+    env_prog = os.environ.get("O1JS_SCAN_PROG")
+    if env_prog in {"o1js-scan", "noir-scan"}:
+        return env_prog
     if argv is not None:
         return "o1js-scan"
     name = Path(sys.argv[0]).name

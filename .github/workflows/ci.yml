@@ -43,6 +43,11 @@ jobs:
           o1js-scan --help
           noir-scan --help
           noir-scan examples/noir_constrained.nr --lang noir --fail-on high
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Smoke-test the npm wrapper
+        run: npm run test:npm-wrapper
 
   aztec-nr-canary:
     runs-on: ubuntu-latest
