@@ -67,13 +67,18 @@ def is_noir_source(content: str, filepath: str = "") -> bool:
 # Brace-balanced function-body extraction
 # ---------------------------------------------------------------------------
 
-def _functions(stripped: str) -> List[Tuple[str, str, int]]:
+def _functions(stripped: str, unconstrained_only: bool = False) -> List[Tuple[str, str, int]]:
     """Return ``[(name, body, body_start_offset), ...]`` for every ``fn`` with a
     body. Offsets index into ``stripped`` (length-preserving vs. the source, so
-    they map straight back to line numbers)."""
+    they map straight back to line numbers).
+
+    ``unconstrained_only`` restricts the result to ``unconstrained fn`` bodies.
+    """
     out: List[Tuple[str, str, int]] = []
     n = len(stripped)
-    for m in re.finditer(r"\b(?:unconstrained\s+)?fn\s+(\w+)", stripped):
+    for m in re.finditer(r"\b(?P<unc>unconstrained\s+)?fn\s+(?P<name>\w+)", stripped):
+        if unconstrained_only and not m.group("unc"):
+            continue
         i = m.end()
         # advance to the parameter list's '('
         while i < n and stripped[i] not in "({;":
@@ -108,7 +113,7 @@ def _functions(stripped: str) -> List[Tuple[str, str, int]]:
                 if depth == 0:
                     break
             i += 1
-        out.append((m.group(1), stripped[open_idx + 1:i], open_idx + 1))
+        out.append((m.group("name"), stripped[open_idx + 1:i], open_idx + 1))
     return out
 
 
@@ -184,6 +189,49 @@ def _has_any_comparison(text: str) -> bool:
             if prev not in ":<>" and nxt not in "<>":
                 return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Unconstrained-function context
+# ---------------------------------------------------------------------------
+#
+# An `unconstrained fn` body is Brillig: it runs OUTSIDE the circuit and emits
+# no constraints at all. Every rule below has the same premise — "a constraint
+# that should exist is missing or ineffective" — and that premise is simply
+# false there. A narrowing cast cannot be "missing a range check" when there is
+# no circuit to under-constrain; a discarded comparison constrains nothing
+# either way; an `assert` is a Brillig runtime check, not a constraint.
+#
+# Soundness of unconstrained code rests entirely on how the CALLER re-constrains
+# the value it returns, which is what NOIR_UNCONSTRAINED_WITNESS checks at the
+# `unsafe { ... }` call site in constrained code — that is unaffected here.
+#
+# This is an explicit deny-list rather than "suppress everything": a rule added
+# later defaults to FIRING inside unconstrained code, which is the safe bias for
+# a security tool. Add to this set only with the argument above in hand.
+_UNCONSTRAINED_SUPPRESSED_RULES = frozenset({
+    "NOIR_UNCHECKED_CAST",
+    "NOIR_UNASSERTED_BOOL",
+    "NOIR_VACUOUS_CONSTRAINT",
+    "NOIR_CONDITIONAL_ASSERT",
+    "NOIR_CONDITIONAL_CONSTRAIN",
+    "NOIR_UNUSED_CHECK_RESULT",
+    "NOIR_UNCONSTRAINED_WITNESS",
+    "NOIR_UNSAFE_MISSING_SAFETY",
+})
+# NOIR_UNCONSTRAINED_INPUT / NOIR_UNCONSTRAINED_PUBLIC_INPUT are deliberately
+# absent: they concern `fn main`, the circuit entry point, which cannot itself
+# be `unconstrained`. Listing them would be a no-op that implied otherwise.
+
+
+def _unconstrained_line_ranges(content: str, stripped: str) -> List[Tuple[int, int]]:
+    """Inclusive ``(first_line, last_line)`` spans of every ``unconstrained fn``
+    body. Uses the same paren/brace walk as :func:`_functions`, so array types
+    in the signature (``[Field; N]``) do not truncate the span."""
+    return [
+        (_line_of(content, off), _line_of(content, off + len(body)))
+        for _name, body, off in _functions(stripped, unconstrained_only=True)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -742,6 +790,15 @@ class NoirLexer:
             )
         vulns += self._detect_conditional_assert(content, stripped)
         vulns += self._detect_unsafe_missing_safety(content, stripped)
+        # Constraint-absence rules cannot apply inside `unconstrained fn`
+        # bodies — there is no circuit there to under-constrain.
+        unc = _unconstrained_line_ranges(content, stripped)
+        if unc:
+            vulns = [
+                v for v in vulns
+                if v.rule_id not in _UNCONSTRAINED_SUPPRESSED_RULES
+                or not _in_ranges(v.location[0] if v.location else 0, unc)
+            ]
         if not self.include_tests:
             ranges = _test_line_ranges(content, stripped)
             if ranges:

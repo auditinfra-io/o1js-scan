@@ -1074,3 +1074,76 @@ def test_always_false_self_comparison_not_flagged():
 def test_vacuous_constraint_suppressed_in_test_code():
     src = "fn t(x: Field) { assert(x == x); }"
     assert analyze_noir_file("src/tests/mod.nr", src) == []
+
+
+# ---------------------------------------------------------------------------
+# `unconstrained fn` bodies emit no constraints — constraint-absence rules
+# cannot apply there (systematic FP class, noir_json_parser getters.nr)
+# ---------------------------------------------------------------------------
+
+_UNC_TMPL = """unconstrained fn hint() -> Field {{ 0 }}
+
+{kw}fn helper(target: Field) -> u32 {{
+    let seed = unsafe {{ hint() }};
+    let idx = seed + target;
+    idx as u32
+}}
+"""
+
+
+def test_cast_inside_unconstrained_body_suppressed():
+    v = analyze_noir_file("m.nr", _UNC_TMPL.format(kw="unconstrained "))
+    assert "NOIR_UNCHECKED_CAST" not in _rules(v)
+
+
+def test_same_cast_in_constrained_body_still_fires():
+    v = analyze_noir_file("m.nr", _UNC_TMPL.format(kw=""))
+    assert "NOIR_UNCHECKED_CAST" in _rules(v)
+
+
+def test_unsafe_hint_inside_unconstrained_body_suppressed():
+    v = analyze_noir_file("m.nr", _UNC_TMPL.format(kw="unconstrained "))
+    assert "NOIR_UNCONSTRAINED_WITNESS" not in _rules(v)
+
+
+def test_array_type_in_signature_does_not_truncate_the_span():
+    # `[Field; N]` contains a `;` — a naive walk ends the span early and the
+    # body is no longer recognized as unconstrained. This is the exact shape of
+    # the real getters.nr signature.
+    src = """unconstrained fn hint() -> Field { 0 }
+
+unconstrained fn search<let N: u32>(keys: [Field; N], target: Field) -> u32 {
+    let seed = unsafe { hint() };
+    let idx = seed + target;
+    idx as u32
+}
+"""
+    assert "NOIR_UNCHECKED_CAST" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_constrained_fn_after_an_unconstrained_one_still_fires():
+    # The suppression must be scoped to the unconstrained body, not to the file.
+    src = """unconstrained fn hint() -> Field { 0 }
+
+unconstrained fn brillig(target: Field) -> u32 {
+    let a = unsafe { hint() };
+    let ai = a + target;
+    ai as u32
+}
+
+fn circuit(target: Field) -> u32 {
+    let b = unsafe { hint() };
+    let bi = b + target;
+    bi as u32
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    casts = [x for x in v if x.rule_id == "NOIR_UNCHECKED_CAST"]
+    assert len(casts) == 1, [x.evidence.get("witness") for x in casts]
+    assert casts[0].evidence["witness"] == "bi"
+
+
+def test_main_input_rules_unaffected_by_the_deny_list():
+    # NOIR_UNCONSTRAINED_INPUT concerns `fn main`, which cannot be unconstrained.
+    src = "fn main(secret: Field, seen: pub Field) { assert(seen != 0); }"
+    assert "NOIR_UNCONSTRAINED_INPUT" in _rules(analyze_noir_file("m.nr", src))
