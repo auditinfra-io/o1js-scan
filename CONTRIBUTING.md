@@ -50,6 +50,24 @@ dependency is `pytest`.
 4. Document the rule in the Noir table in `README.md`.
 5. Re-check aztec-nr-shaped FP fixtures stay quiet (see `docs/noir_calibration.md`).
 
+## Merging pull requests
+
+**Use squash (or rebase) merges, not merge commits.**
+
+A GitHub merge commit is authored by `GitHub <noreply@github.com>` — GitHub sets
+that server-side and it cannot be changed after the fact. Squashing keeps every
+commit on `main` attributed to whoever actually wrote it, and keeps history
+linear.
+
+This is not retroactively fixable on the existing history: the `v0.8.0`,
+`v0.9.0` and `v0.10.0` tags all point at merge commits, and those tags are what
+CI built the published PyPI artifacts from. Rewriting them would orphan the
+released versions from `main`'s history — a real cost for a cosmetic gain. Fix
+it going forward only.
+
+Set **Settings → General → Pull Requests → Allow squash merging** (and untick
+"Allow merge commits") to enforce this at the repository level.
+
 ## Reporting issues
 
 Please include a minimal o1js or Noir snippet that reproduces the false positive
