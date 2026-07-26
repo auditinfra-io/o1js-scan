@@ -210,11 +210,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: auditinfra-io/o1js-scan@v0.9.0
+      - uses: auditinfra-io/o1js-scan@v0.10.0
         with:
           path: src              # optional, defaults to the repo root
           lang: auto             # auto | o1js | noir
-          # version: 0.9.0       # optional, pin the scanner version
+          # version: 0.10.0       # optional, pin the scanner version
           # fail-on-findings: true   # optional, fail the job on any high/critical
 ```
 
@@ -224,7 +224,7 @@ Recommended for Noir projects that want code-scanning alerts and a high-severity
 gate:
 
 ```yaml
-- uses: auditinfra-io/o1js-scan@v0.9.0
+- uses: auditinfra-io/o1js-scan@v0.10.0
   with:
     path: .
     lang: noir
