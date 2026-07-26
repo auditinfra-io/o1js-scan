@@ -19,6 +19,7 @@ from typing import List, Optional
 
 from . import __version__
 from .lexer import analyze_project
+from .paths import ScanStats
 from .vuln import meets_threshold
 
 _FAIL_ON_CHOICES = ("critical", "high", "medium", "low", "none")
@@ -56,10 +57,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     ap.add_argument(
         "--include-tests", action="store_true",
-        help="also report findings in Noir test code (test_*.nr / *_test.nr, "
-             "test/ and tests/ directories, #[test] functions, and mod test "
-             "blocks). Excluded by default: Noir tests intentionally build "
-             "invalid values in `unsafe` blocks to prove the asserts reject them.",
+        help="also report findings in test code (BOTH backends): *.test.ts / "
+             "*.spec.ts / .js variants, test_*.nr / *_test.nr, any test/, "
+             "tests/ or __tests__/ directory, plus Noir #[test] functions and "
+             "mod test blocks. Excluded by default: tests deliberately build "
+             "invalid values to prove the asserts reject them.",
+    )
+    ap.add_argument(
+        "--include-examples", action="store_true",
+        help="keep the original severity for findings in example code (an "
+             "examples/ or example/ directory, or an .eg. filename). By default "
+             "these are downgraded to LOW — still reported, but they will not "
+             "fail a build — because example code is deliberately simplified.",
     )
     ap.add_argument("--json", action="store_true", help="emit JSONL findings")
     ap.add_argument(
@@ -80,8 +89,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"{prog}: path not found: {args.path}", file=sys.stderr)
         return 2
 
+    stats = ScanStats()
     findings = analyze_project(
         args.path, lang=args.lang, include_tests=args.include_tests,
+        include_examples=args.include_examples, stats=stats,
     )
 
     gate = any(meets_threshold(v.severity.value, args.fail_on) for _f, v in findings)
@@ -91,7 +102,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.sarif is not None:
         from .sarif import to_sarif
 
-        doc = json.dumps(to_sarif(findings, __version__), indent=2)
+        doc = json.dumps(to_sarif(findings, __version__, stats=stats), indent=2)
         if args.sarif == "-":
             # SARIF owns stdout in this mode; skip the other reporters so the
             # document parses cleanly when piped to the upload action.
@@ -118,6 +129,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                   f"{Path(fp).name}:{line}  fn={v.function}  {v.title}")
 
     print(_summary(prog, findings, args.fail_on, gate, args.lang), file=sys.stderr)
+    # Silent suppression is invisible: say what was skipped or downgraded, on
+    # stderr so --json / --sarif consumers are unaffected.
+    note = stats.note()
+    if note:
+        print(f"{prog}: {note}", file=sys.stderr)
     return 1 if gate else 0
 
 

@@ -76,3 +76,16 @@ jobs:
         run: pip install -e .
       - name: Canary (noir-lang + zkEmail, classified budgets)
         run: bash scripts/noirlang_canary.sh
+
+  mina-canary:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e .
+      - name: Canary (Mina / o1js, classified budgets + confirmed-TP floor)
+        run: bash scripts/mina_canary.sh

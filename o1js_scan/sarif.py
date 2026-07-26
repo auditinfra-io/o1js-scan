@@ -44,8 +44,15 @@ def _uri(filepath: str) -> str:
     return p.replace(os.sep, "/").lstrip("./") or filepath
 
 
-def to_sarif(findings: List[Tuple[str, Vulnerability]], version: str) -> Dict:
-    """Build a SARIF 2.1.0 log from ``[(filepath, Vulnerability), ...]``."""
+def to_sarif(
+    findings: List[Tuple[str, Vulnerability]], version: str, stats=None,
+) -> Dict:
+    """Build a SARIF 2.1.0 log from ``[(filepath, Vulnerability), ...]``.
+
+    ``stats`` (a :class:`o1js_scan.paths.ScanStats`) is recorded under
+    ``invocation.properties`` so a consumer can see that files were skipped as
+    test code or downgraded as examples, rather than inferring silence.
+    """
     rule_index: Dict[str, int] = {}
     rules: List[Dict] = []
     results: List[Dict] = []
@@ -98,5 +105,13 @@ def to_sarif(findings: List[Tuple[str, Vulnerability]], version: str) -> Dict:
                 },
             },
             "results": results,
+            "invocations": [{
+                "executionSuccessful": True,
+                "properties": {
+                    "skippedTestFiles": getattr(stats, "skipped_test_files", 0),
+                    "downgradedExampleFindings": getattr(
+                        stats, "downgraded_example_findings", 0),
+                },
+            }],
         }],
     }

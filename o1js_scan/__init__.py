@@ -22,6 +22,7 @@ from .lexer import (
     is_o1js_source,
 )
 from .noir import NOIR_ORIGIN_TIER, NoirLexer, analyze_noir_file, is_noir_source
+from .paths import ScanStats, is_example_path, is_test_path
 from .vuln import Severity, Vulnerability
 
 __version__ = "0.9.0"
@@ -38,5 +39,8 @@ __all__ = [
     "Vulnerability",
     "O1JS_ORIGIN_TIER",
     "NOIR_ORIGIN_TIER",
+    "ScanStats",
+    "is_test_path",
+    "is_example_path",
     "__version__",
 ]

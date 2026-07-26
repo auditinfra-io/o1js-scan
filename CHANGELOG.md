@@ -7,11 +7,46 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Test-context suppression for o1js** (parity with Noir). `*.test.ts`,
+  `*.spec.ts` (+ js/jsx/tsx/mjs/cjs), and any `test/`, `tests/`, `__tests__/`,
+  `spec/` or `__mocks__/` directory are skipped by default. `--include-tests`
+  now applies to **both** backends.
+- **Example-code downgrade** (both backends). Findings in `examples/` /
+  `example/` directories or `.eg.` filenames are lowered to **LOW** with a note
+  rather than dropped — example code is copied into production more often than
+  test code is. `--include-examples` keeps the original severity.
+- **Skipped-file transparency.** The CLI prints a stderr line whenever the path
+  policy applied (e.g. `6 file(s) skipped as test code, 1 finding(s) downgraded
+  as examples`), and the counts appear in SARIF `invocation.properties`. Silent
+  suppression was previously invisible.
+- **`scripts/mina_canary.sh`** — the o1js side had no canary, so those rules
+  (the only ones with confirmed real-world findings) could regress silently.
+  Twelve pinned repos, gated on classified budgets **in both directions**: a new
+  unclassified HIGH fails, and so does a *lost* confirmed true positive.
+  Weekly `mina-canary` CI job.
+- **`docs/mina_calibration.md`** — all 32 Mina findings classified TP/FP/
+  UNREVIEWED with reasoning, matching the Noir acceptance criterion.
+- Pinned regression fixtures for the confirmed wild true positives
+  (`tests/corpus/o1js/tp_regression_*.ts`) plus an o1js corpus harness.
+- New public API: `ScanStats`, `is_test_path`, `is_example_path`;
+  `include_examples` / `stats` parameters on `analyze_file` / `analyze_project`.
 - Package authorship and maintainer metadata (Dan / Proofplay Logic) and a
   contact address in the README handoff.
 - README "Where this tool stops" section — states plainly that a clean run is
   not an audit and a finding is a lead, not a verdict, and points readers who
   need analysis beyond a lexical pass to where that work happens.
+
+### Fixed
+- `docs/noir_calibration.md` promised every finding was classified but left the
+  2 `noir_json_parser` MEDIUMs unreviewed. Both are now classified **FP**: the
+  casts sit inside `unconstrained fn search_for_key_in_map`, and unconstrained
+  code emits no constraints, so a narrowing cast there cannot be missing a range
+  check. This is a **systematic FP class** (`NOIR_UNCHECKED_CAST` does not check
+  whether its enclosing function is `unconstrained`), documented for a later fix
+  rather than retuned in this pass.
+- README documented `--include-examples` and both-backend test suppression;
+  `action.yml` gained `include-tests` / `include-examples` inputs, without which
+  the Action could not reach either behaviour.
 
 ## [0.9.0] - 2026-07-26
 
