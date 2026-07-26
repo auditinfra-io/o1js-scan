@@ -17,6 +17,9 @@ cousins in the Mina and Noir ecosystems.
 
 ```bash
 pip install o1js-scan
+# or: pipx install o1js-scan
+# or: npm install -D o1js-scan
+
 o1js-scan path/to/zkapp          # o1js + Noir (auto)
 noir-scan path/to/circuits       # same binary — Noir-friendly alias
 noir-scan . --lang noir --fail-on high --sarif noir.sarif
@@ -56,6 +59,23 @@ for the o1js and Noir vulnerable/fixed pairs.
 pip install o1js-scan
 ```
 
+For an isolated global CLI install, use `pipx`:
+
+```bash
+pipx install o1js-scan
+```
+
+For Node/npm-based Noir, Aztec, or o1js app repositories, install the npm wrapper:
+
+```bash
+npm install -D o1js-scan
+npx noir-scan . --lang noir --fail-on high
+```
+
+The npm package is a thin wrapper around the same Python analyzer and requires
+Python 3.8+ on `PATH` (`python3` or `python`). Set `O1JS_SCAN_PYTHON` to choose a
+specific interpreter.
+
 Or from source:
 
 ```bash
@@ -64,8 +84,9 @@ cd o1js-scan
 pip install -e .
 ```
 
-No third-party dependencies. Python 3.8+. The `noir-scan` console script is
-installed alongside `o1js-scan` (same entry point).
+No third-party Python dependencies. Python 3.8+. The `noir-scan` console script is
+installed alongside `o1js-scan` (same entry point), including through the npm
+wrapper.
 
 ## Usage
 
@@ -173,6 +194,9 @@ jobs:
 ```
 
 ### Noir-only CI recipe
+
+Recommended for Noir projects that want code-scanning alerts and a high-severity
+gate:
 
 ```yaml
 - uses: auditinfra-io/o1js-scan@v0.9.0
