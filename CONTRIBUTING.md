@@ -52,21 +52,30 @@ dependency is `pytest`.
 
 ## Merging pull requests
 
-**Use squash (or rebase) merges, not merge commits.**
+**Any merge performed by GitHub — `merge`, `squash`, or `rebase` — is committed
+by `GitHub <noreply@github.com>`.** GitHub creates the resulting commit
+server-side and sets itself as committer; the *author* is preserved, the
+*committer* is not. This was verified empirically on this repository:
 
-A GitHub merge commit is authored by `GitHub <noreply@github.com>` — GitHub sets
-that server-side and it cannot be changed after the fact. Squashing keeps every
-commit on `main` attributed to whoever actually wrote it, and keeps history
-linear.
+| Method | author | committer |
+|--------|--------|-----------|
+| merge commit (`ecdcd3e`) | the PR author | `GitHub <noreply@github.com>` |
+| squash (`a61af79`) | the PR author | `GitHub <noreply@github.com>` |
 
-This is not retroactively fixable on the existing history: the `v0.8.0`,
-`v0.9.0` and `v0.10.0` tags all point at merge commits, and those tags are what
-CI built the published PyPI artifacts from. Rewriting them would orphan the
-released versions from `main`'s history — a real cost for a cosmetic gain. Fix
-it going forward only.
+So switching merge method does **not** change commit attribution. Squash merges
+are still preferred here — they keep `main` linear and one commit per change —
+but choose them for readability, not attribution.
 
-Set **Settings → General → Pull Requests → Allow squash merging** (and untick
-"Allow merge commits") to enforce this at the repository level.
+If a workflow genuinely requires the committer identity to be preserved on
+`main`, the only way is to merge locally and push the commits directly
+(`git merge --ff-only` then `git push`), bypassing GitHub's merge API. That
+trades away the PR merge button and any branch protection, which is usually the
+worse deal.
+
+None of this is fixable retroactively. The `v0.8.0`, `v0.9.0` and `v0.10.0` tags
+all point at merge commits, and those tags are what CI built the published PyPI
+artifacts from — rewriting history would orphan the released versions from
+`main` for a purely cosmetic gain.
 
 ## Reporting issues
 
