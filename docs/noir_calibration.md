@@ -100,8 +100,29 @@ All nine were read; **all nine are false positives**, in three classes:
 still not produced a confirmed real under-constrained hint in a third-party
 library. That is worth stating plainly rather than presenting the zero as a win.
 
-The 2 remaining MEDIUMs in `noir_json_parser` are unchanged by this pass and are
-outside the three classes addressed here.
+### The 2 remaining noir_json_parser MEDIUMs — now classified
+
+The acceptance criterion above says every finding is read and classified, and an
+earlier revision of this document left these two as "outside the three classes
+addressed here". That was the criterion not being met. Both have now been read:
+
+| Location | Rule | Verdict | Reasoning |
+|---|---|---|---|
+| `noir_json_parser` `src/getters.nr` :323 (`lhs_index as u32`) | `NOIR_UNCHECKED_CAST` | **FP** | The cast is inside the body of `unconstrained fn search_for_key_in_map` (declared at :271). Unconstrained code runs **outside** the circuit as a Brillig hint — it emits no constraints, so a narrowing cast there cannot be "missing a range check"; there is no circuit to under-constrain. Soundness depends entirely on how the caller re-constrains the returned `KeySearchResult`, which is what `NOIR_UNCONSTRAINED_WITNESS` covers. |
+| `noir_json_parser` `src/getters.nr` :324 (`rhs_index as u32`) | `NOIR_UNCHECKED_CAST` | **FP** | Identical mechanism, adjacent line of the same return expression. |
+
+**Neither is a true positive**, so the Noir rule set still has no confirmed wild
+true positive.
+
+**These are a systematic FP class, not two one-offs.** `NOIR_UNCHECKED_CAST`
+(and, by the same argument, any rule whose premise is "this should have been
+constrained") does not check whether its enclosing function is
+`unconstrained fn`. Every narrowing cast in every Brillig helper in any codebase
+is a candidate. It has not been fixed in this pass — the scope here was
+consistency and coverage across the backends, and the brief explicitly asked
+that Noir behaviour not be retuned. The fix is well-defined for a later pass:
+suppress cast/constraint-absence rules inside `unconstrained fn` bodies, with
+the usual paired mutation fixture.
 
 ### Fixes in this pass
 

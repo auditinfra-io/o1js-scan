@@ -92,6 +92,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+from .paths import ScanStats
 from .vuln import Severity, Vulnerability
 
 # Tier bucket stamped onto every finding this module emits.
@@ -1566,15 +1567,29 @@ def _method_param_blob(src: str, meth: "_Method") -> str:
 
 
 def analyze_file(
-    filepath: str, source: str, include_tests: bool = False,
+    filepath: str,
+    source: str,
+    include_tests: bool = False,
+    include_examples: bool = False,
 ) -> List[Vulnerability]:
     """Analyze a single file's ``source`` text. Dispatches to the Noir analyzer
-    for ``.nr`` files and the o1js analyzer otherwise. ``include_tests`` applies
-    to Noir only."""
+    for ``.nr`` files and the o1js analyzer otherwise.
+
+    Path policy applies to BOTH backends: test files are suppressed unless
+    ``include_tests``, and example files are downgraded to LOW unless
+    ``include_examples`` (see :mod:`o1js_scan.paths`).
+    """
+    from .paths import apply_example_policy, is_test_path
+
+    if not include_tests and is_test_path(filepath):
+        return []
     if str(filepath).endswith(".nr"):
         from .noir import NoirLexer
-        return NoirLexer(include_tests=include_tests).analyze(source, Path(filepath))
-    return O1jsLexer().analyze(source, Path(filepath))
+        vulns = NoirLexer(include_tests=include_tests).analyze(source, Path(filepath))
+    else:
+        vulns = O1jsLexer().analyze(source, Path(filepath))
+    vulns, _n = apply_example_policy(filepath, vulns, include_examples)
+    return vulns
 
 
 # Directory basenames skipped when walking a project tree. Keep this list
@@ -1596,6 +1611,8 @@ def analyze_project(
     root: str,
     lang: str = "auto",
     include_tests: bool = False,
+    include_examples: bool = False,
+    stats: "Optional[ScanStats]" = None,
 ) -> List[Tuple[str, Vulnerability]]:
     """Scan o1js (``.ts``/``.js``/``.mjs``) and/or Noir (``.nr``) files under
     ``root``.
@@ -1605,7 +1622,10 @@ def analyze_project(
     ``[(filepath, vuln), ...]``.
     """
     from .noir import NoirLexer, is_noir_source
+    from .paths import ScanStats, apply_example_policy, is_test_path
 
+    if stats is None:
+        stats = ScanStats()
     lang = (lang or "auto").lower()
     if lang not in ("auto", "o1js", "noir"):
         raise ValueError(f"lang must be auto|o1js|noir, got {lang!r}")
@@ -1630,18 +1650,28 @@ def analyze_project(
         ]
 
     for p in paths:
+        sp = str(p)
+        # Test code is skipped before it is even read: the finding would be the
+        # point of the test, not a bug. Counted so the CLI can say so out loud.
+        if not include_tests and is_test_path(sp):
+            stats.skipped_test_files += 1
+            continue
         try:
             src = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        sp = str(p)
+        found: List[Vulnerability] = []
         if sp.endswith(".nr"):
             if lang == "o1js":
                 continue
             if is_noir_source(src, sp):
-                for v in noir_lexer.analyze(src, p):
-                    out.append((sp, v))
+                found = noir_lexer.analyze(src, p)
         elif lang != "noir" and is_o1js_source(src, sp):
-            for v in o1js_lexer.analyze(src, p):
-                out.append((sp, v))
+            found = o1js_lexer.analyze(src, p)
+        if not found:
+            continue
+        found, n_down = apply_example_policy(sp, found, include_examples)
+        stats.downgraded_example_findings += n_down
+        for v in found:
+            out.append((sp, v))
     return out

@@ -112,8 +112,11 @@ noir-scan . --lang noir --sarif noir.sarif
 # choose which severity fails CI (critical|high|medium|low|none; default high)
 o1js-scan src --fail-on medium
 
-# Noir test code is excluded by default; opt back in
-noir-scan circuits --lang noir --include-tests
+# test code is excluded by default (both backends); opt back in
+o1js-scan src --include-tests
+
+# example code is downgraded to LOW by default; keep original severity
+o1js-scan src --include-examples
 
 o1js-scan --version
 ```
@@ -126,14 +129,36 @@ or `--fail-on medium` to gate more strictly. A missing scan path exits `2` with
 an error on stderr, so a typo can't silently pass CI as a clean run. Every run
 prints a one-line summary (counts by severity and the gate verdict) to stderr.
 
-**Noir test code is excluded by default.** Noir tests deliberately build
-invalid values inside `unsafe` blocks to prove the surrounding asserts reject
-them, so findings there are noise rather than circuit bugs. A file is treated as
-test code when its name is `*_test.nr` / `test_*.nr`, it sits under a `test/` or
-`tests/` directory, the function carries a `#[test]` / `#[test(...)]` attribute,
-or it is inside a `mod test { … }` / `mod tests { … }` block (block-scoped, so a
-test module at the bottom of a production file does not silence the rest of it).
+**Test code is excluded by default — both backends.** Tests deliberately build
+invalid values and bad transactions to prove the asserts reject them, so a
+finding there is the point of the test rather than a circuit bug. A file counts
+as test code when:
+
+- its name matches `*.test.ts` / `*.spec.ts` (and the `.js`/`.jsx`/`.tsx`/`.mjs`
+  /`.cjs` variants), or `*_test.nr` / `test_*.nr`;
+- it sits under a `test/`, `tests/`, `__tests__/`, `spec/` or `__mocks__/`
+  directory;
+- (Noir only, content-based) the function carries a `#[test]` / `#[test(...)]`
+  attribute, or sits inside a `mod test { … }` / `mod tests { … }` block —
+  block-scoped, so a test module at the foot of a production file does not
+  silence the rest of it.
+
 Pass `--include-tests` to report them.
+
+**Example code is downgraded, not dropped.** A finding in an `examples/` or
+`example/` directory, or in a file named `*.eg.ts` (`.nr` and the other JS/TS
+extensions too), is lowered to **LOW** with a note — still reported, no longer
+able to fail a build. Example code is deliberately simplified, and flagging a
+framework's own examples as vulnerabilities is noise; but it is *copied into
+production* far more often than test code is, which is why it is downgraded
+rather than hidden. Pass `--include-examples` to keep the original severity.
+
+Whenever either policy applies, the run prints a line to **stderr** saying so —
+e.g. `6 file(s) skipped as test code, 1 finding(s) downgraded as examples` — so
+a quiet scan is never silently quiet. The counts also appear in SARIF under
+`invocation.properties`. Note the trade-off: detection is **path-based only**
+(no `describe(`/`it(` parsing), so a production circuit stored under `tests/`
+*will* be skipped — the stderr line is how you notice.
 
 **Directories skipped when walking a tree:** `node_modules`, `target` (nargo),
 `.git`, `dist`, `build`, `__pycache__`, `.venv`, `venv`.
@@ -229,8 +254,9 @@ noir-scan . --lang noir --fail-on high --sarif noir.sarif
 
 Inputs: `path` (default `.`), `lang` (`auto`|`o1js`|`noir`, default `auto`),
 `version` (PyPI version to install, default latest), `upload-sarif` (default
-`true`), `fail-on-findings` (default `false`). SARIF upload needs
-`security-events: write` and code scanning enabled.
+`true`), `fail-on-findings` (default `false`), `include-tests` (default
+`false`), `include-examples` (default `false`). Output: `sarif-file`. SARIF
+upload needs `security-events: write` and code scanning enabled.
 
 ## What it detects (o1js)
 
