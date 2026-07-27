@@ -1,5 +1,6 @@
 // @recall-rule NONE
 // @recall-expect-absent NOIR_UNCHECKED_CAST
+// @recall-expect-absent NOIR_UNCONSTRAINED_ARRAY_INDEX
 // Distilled from zkpassport country inclusion: unsafe index + assert != -1
 // + `as u32` for list lookup, then assert_eq on the looked-up value.
 

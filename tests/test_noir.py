@@ -1147,3 +1147,115 @@ def test_main_input_rules_unaffected_by_the_deny_list():
     # NOIR_UNCONSTRAINED_INPUT concerns `fn main`, which cannot be unconstrained.
     src = "fn main(secret: Field, seen: pub Field) { assert(seen != 0); }"
     assert "NOIR_UNCONSTRAINED_INPUT" in _rules(analyze_noir_file("m.nr", src))
+
+
+# --- NOIR_UNCONSTRAINED_ARRAY_INDEX ---------------------------------------
+
+def test_array_index_fires_on_unchecked_prover_chosen_index():
+    src = """
+fn main(leaves: [Field; 8], pos: u32) -> pub Field {
+    let leaf = leaves[pos];
+    leaf * 2
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    f = [c for c in v if c.rule_id == "NOIR_UNCONSTRAINED_ARRAY_INDEX"]
+    assert f and f[0].severity == Severity.MEDIUM
+    assert f[0].evidence["witness"] == "pos"
+    assert f[0].evidence["array"] == "leaves"
+
+
+def test_array_index_fires_on_unsafe_derived_index():
+    # An `unsafe {}` result is prover-controlled the same way a private input is.
+    src = """unconstrained fn hint() -> u32 { 0 }
+
+fn main(table: [Field; 16]) -> pub Field {
+    let i = unsafe { hint() };
+    table[i]
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    f = [c for c in v if c.rule_id == "NOIR_UNCONSTRAINED_ARRAY_INDEX"]
+    assert f and f[0].evidence["witness"] == "i"
+
+
+def test_array_index_silent_when_index_is_range_bounded():
+    src = """
+fn main(leaves: [Field; 8], pos: u32) -> pub Field {
+    assert(pos < 8);
+    leaves[pos] * 2
+}
+"""
+    assert "NOIR_UNCONSTRAINED_ARRAY_INDEX" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_array_index_silent_when_read_result_is_pinned():
+    # The selection is constrained indirectly: moving `slot` breaks assert_eq.
+    src = """
+fn main(table: [Field; 16], slot: u32, expected: pub Field) {
+    let entry = table[slot];
+    assert_eq(entry, expected);
+}
+"""
+    assert "NOIR_UNCONSTRAINED_ARRAY_INDEX" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_array_index_silent_when_read_inline_inside_assert_eq():
+    src = """
+fn main(table: [Field; 16], slot: u32, expected: pub Field) {
+    assert_eq(table[slot], expected);
+}
+"""
+    assert "NOIR_UNCONSTRAINED_ARRAY_INDEX" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_array_index_disequality_on_index_does_not_pin_it():
+    # `!= 3` rules out one index and leaves the rest free — not a constraint.
+    src = """
+fn main(leaves: [Field; 8], pos: u32) -> pub Field {
+    assert(pos != 3);
+    leaves[pos] * 2
+}
+"""
+    assert "NOIR_UNCONSTRAINED_ARRAY_INDEX" in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_array_index_silent_on_public_input_index():
+    # A public index is chosen by the verifier, not the prover.
+    src = """
+fn main(leaves: [Field; 8], pos: pub u32) -> pub Field {
+    leaves[pos] * 2
+}
+"""
+    assert "NOIR_UNCONSTRAINED_ARRAY_INDEX" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_array_index_silent_on_literal_index_and_type_annotation():
+    src = """
+fn main(leaves: [Field; 8], x: Field) -> pub Field {
+    let _t: [Field; 8] = leaves;
+    leaves[3] + x
+}
+"""
+    assert "NOIR_UNCONSTRAINED_ARRAY_INDEX" not in _rules(analyze_noir_file("m.nr", src))
+
+
+def test_array_index_suppressed_inside_unconstrained_fn_body():
+    # Brillig emits no constraints, so there is no selector to under-constrain.
+    # The suppression must be scoped to the unconstrained body, not the file.
+    src = """unconstrained fn hint() -> u32 { 0 }
+
+unconstrained fn pick(table: [Field; 16]) -> Field {
+    let i = unsafe { hint() };
+    table[i]
+}
+
+fn main(table: [Field; 16]) -> pub Field {
+    let j = unsafe { hint() };
+    table[j]
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    hits = [x for x in v if x.rule_id == "NOIR_UNCONSTRAINED_ARRAY_INDEX"]
+    assert len(hits) == 1, [x.evidence.get("witness") for x in hits]
+    assert hits[0].evidence["witness"] == "j"
