@@ -112,6 +112,38 @@ Format checks against the existing four entries:
 - Links spelled `[GitHub](...)` and `[npm](...)`, joined by the word `and`.
   (The list mixes `GitHub` and `Github`; use `GitHub`.)
 
+## Submission checklist for `o1-labs/o1js`
+
+Use this as the complete upstream PR packet.
+
+1. Fork or clone `o1-labs/o1js`.
+2. Create a branch:
+
+   ```bash
+   git checkout -b add-o1js-scan-community-package
+   ```
+
+3. Edit `README.md` and add the bullet from
+   [The README diff to propose](#the-readme-diff-to-propose) under
+   **Community Packages**.
+4. Check the diff is README-only:
+
+   ```bash
+   git diff -- README.md
+   ```
+
+5. Commit:
+
+   ```bash
+   git add README.md
+   git commit -m "Add o1js-scan to community packages"
+   ```
+
+6. Open a PR against `o1-labs/o1js:main` with:
+
+   - **Title:** `Add o1js-scan to community packages`
+   - **Body:** copy [Proposed PR body](#proposed-pr-body)
+
 ## Proposed PR body
 
 > ### Add o1js-scan to the community packages list
