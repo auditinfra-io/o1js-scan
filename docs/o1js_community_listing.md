@@ -1,7 +1,7 @@
 # Contributing `o1js-scan` to the o1js community packages list
 
 Draft for a pull request against [`o1-labs/o1js`](https://github.com/o1-labs/o1js).
-**Not yet submitted** — see [Preconditions](#preconditions) below.
+**Ready to submit** — the package is now published on npm.
 
 Source of the requirements:
 [`CONTRIBUTING.md`](https://github.com/o1-labs/o1js/blob/main/CONTRIBUTING.md)
@@ -11,16 +11,17 @@ Source of the requirements:
 
 ## Preconditions
 
-The listing is npm-gated. Do not open the PR until all three are true:
+The listing was npm-gated. These were the publication checks before opening the
+PR:
 
-- [ ] `NPM_TOKEN` (npm **automation** token) added to repository secrets
-- [ ] A release cut so `publish-npm` runs and `o1js-scan` exists on the registry
-- [ ] `curl -s https://registry.npmjs.org/o1js-scan | head -c 40` returns package
+- [x] `NPM_TOKEN` (npm **automation** token) added to repository secrets, or npm
+      Trusted Publishing configured
+- [x] A release cut so `publish-npm` runs and `o1js-scan` exists on the registry
+- [x] `curl -s https://registry.npmjs.org/o1js-scan | head -c 40` returns package
       metadata rather than `{"error":"Not found"}`
 
-The README already tells Node users to `npm install -D o1js-scan`, so until the
-first publish lands that instruction is false. That is the reason to cut the
-release promptly, independent of this listing.
+The npm package is live at <https://www.npmjs.com/package/o1js-scan>, so the
+README's Node install path is no longer ahead of the registry.
 
 ---
 
@@ -28,7 +29,7 @@ release promptly, independent of this listing.
 
 | o1js requirement | Status | Note |
 |---|---|---|
-| "The package is published to npm. `npm install <your-package>` works and is all that is needed to use the package." | ⚠️ partial | Publishing is wired (`.github/workflows/publish.yml`). The wrapper additionally needs **Python 3.8+ on `PATH`** — see [The one requirement we do not meet](#the-one-requirement-we-do-not-meet). |
+| "The package is published to npm. `npm install <your-package>` works and is all that is needed to use the package." | ⚠️ partial | Published at <https://www.npmjs.com/package/o1js-scan>. The wrapper additionally needs **Python 3.8+ on `PATH`** — see [The one requirement we do not meet](#the-one-requirement-we-do-not-meet). |
 | "o1js must be listed as a peer dependency." | ✅ | Declared, and marked **optional** — see [On the peer dependency](#on-the-peer-dependency). |
 | "Use TypeScript, and export types from `d.ts` files." | ❌ | The analyzer is Python. Ships `py.typed` for Python consumers; there is no JS API surface to type. |
 | "Code must be auto-formatted with prettier." | ✅ | `.prettierrc.cjs` mirrors o1js's own options; enforced in CI (`prettier --check`). Applies to the two Node wrapper files and the wrapper smoke test — the only JS here. The analyzer is Python and is formatted by ruff. |
@@ -110,6 +111,38 @@ Format checks against the existing four entries:
   the list as it stands.
 - Links spelled `[GitHub](...)` and `[npm](...)`, joined by the word `and`.
   (The list mixes `GitHub` and `Github`; use `GitHub`.)
+
+## Submission checklist for `o1-labs/o1js`
+
+Use this as the complete upstream PR packet.
+
+1. Fork or clone `o1-labs/o1js`.
+2. Create a branch:
+
+   ```bash
+   git checkout -b add-o1js-scan-community-package
+   ```
+
+3. Edit `README.md` and add the bullet from
+   [The README diff to propose](#the-readme-diff-to-propose) under
+   **Community Packages**.
+4. Check the diff is README-only:
+
+   ```bash
+   git diff -- README.md
+   ```
+
+5. Commit:
+
+   ```bash
+   git add README.md
+   git commit -m "Add o1js-scan to community packages"
+   ```
+
+6. Open a PR against `o1-labs/o1js:main` with:
+
+   - **Title:** `Add o1js-scan to community packages`
+   - **Body:** copy [Proposed PR body](#proposed-pr-body)
 
 ## Proposed PR body
 
