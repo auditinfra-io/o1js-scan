@@ -9,11 +9,16 @@ name: Publish
 # publisher for this repo/workflow on PyPI, delete the `password:` line below,
 # and keep `id-token: write`; the publish action will use OIDC automatically.
 #
-# Auth (npm): prefers the NPM_TOKEN repository secret (an npm *automation*
-# token — Access Tokens -> Generate -> Automation — which bypasses 2FA for
-# CI). If NPM_TOKEN is unset, the job falls back to npm Trusted Publishing
-# via OIDC (`id-token: write`); configure a trusted publisher for this
-# repo + `publish.yml` on npmjs.com first, or the upload will 401.
+# Auth (npm): requires an npm **Automation** token (or a granular token with
+# "Bypass two-factor authentication" enabled for publish). Classic / read-
+# write tokens without 2FA bypass return:
+#   403 Two-factor authentication or granular access token with bypass 2fa
+#   enabled is required to publish packages.
+# Create at https://www.npmjs.com/settings/~/tokens → Generate New Token →
+# Automation, store as the NPM_TOKEN repository secret.
+# If NPM_TOKEN is unset, the job falls back to npm Trusted Publishing via
+# OIDC (`id-token: write`); configure a trusted publisher for this repo +
+# `publish.yml` on npmjs.com first, or the upload will 401.
 #
 # Why npm is here at all: README tells Node users to `npm install -D o1js-scan`,
 # CI has smoke-tested `bin/o1js-scan.js` on every run since it was added, and
