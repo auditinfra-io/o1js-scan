@@ -6,7 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-29
+
 ### Added
+- **`scripts/bump_version.py`** — sets the version in all three manifests at
+  once and refuses anything that is not plain `X.Y.Z` (npm rejects PEP 440
+  suffixes like `1.0.0rc1`). `--check` verifies they agree.
+- **A `preflight` job gates both uploads.** It compares the manifests to each
+  other and to the release tag, and fails the whole run — with a message naming
+  the fix — if they disagree. `skip-existing: true` on the PyPI upload makes
+  re-running a release idempotent, which is safe precisely because `preflight`
+  has already proven the version matches the tag.
 - **npm publishing is now wired.** `publish.yml` gains a `publish-npm` job that
   publishes the Node wrapper alongside the PyPI upload, with `--provenance` so
   the tarball carries a signed attestation linking it to the commit and workflow
@@ -79,6 +89,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `*.tgz` from `npm pack`, and `*.sarif`. The last one matters: `--sarif`
   defaults to `./o1js-scan.sarif`, so running the scanner inside its own
   checkout staged a report.
+- **A release could be cut without bumping the version.** `v0.11.0` was tagged
+  while all three manifests still said `0.10.0`, because tagging changes none of
+  them. The npm gate caught it (`package.json version 0.10.0 != release tag
+  0.11.0`) but PyPI only failed downstream, as `400: File already exists
+  ('o1js_scan-0.10.0-py3-none-any.whl')` — a symptom several steps from the
+  cause. Nothing shipped to either registry. Both jobs now share one `preflight`
+  check that names the actual problem, `scripts/bump_version.py` makes the bump
+  a single command, and `CONTRIBUTING.md` documents the order (bump, commit,
+  then tag).
 - **The README's headline example did not reproduce.** It showed
   `o1js-scan examples/vulnerable_vault.ts` reporting `HIGH` and exiting `1`; the
   real output was `[2 low]`, "passes", exit `0`. The demo file lives under

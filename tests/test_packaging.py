@@ -130,3 +130,83 @@ def test_declared_binaries_exist_and_are_shipped():
 @pytest.mark.parametrize("field", ["name", "version", "license", "repository"])
 def test_npm_manifest_has_registry_required_fields(field):
     assert _package_json().get(field), f"package.json missing {field!r}"
+
+
+# ───────────────────────────────────────────────────────────────────
+# The bump script
+# ───────────────────────────────────────────────────────────────────
+
+def test_bump_script_check_mode_agrees_with_the_manifests():
+    """``--check`` must pass on a healthy tree and print the real version."""
+    import subprocess
+    import sys
+
+    proc = subprocess.run(
+        [sys.executable, "scripts/bump_version.py", "--check"],
+        capture_output=True, text=True, cwd=str(REPO_ROOT),
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _pyproject_version() in proc.stdout
+
+
+def test_bump_script_rewrites_all_three_manifests(tmp_path):
+    """Run the real script against a copy of the tree and check every file.
+
+    A release cut on 2026-07-29 tagged v0.11.0 while all three manifests still
+    said 0.10.0, because tagging does not bump anything. This script is the
+    single operation that keeps them together, so it needs its own test — a
+    bump that silently missed one file would reproduce the original bug.
+    """
+    import shutil
+    import subprocess
+    import sys
+
+    work = tmp_path / "repo"
+    work.mkdir()
+    (work / "scripts").mkdir()
+    (work / "o1js_scan").mkdir()
+    shutil.copy(REPO_ROOT / "scripts" / "bump_version.py", work / "scripts")
+    shutil.copy(REPO_ROOT / "pyproject.toml", work)
+    shutil.copy(REPO_ROOT / "package.json", work)
+    shutil.copy(REPO_ROOT / "o1js_scan" / "__init__.py", work / "o1js_scan")
+
+    proc = subprocess.run(
+        [sys.executable, "scripts/bump_version.py", "9.9.9"],
+        capture_output=True, text=True, cwd=str(work),
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    assert '"version": "9.9.9"' in (work / "package.json").read_text(encoding="utf-8")
+    assert 'version = "9.9.9"' in (work / "pyproject.toml").read_text(encoding="utf-8")
+    assert '__version__ = "9.9.9"' in (
+        work / "o1js_scan" / "__init__.py"
+    ).read_text(encoding="utf-8")
+    # package.json must survive the regex rewrite as valid JSON
+    json.loads((work / "package.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("bad", ["1.0", "v1.0.0", "1.0.0rc1", "1.0.0.post1", "latest"])
+def test_bump_script_rejects_non_semver(bad, tmp_path):
+    """npm rejects PEP 440 suffixes, so the shared number stays plain X.Y.Z."""
+    import shutil
+    import subprocess
+    import sys
+
+    work = tmp_path / "repo"
+    work.mkdir()
+    (work / "scripts").mkdir()
+    (work / "o1js_scan").mkdir()
+    shutil.copy(REPO_ROOT / "scripts" / "bump_version.py", work / "scripts")
+    shutil.copy(REPO_ROOT / "pyproject.toml", work)
+    shutil.copy(REPO_ROOT / "package.json", work)
+    shutil.copy(REPO_ROOT / "o1js_scan" / "__init__.py", work / "o1js_scan")
+
+    before = (work / "package.json").read_text(encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, "scripts/bump_version.py", bad],
+        capture_output=True, text=True, cwd=str(work),
+    )
+    assert proc.returncode != 0, f"{bad!r} was accepted"
+    assert (work / "package.json").read_text(encoding="utf-8") == before, (
+        "a rejected version still modified a manifest"
+    )

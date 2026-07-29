@@ -26,8 +26,45 @@ permissions:
   contents: read
 
 jobs:
+  # Runs before either upload. A release cut without bumping the manifests is
+  # the failure mode this exists for: cutting a tag does NOT change
+  # pyproject.toml / __init__.py / package.json, so v0.11.0 was published from
+  # a tree that still said 0.10.0. npm caught it on its own gate; PyPI only
+  # failed downstream, as "file already exists" for the real 0.10.0 — a
+  # confusing symptom several steps from the cause. Both jobs now share one
+  # check that names the actual problem.
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Manifests agree with each other
+        run: python3 scripts/bump_version.py --check
+
+      - name: Manifests agree with the release tag
+        run: |
+          set -euo pipefail
+          version="$(python3 -c "import json;print(json.load(open('package.json'))['version'])")"
+          tag="${GITHUB_REF_NAME#v}"
+          echo "manifests=${version}  tag=${tag}  ref_type=${GITHUB_REF_TYPE}"
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "::notice::manual dispatch — skipping the tag comparison"
+            exit 0
+          fi
+          if [ "${version}" != "${tag}" ]; then
+            echo "::error::Release tag v${tag} but the manifests say ${version}."
+            echo "::error::Cutting a tag does not bump the version. Run:"
+            echo "::error::  python3 scripts/bump_version.py ${tag}"
+            echo "::error::then commit, delete tag v${tag}, and re-cut the release."
+            exit 1
+          fi
+
   build-and-publish:
     runs-on: ubuntu-latest
+    needs: preflight
     permissions:
       id-token: write        # for PyPI Trusted Publishing (OIDC), if enabled
     steps:
@@ -51,15 +88,22 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
+          # Makes re-running a release idempotent. If npm failed and PyPI
+          # succeeded, the retry must not die on "file already exists" for the
+          # version it just uploaded. Safe because `preflight` has already
+          # proven the manifests match the tag, so a skipped file is genuinely
+          # the same version and not a silently wrong one.
+          skip-existing: true
 
   publish-npm:
     runs-on: ubuntu-latest
+    needs: preflight
     permissions:
       contents: read
       id-token: write        # required by `npm publish --provenance`
-    # Deliberately independent of build-and-publish: a PyPI upload that fails
-    # because the version already exists must not silently skip npm, and vice
-    # versa. Each registry reports its own outcome.
+    # Independent of build-and-publish (not `needs:`) so an upload failure at
+    # one registry still lets the other report its own outcome. Both share
+    # `preflight`, because a version mismatch is never safe for either.
     steps:
       - uses: actions/checkout@v4
 
@@ -72,23 +116,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Version must match the release tag
-        # The npm manifest carries its own version number, so a release cut
-        # from a tag that disagrees with package.json would publish the wrong
-        # thing under the right tag. Fail before the upload, not after.
-        run: |
-          set -euo pipefail
-          pkg_version="$(node -p "require('./package.json').version")"
-          tag="${GITHUB_REF_NAME#v}"
-          echo "package.json=${pkg_version}  tag=${tag}"
-          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${pkg_version}" != "${tag}" ]; then
-            echo "::error::package.json version ${pkg_version} != release tag ${tag}"
-            exit 1
-          fi
-
-      - name: Cross-manifest version consistency
-        # Same check the test suite pins, re-run here so a release cut from a
-        # branch that skipped CI cannot ship drifted manifests.
+      - name: Packaging tests
+        # The manifest-shape assertions (files globs, optional peer dep,
+        # declared bins) that `preflight` does not cover.
         run: python -m pytest tests/test_packaging.py -q
 
       - name: Smoke-test the packed tarball

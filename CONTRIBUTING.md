@@ -109,6 +109,46 @@ all point at merge commits, and those tags are what CI built the published PyPI
 artifacts from — rewriting history would orphan the released versions from
 `main` for a purely cosmetic gain.
 
+## Cutting a release
+
+**Tagging does not bump the version.** The version lives in three files
+(`pyproject.toml`, `o1js_scan/__init__.py`, `package.json`) and a git tag
+changes none of them. Bump first, then tag:
+
+```bash
+python3 scripts/bump_version.py 0.11.0     # rewrites all three
+python3 scripts/bump_version.py --check    # verify (no args does the same)
+
+git commit -am "Release 0.11.0"
+git push origin main
+```
+
+Then cut the GitHub Release against the **new** commit, with tag `v0.11.0`.
+Publishing runs on `release: published` and does PyPI + npm.
+
+The `preflight` job compares the manifests to the tag and fails the whole run
+if they disagree, so a forgotten bump can never publish mislabelled artifacts.
+That is not hypothetical — `v0.11.0` was first cut without a bump, producing:
+
+```
+publish-npm  ->  package.json version 0.10.0 != release tag 0.11.0
+PyPI         ->  400: File already exists ('o1js_scan-0.10.0-py3-none-any.whl')
+```
+
+Nothing shipped. If you hit that, bump properly, then **delete the tag and the
+release** and re-cut it — a tag pointing at un-bumped code is not something to
+leave lying around:
+
+```bash
+git push origin :refs/tags/v0.11.0     # delete remote tag
+git tag -d v0.11.0                     # and the local one
+```
+
+Required repository secrets: `PYPI_API_TOKEN`, and `NPM_TOKEN` (an npm
+**automation** token — the classic type bypasses 2FA for CI). `workflow_dispatch`
+is enabled, so you can exercise the workflow from a branch without a tag; the
+tag comparison is skipped in that mode.
+
 ## Reporting issues
 
 Please include a minimal o1js or Noir snippet that reproduces the false positive
