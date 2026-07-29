@@ -31,17 +31,32 @@ Given a vault whose `withdraw` amount is a prover-controlled witness that is
 never bound to on-chain state:
 
 ```console
-$ o1js-scan examples/vulnerable_vault.ts
-HIGH     O1JS_UNCONSTRAINED_WITNESS         vulnerable_vault.ts:23  fn=withdraw  Unconstrained witness `amount` flows to send_amount in `withdraw`
+$ o1js-scan examples/vulnerable_vault.ts --include-examples
 LOW      O1JS_UNCONSTRAINED_RECIPIENT       vulnerable_vault.ts:23  fn=withdraw  Recipient `to` is prover-chosen in `withdraw`
+HIGH     O1JS_UNCONSTRAINED_WITNESS         vulnerable_vault.ts:23  fn=withdraw  Unconstrained witness `amount` flows to send_amount in `withdraw`
 o1js-scan: 2 finding(s) [1 high, 1 low] in 1 file(s) — fails (--fail-on high)
 $ echo $?
 1
 ```
 
-The `HIGH` finding is the drainable bug; the fixed contract
-(`examples/safe_vault.ts`) scans clean and exits `0`. See [`examples/`](examples/)
-for the o1js and Noir vulnerable/fixed pairs.
+`--include-examples` is needed here only because the demo file lives under
+`examples/`, which the path classifier downgrades by default so that a repo's
+own sample code cannot fail its build. The same contract in your `src/` reports
+`HIGH` with no flag.
+
+The `HIGH` finding is the drainable bug. The fixed contract
+(`examples/safe_vault.ts`) drops it and exits `0`, keeping only the informational
+`LOW` on the prover-chosen recipient:
+
+```console
+$ o1js-scan examples/safe_vault.ts --include-examples
+LOW      O1JS_UNCONSTRAINED_RECIPIENT       safe_vault.ts:23  fn=withdraw  Recipient `to` is prover-chosen in `withdraw`
+o1js-scan: 1 finding(s) [1 low] in 1 file(s) — passes (--fail-on high)
+$ echo $?
+0
+```
+
+See [`examples/`](examples/) for the o1js and Noir vulnerable/fixed pairs.
 
 ## Contents
 
@@ -345,10 +360,18 @@ Same lexical, dependency-free approach. Calibrated against aztec-nr oracle /
 
 Example:
 
-```bash
-noir-scan examples/noir_unconstrained.nr   # HIGH NOIR_UNCONSTRAINED_WITNESS
-noir-scan examples/noir_constrained.nr     # clean
+```console
+$ noir-scan examples/noir_unconstrained.nr --include-examples
+HIGH     NOIR_UNCONSTRAINED_WITNESS         noir_unconstrained.nr:16  fn=main  Unconstrained `unsafe` result `inv` in `main`
+LOW      NOIR_UNSAFE_MISSING_SAFETY         noir_unconstrained.nr:16  fn=  `unsafe` block without a `// Safety:` comment
+noir-scan: 2 finding(s) [1 high, 1 low] in 1 file(s) — fails (--fail-on high)
+
+$ noir-scan examples/noir_constrained.nr --include-examples
+noir-scan: no findings (or no Noir / o1js sources found)
 ```
+
+As with the o1js example above, `--include-examples` is only needed because
+these demo files live under `examples/`.
 
 ## Known limitations
 
@@ -454,8 +477,9 @@ Run the tests and linter with:
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 154 tests
+pytest          # unit tests + Noir/o1js corpus
 ruff check .    # lint
+npm run format:check   # prettier, npm wrapper only
 ```
 
 ## License

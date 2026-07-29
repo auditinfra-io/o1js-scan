@@ -17,6 +17,38 @@ python3 -m venv .venv
 No third-party runtime dependencies — please keep it that way. The only test
 dependency is `pytest`.
 
+If you touch the npm wrapper (`bin/`, `tests/npm/`), also run:
+
+```bash
+npm run format:check    # prettier; `npm run format` to fix
+npm run test:npm-wrapper
+```
+
+Both run in CI. Prettier is fetched via `npx` on demand, so there is nothing to
+install and no `node_modules` in a normal Python-only workflow.
+
+## Documentation is tested
+
+`tests/test_readme_examples.py` and `tests/test_docs_consistency.py` execute the
+README's claims rather than trusting them: every console transcript is run and
+compared, the rule tables are checked against the rule ids the analyzer actually
+emits (both directions), and the skipped-directory list, GitHub Action inputs and
+any stated test count are derived from the source of truth.
+
+This exists because all of those had drifted. The headline example claimed a
+`HIGH` and exit `1` while really producing `LOW` and exit `0` — the demo file
+lives under `examples/`, which the path classifier downgrades, so the flagship
+transcript was tripping the tool's own suppression.
+
+Practical consequences when you change behaviour:
+
+- Add a rule → add it to the matching README table, or `test_docs_consistency`
+  fails. Remove one → remove it from the table too.
+- Change output format, severities, or the example fixtures → re-run the
+  README transcripts and paste the **real** output. Do not hand-edit it.
+- Quoting a test count anywhere in the docs is optional, but a quoted count
+  must be correct.
+
 ## Ground rules
 
 - **Every rule change needs a test.** Add both a positive case (the rule fires)
