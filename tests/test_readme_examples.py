@@ -50,6 +50,25 @@ def _readme_console_blocks() -> list[str]:
     return re.findall(r"```console\n(.*?)```", README.read_text(encoding="utf-8"), re.S)
 
 
+def _readme_scan_commands() -> list[str]:
+    """Every o1js-scan / noir-scan invocation in the README.
+
+    Covers ``console`` blocks (``$ cmd``) *and* ``bash`` blocks (bare ``cmd``).
+    The Noir example survived the first pass of this audit precisely because it
+    sat in a ```bash block while the guard only read ```console.
+    """
+    text = README.read_text(encoding="utf-8")
+    commands = []
+    for _lang, body in re.findall(r"```(console|bash)\n(.*?)```", text, re.S):
+        for raw in body.splitlines():
+            line = raw.strip()
+            if line.startswith("$ "):
+                line = line[2:].strip()
+            if re.match(r"(o1js-scan|noir-scan|npx\s+(o1js-scan|noir-scan))\b", line):
+                commands.append(line)
+    return commands
+
+
 # ───────────────────────────────────────────────────────────────────
 # The two headline transcripts
 # ───────────────────────────────────────────────────────────────────
@@ -92,6 +111,30 @@ def test_safe_vault_demo_reproduces():
     assert "passes (--fail-on high)" in proc.stderr
 
 
+def test_noir_unconstrained_demo_reproduces():
+    """The Noir example carried the same defect as the o1js one.
+
+    It was documented as ``noir-scan examples/noir_unconstrained.nr  # HIGH
+    NOIR_UNCONSTRAINED_WITNESS`` — no flag, so the real output was LOW and exit
+    0, and it silently omitted the second finding the file also produces.
+    """
+    proc = _run("examples/noir_unconstrained.nr", "--include-examples")
+    assert proc.returncode == 1
+    assert "HIGH" in proc.stdout
+    assert "NOIR_UNCONSTRAINED_WITNESS" in proc.stdout
+    assert "NOIR_UNSAFE_MISSING_SAFETY" in proc.stdout, (
+        "README documents two findings on this file; output changed"
+    )
+    assert "[1 high, 1 low]" in proc.stderr
+
+
+def test_noir_constrained_demo_is_clean():
+    proc = _run("examples/noir_constrained.nr", "--include-examples")
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "", f"expected no findings, got:\n{proc.stdout}"
+    assert "no findings" in proc.stderr
+
+
 def test_examples_are_downgraded_without_the_flag():
     """The behaviour that broke the original README, pinned deliberately.
 
@@ -115,21 +158,26 @@ def test_readme_scan_commands_pass_the_examples_flag():
     Otherwise it documents output the reader cannot reproduce — exactly the
     original defect.
     """
-    offenders = []
-    for block in _readme_console_blocks():
-        for line in block.splitlines():
-            line = line.strip()
-            if not line.startswith("$ "):
-                continue
-            cmd = line[2:]
-            if not re.match(r"(o1js-scan|noir-scan)\b", cmd):
-                continue
-            if "examples/" in cmd and "--include-examples" not in cmd:
-                offenders.append(cmd)
+    offenders = [
+        cmd for cmd in _readme_scan_commands()
+        if "examples/" in cmd and "--include-examples" not in cmd
+    ]
     assert offenders == [], (
         f"README scans an examples/ path without --include-examples, so the "
         f"transcript below it cannot reproduce: {offenders}"
     )
+
+
+def test_command_extraction_is_not_vacuous():
+    """The guard above is worthless if it parses no commands.
+
+    Pinned because the original version read only ```console blocks and so
+    silently ignored the ```bash block holding the broken Noir example.
+    """
+    commands = _readme_scan_commands()
+    assert len(commands) >= 8, f"only parsed {len(commands)} commands: {commands}"
+    assert any("--include-examples" in c for c in commands)
+    assert any(c.startswith("noir-scan") for c in commands)
 
 
 def test_readme_does_not_claim_the_fixed_example_is_silent():
@@ -145,3 +193,38 @@ def test_readme_does_not_claim_the_fixed_example_is_silent():
 @pytest.mark.parametrize("path", ["examples/vulnerable_vault.ts", "examples/safe_vault.ts"])
 def test_referenced_example_files_exist(path):
     assert (REPO_ROOT / path).is_file(), f"README references missing file {path}"
+
+
+def test_o1js_pr_draft_transcript_reproduces(tmp_path):
+    """The o1js PR draft is headed for a public repo — verify its output too.
+
+    The first version of that draft quoted the README's *broken* transcript
+    (HIGH from a path under ``examples/``), which would have carried the exact
+    defect this suite exists to catch into a pull request against o1-labs/o1js.
+    It now shows a realistic ``src/`` path, which needs no flag.
+    """
+    draft = REPO_ROOT / "docs" / "o1js_community_listing.md"
+    if not draft.is_file():
+        pytest.skip("draft not present")
+    text = draft.read_text(encoding="utf-8")
+
+    assert "$ o1js-scan examples/" not in text, (
+        "the PR draft scans an examples/ path, whose output is downgraded — "
+        "the transcript below it will not reproduce for a reviewer"
+    )
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "Vault.ts").write_text(
+        (REPO_ROOT / "examples" / "vulnerable_vault.ts").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [sys.executable, "-m", "o1js_scan.cli", "src/Vault.ts"],
+        capture_output=True, text=True, cwd=str(tmp_path),
+    )
+    assert proc.returncode == 1
+    assert "HIGH" in proc.stdout and "O1JS_UNCONSTRAINED_WITNESS" in proc.stdout
+    assert "[1 high, 1 low]" in proc.stderr
+    # and the draft must quote that, not something invented
+    assert "2 finding(s) [1 high, 1 low] in 1 file(s) — fails (--fail-on high)" in text

@@ -10,3 +10,13 @@ venv/
 .mypy_cache/
 .ruff_cache/
 *.log
+
+# Node side (the npm wrapper)
+node_modules/
+*.tgz
+
+# The scanner's own output — `--sarif` defaults to ./o1js-scan.sarif, so
+# running the tool inside its own checkout would otherwise stage a report.
+*.sarif
+
+.DS_Store

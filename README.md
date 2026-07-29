@@ -360,10 +360,18 @@ Same lexical, dependency-free approach. Calibrated against aztec-nr oracle /
 
 Example:
 
-```bash
-noir-scan examples/noir_unconstrained.nr   # HIGH NOIR_UNCONSTRAINED_WITNESS
-noir-scan examples/noir_constrained.nr     # clean
+```console
+$ noir-scan examples/noir_unconstrained.nr --include-examples
+HIGH     NOIR_UNCONSTRAINED_WITNESS         noir_unconstrained.nr:16  fn=main  Unconstrained `unsafe` result `inv` in `main`
+LOW      NOIR_UNSAFE_MISSING_SAFETY         noir_unconstrained.nr:16  fn=  `unsafe` block without a `// Safety:` comment
+noir-scan: 2 finding(s) [1 high, 1 low] in 1 file(s) — fails (--fail-on high)
+
+$ noir-scan examples/noir_constrained.nr --include-examples
+noir-scan: no findings (or no Noir / o1js sources found)
 ```
+
+As with the o1js example above, `--include-examples` is only needed because
+these demo files live under `examples/`.
 
 ## Known limitations
 
@@ -469,8 +477,9 @@ Run the tests and linter with:
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 154 tests
+pytest          # unit tests + Noir/o1js corpus
 ruff check .    # lint
+npm run format:check   # prettier, npm wrapper only
 ```
 
 ## License

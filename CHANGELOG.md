@@ -26,8 +26,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `docs/o1js_community_listing.md` — a prepared, unsubmitted draft for adding
   o1js-scan to the o1js community packages list, including the two requirements
   we do not meet and why.
-- `tests/test_packaging.py` and `tests/test_readme_examples.py` pinning the
-  fixes below.
+- **Documentation is now tested.** `tests/test_readme_examples.py` executes every
+  README console transcript and compares real output;
+  `tests/test_docs_consistency.py` derives the rest from the source of truth —
+  the rule tables against the rule ids the analyzer actually emits (**both**
+  directions, so neither a phantom rule nor an undocumented one can survive),
+  the skipped-directory list against `_SKIP_DIR_NAMES` (whose code comment asked
+  a human to keep the README in sync and was enforced by nobody), the GitHub
+  Action inputs against `action.yml`, and any stated test count against the real
+  one. Each guard carries a vacuity check, since a doc test that parses nothing
+  passes unconditionally.
+- `tests/test_packaging.py` pinning the manifest fixes below.
 - **`NOIR_UNCONSTRAINED_ARRAY_INDEX`** (MEDIUM) — a prover-controlled value used
   as an array index with no check of any kind on it. Noir's implicit bounds
   check proves the index is *in range*, never that it is the *correct* index, so
@@ -56,6 +65,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whose `--version` printed `0.10.0`, and which would have stamped `0.10.0` into
   the `toolVersion` of every SARIF report a consumer archived. Now pinned by a
   test and re-checked in the release workflow against the tag.
+- **The Noir example in the README did not reproduce either** — the same
+  defect, found by auditing the rest of the file after fixing the o1js one. It
+  was documented as `noir-scan examples/noir_unconstrained.nr  # HIGH
+  NOIR_UNCONSTRAINED_WITNESS`; the real output was LOW at exit 0, and it also
+  omitted the second finding (`NOIR_UNSAFE_MISSING_SAFETY`) the file produces.
+  It survived the first pass because it sat in a ` ```bash ` block while the
+  new guard read only ` ```console ` blocks; the guard now covers both.
+- **`pytest  # 154 tests`** in the README, long after the suite reached 257.
+  The count is gone; a test now enforces that any count stated in the docs is
+  accurate, without requiring one.
+- **`.gitignore` did not cover generated artifacts** — `node_modules/`,
+  `*.tgz` from `npm pack`, and `*.sarif`. The last one matters: `--sarif`
+  defaults to `./o1js-scan.sarif`, so running the scanner inside its own
+  checkout staged a report.
 - **The README's headline example did not reproduce.** It showed
   `o1js-scan examples/vulnerable_vault.ts` reporting `HIGH` and exiting `1`; the
   real output was `[2 low]`, "passes", exit `0`. The demo file lives under

@@ -32,7 +32,7 @@ release promptly, independent of this listing.
 | "o1js must be listed as a peer dependency." | ✅ | Declared, and marked **optional** — see [On the peer dependency](#on-the-peer-dependency). |
 | "Use TypeScript, and export types from `d.ts` files." | ❌ | The analyzer is Python. Ships `py.typed` for Python consumers; there is no JS API surface to type. |
 | "Code must be auto-formatted with prettier." | ✅ | `.prettierrc.cjs` mirrors o1js's own options; enforced in CI (`prettier --check`). Applies to the two Node wrapper files and the wrapper smoke test — the only JS here. The analyzer is Python and is formatted by ruff. |
-| "The package includes tests. If applicable, tests must demonstrate that the package's methods can successfully run as provable code." | ✅ | 249 tests. The provable-code clause is marked *if applicable* and is not — this is a static analyzer, it never executes inside a circuit. |
+| "The package includes tests. If applicable, tests must demonstrate that the package's methods can successfully run as provable code." | ✅ | Full unit + corpus suite, run on Python 3.8/3.10/3.12 in CI. The provable-code clause is marked *if applicable* and is not — this is a static analyzer, it never executes inside a circuit. |
 | "Public API must be documented and JSDoc comments must be present on exported methods and globals." | n/a | CLI tool; exports no JS methods or globals. Rules are documented in tables in the README. |
 
 ## The one requirement we do not meet
@@ -121,9 +121,10 @@ Format checks against the existing four entries:
 > controls that the circuit never binds.
 >
 > ```console
-> $ o1js-scan examples/vulnerable_vault.ts
-> HIGH  O1JS_UNCONSTRAINED_WITNESS  vulnerable_vault.ts:23  fn=withdraw
->       Unconstrained witness `amount` flows to send_amount in `withdraw`
+> $ o1js-scan src/Vault.ts
+> LOW      O1JS_UNCONSTRAINED_RECIPIENT   Vault.ts:23  fn=withdraw  Recipient `to` is prover-chosen in `withdraw`
+> HIGH     O1JS_UNCONSTRAINED_WITNESS     Vault.ts:23  fn=withdraw  Unconstrained witness `amount` flows to send_amount in `withdraw`
+> o1js-scan: 2 finding(s) [1 high, 1 low] in 1 file(s) — fails (--fail-on high)
 > ```
 >
 > - npm: https://www.npmjs.com/package/o1js-scan
@@ -133,7 +134,7 @@ Format checks against the existing four entries:
 > **Against the community-package criteria**
 >
 > - Published to npm, `o1js` declared as a peer dependency, prettier-formatted
->   wrapper, 249 tests, documented rule tables.
+>   wrapper, a full unit + corpus test suite, documented rule tables.
 > - **Two deviations I want to flag rather than paper over:**
 >   1. The analyzer is written in Python, not TypeScript. The npm package is a
 >      thin Node wrapper, so `npm install o1js-scan` also requires Python 3.8+
