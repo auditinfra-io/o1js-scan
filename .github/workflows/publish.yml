@@ -116,6 +116,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install test deps
+        # `setup-python` gives a bare interpreter — pytest is NOT preinstalled,
+        # and tests/test_packaging.py imports o1js_scan. Without this the step
+        # below dies instantly with "No module named pytest", which is exactly
+        # what happened on the first release that got this far (2026-07-29).
+        run: pip install -e ".[dev]"
+
       - name: Packaging tests
         # The manifest-shape assertions (files globs, optional peer dep,
         # declared bins) that `preflight` does not cover.

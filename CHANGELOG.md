@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **The npm publish step could never run.** `publish-npm` invoked
+  `python -m pytest tests/test_packaging.py` with no install step;
+  `actions/setup-python` provides a bare interpreter, so on the first release
+  that reached it the job died in under a second with `No module named pytest`
+  and the npm upload was skipped. The step had been written, committed and
+  shipped without ever executing — the same "capability that exists but is
+  never reached" defect this analyzer looks for, in the pipeline that ships the
+  analyzer. Adds `pip install -e ".[dev]"` before it.
+- `tests/test_workflow_sanity.py` — static checks over `.github/workflows/`:
+  no job may invoke a Python tool it never installed (per-job, since each job
+  gets a fresh runner and `needs:` installs nothing), every registry-uploading
+  job must depend on `preflight`, and a release must still target both
+  registries. Workflow steps are the least-tested code in the repo — they run
+  only on the event that triggers them, which for this one is a real release.
+
 ## [0.11.0] - 2026-07-29
 
 ### Added
