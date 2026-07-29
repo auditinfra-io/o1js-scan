@@ -129,3 +129,29 @@ def test_release_workflow_publishes_to_both_registries():
     )
     assert "npm publish" in text, "no npm publish step"
     assert "pypi-publish" in text, "no PyPI publish step"
+
+
+def test_npm_pack_destination_is_created_before_use():
+    """``npm pack --pack-destination DIR`` does not mkdir DIR.
+
+    Without an explicit ``mkdir -p``, the pack step writes nothing and the
+    following ``npm install …/*.tgz`` fails ENOENT — the 2026-07-29 blocker
+    after pytest was already fixed (run 30444927525).
+    """
+    text = (REPO_ROOT / ".github" / "workflows" / "publish.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "--pack-destination" in text, "smoke step lost npm pack"
+    # Every pack-destination must be preceded (same run block) by mkdir.
+    for match in re.finditer(
+        r"npm pack[^\n]*--pack-destination\s+(\S+)", text
+    ):
+        dest = match.group(1).strip("\"'")
+        # Look backwards in the same run: script for a mkdir of that path.
+        preceding = text[: match.start()]
+        assert re.search(
+            rf"mkdir\s+(-p\s+)?{re.escape(dest)}\b", preceding
+        ), (
+            f"npm pack --pack-destination {dest} has no preceding mkdir -p "
+            f"{dest} in publish.yml — the tarball will not be written"
+        )

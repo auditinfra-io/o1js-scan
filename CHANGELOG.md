@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **`npm pack --pack-destination` smoke step never created its directory.**
+  After the pytest install fix, `publish-npm` still died on
+  `ENOENT … /tmp/pkg/o1js-scan-0.11.0.tgz` because `npm pack --pack-destination
+  DIR` does not mkdir `DIR`. Adds `mkdir -p`, captures the packed filename, and
+  pins the mkdir requirement in `tests/test_workflow_sanity.py`. Also allows
+  OIDC trusted publishing when `NPM_TOKEN` is unset (strips the setup-node
+  placeholder auth so npm does not 401 on `XXXXX…`).
 - **The npm publish step could never run.** `publish-npm` invoked
   `python -m pytest tests/test_packaging.py` with no install step;
   `actions/setup-python` provides a bare interpreter, so on the first release

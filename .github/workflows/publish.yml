@@ -9,8 +9,11 @@ name: Publish
 # publisher for this repo/workflow on PyPI, delete the `password:` line below,
 # and keep `id-token: write`; the publish action will use OIDC automatically.
 #
-# Auth (npm): uses the NPM_TOKEN repository secret — an npm *automation* token
-# (Access Tokens -> Generate -> Automation), which bypasses 2FA for CI.
+# Auth (npm): prefers the NPM_TOKEN repository secret (an npm *automation*
+# token — Access Tokens -> Generate -> Automation — which bypasses 2FA for
+# CI). If NPM_TOKEN is unset, the job falls back to npm Trusted Publishing
+# via OIDC (`id-token: write`); configure a trusted publisher for this
+# repo + `publish.yml` on npmjs.com first, or the upload will 401.
 #
 # Why npm is here at all: README tells Node users to `npm install -D o1js-scan`,
 # CI has smoke-tested `bin/o1js-scan.js` on every run since it was added, and
@@ -131,17 +134,42 @@ jobs:
       - name: Smoke-test the packed tarball
         # Install the ACTUAL artifact and run it, rather than trusting that the
         # repo working tree would have worked. Catches a bad `files` glob.
+        #
+        # `npm pack --pack-destination DIR` does NOT create DIR — if it is
+        # missing, npm exits 0-ish with a notice but writes nothing, and the
+        # next `npm install /tmp/pkg/*.tgz` fails ENOENT (exactly what blocked
+        # the 2026-07-29 dispatch after the pytest install fix landed).
         run: |
           set -euo pipefail
-          npm pack --pack-destination /tmp/pkg
+          mkdir -p /tmp/pkg
+          tgz="$(npm pack --pack-destination /tmp/pkg | tail -1)"
+          test -n "${tgz}"
+          test -f "/tmp/pkg/${tgz}"
           work="$(mktemp -d)"
           cd "$work"
           npm init -y >/dev/null
-          npm install /tmp/pkg/*.tgz
+          npm install "/tmp/pkg/${tgz}"
           ./node_modules/.bin/o1js-scan --version
           ./node_modules/.bin/noir-scan --help >/dev/null
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        # Prefer an automation token when present. If NPM_TOKEN is unset,
+        # fall through to npm Trusted Publishing (OIDC) — requires a trusted
+        # publisher binding for this repo/workflow on npmjs.com, and
+        # `id-token: write` above. Do not invent a placeholder token: an empty
+        # NODE_AUTH_TOKEN makes setup-node write XXXXX… into .npmrc and
+        # publish fails with a confusing 401 instead of a clear OIDC attempt.
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN unset — publishing via OIDC trusted publisher"
+            unset NODE_AUTH_TOKEN
+            # setup-node always writes always-auth=true + a ${_authToken}
+            # placeholder when registry-url is set; strip it so npm uses OIDC.
+            npm config delete //registry.npmjs.org/:_authToken || true
+          else
+            echo "NPM_TOKEN present — publishing with automation token"
+          fi
+          npm publish --provenance --access public
