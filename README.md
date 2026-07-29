@@ -31,17 +31,32 @@ Given a vault whose `withdraw` amount is a prover-controlled witness that is
 never bound to on-chain state:
 
 ```console
-$ o1js-scan examples/vulnerable_vault.ts
-HIGH     O1JS_UNCONSTRAINED_WITNESS         vulnerable_vault.ts:23  fn=withdraw  Unconstrained witness `amount` flows to send_amount in `withdraw`
+$ o1js-scan examples/vulnerable_vault.ts --include-examples
 LOW      O1JS_UNCONSTRAINED_RECIPIENT       vulnerable_vault.ts:23  fn=withdraw  Recipient `to` is prover-chosen in `withdraw`
+HIGH     O1JS_UNCONSTRAINED_WITNESS         vulnerable_vault.ts:23  fn=withdraw  Unconstrained witness `amount` flows to send_amount in `withdraw`
 o1js-scan: 2 finding(s) [1 high, 1 low] in 1 file(s) — fails (--fail-on high)
 $ echo $?
 1
 ```
 
-The `HIGH` finding is the drainable bug; the fixed contract
-(`examples/safe_vault.ts`) scans clean and exits `0`. See [`examples/`](examples/)
-for the o1js and Noir vulnerable/fixed pairs.
+`--include-examples` is needed here only because the demo file lives under
+`examples/`, which the path classifier downgrades by default so that a repo's
+own sample code cannot fail its build. The same contract in your `src/` reports
+`HIGH` with no flag.
+
+The `HIGH` finding is the drainable bug. The fixed contract
+(`examples/safe_vault.ts`) drops it and exits `0`, keeping only the informational
+`LOW` on the prover-chosen recipient:
+
+```console
+$ o1js-scan examples/safe_vault.ts --include-examples
+LOW      O1JS_UNCONSTRAINED_RECIPIENT       safe_vault.ts:23  fn=withdraw  Recipient `to` is prover-chosen in `withdraw`
+o1js-scan: 1 finding(s) [1 low] in 1 file(s) — passes (--fail-on high)
+$ echo $?
+0
+```
+
+See [`examples/`](examples/) for the o1js and Noir vulnerable/fixed pairs.
 
 ## Contents
 

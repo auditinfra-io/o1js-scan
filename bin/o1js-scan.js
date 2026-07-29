@@ -22,11 +22,10 @@ const env = {
 
 let missingPython;
 for (const python of pythonCandidates) {
-  const result = spawnSync(
-    python,
-    ['-m', 'o1js_scan.cli', ...process.argv.slice(2)],
-    { stdio: 'inherit', env },
-  );
+  const result = spawnSync(python, ['-m', 'o1js_scan.cli', ...process.argv.slice(2)], {
+    stdio: 'inherit',
+    env,
+  });
 
   if (result.error && result.error.code === 'ENOENT') {
     missingPython = result.error;
@@ -41,9 +40,7 @@ for (const python of pythonCandidates) {
   process.exit(result.status === null ? 1 : result.status);
 }
 
-console.error(
-  `${prog}: Python was not found. Install Python 3.8+ or set O1JS_SCAN_PYTHON.`,
-);
+console.error(`${prog}: Python was not found. Install Python 3.8+ or set O1JS_SCAN_PYTHON.`);
 if (missingPython && process.env.O1JS_SCAN_DEBUG) {
   console.error(missingPython.message);
 }

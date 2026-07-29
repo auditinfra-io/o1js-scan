@@ -48,6 +48,13 @@ jobs:
           node-version: "20"
       - name: Smoke-test the npm wrapper
         run: npm run test:npm-wrapper
+      - name: Prettier check (npm wrapper)
+        # o1js's community-package guidance requires prettier-formatted code;
+        # config mirrors theirs. Only the Node wrapper is JS — the analyzer is
+        # Python and is covered by the ruff job.
+        # Runs the same npm script contributors run locally, so the two cannot
+        # drift into disagreeing about which files or which prettier version.
+        run: npm run format:check
 
   aztec-nr-canary:
     runs-on: ubuntu-latest

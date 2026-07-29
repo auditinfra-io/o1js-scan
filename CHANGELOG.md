@@ -7,6 +7,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **npm publishing is now wired.** `publish.yml` gains a `publish-npm` job that
+  publishes the Node wrapper alongside the PyPI upload, with `--provenance` so
+  the tarball carries a signed attestation linking it to the commit and workflow
+  that built it. Requires an `NPM_TOKEN` repository secret (an npm *automation*
+  token). Before the upload it re-checks manifest version consistency and
+  installs the packed tarball into a scratch project to run the real binary, so
+  a broken `files` glob fails the release instead of shipping.
+- **Prettier config and CI gate** (`.prettierrc.cjs`, `npm run format` /
+  `format:check`), mirroring o1js's own options. Required by o1js's
+  community-package guidance. Covers only the Node wrapper and its smoke test —
+  the analyzer is Python and stays on ruff.
+- **`o1js` declared as an optional peer dependency**, satisfying the o1js
+  community-package requirement while staying truthful: the analyzer never
+  imports o1js, and `noir-scan` runs against Noir projects that have no o1js in
+  the tree at all. A mandatory peer dep would be auto-installed by npm ≥7 for
+  every Noir-only user.
+- `docs/o1js_community_listing.md` — a prepared, unsubmitted draft for adding
+  o1js-scan to the o1js community packages list, including the two requirements
+  we do not meet and why.
+- `tests/test_packaging.py` and `tests/test_readme_examples.py` pinning the
+  fixes below.
 - **`NOIR_UNCONSTRAINED_ARRAY_INDEX`** (MEDIUM) — a prover-controlled value used
   as an array index with no check of any kind on it. Noir's implicit bounds
   check proves the index is *in range*, never that it is the *correct* index, so
@@ -24,6 +45,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `docs/noir_calibration.md`. Three paired mutation fixtures.
 
 ### Fixed
+- **`npm install -D o1js-scan` did not work — the package had never been
+  published.** The README instructed it in three places and CI had smoke-tested
+  `bin/o1js-scan.js` on every run, but no workflow ever published to npm and the
+  registry returned `{"error":"Not found"}` for the name. Built, tested,
+  documented, never shipped.
+- **Version drift across packaging manifests.** `package.json` said `0.9.0`
+  while `pyproject.toml` and `o1js_scan/__init__.py` said `0.10.0`. Verified by
+  installing the packed tarball: `npm install o1js-scan@0.9.0` produced a binary
+  whose `--version` printed `0.10.0`, and which would have stamped `0.10.0` into
+  the `toolVersion` of every SARIF report a consumer archived. Now pinned by a
+  test and re-checked in the release workflow against the tag.
+- **The README's headline example did not reproduce.** It showed
+  `o1js-scan examples/vulnerable_vault.ts` reporting `HIGH` and exiting `1`; the
+  real output was `[2 low]`, "passes", exit `0`. The demo file lives under
+  `examples/`, which the path classifier deliberately downgrades so a project's
+  own sample code cannot fail its build — the flagship demo was tripping the
+  tool's own suppression. The transcript now passes `--include-examples` and
+  explains why. The neighbouring claim that `examples/safe_vault.ts` "scans
+  clean" was also wrong: it reports one LOW. Both transcripts are now executed
+  by tests.
 - **Constraint-absence rules no longer fire inside `unconstrained fn` bodies.**
   Brillig code runs outside the circuit and emits no constraints, so a rule
   whose premise is "a constraint that should exist is missing" cannot apply

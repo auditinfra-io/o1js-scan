@@ -1,13 +1,21 @@
-name: Publish to PyPI
+name: Publish
 
-# Publishes the package to PyPI when a GitHub Release is published.
+# Publishes the package to PyPI *and* npm when a GitHub Release is published.
 # Cut a release (which creates the matching `vX.Y.Z` tag) and this builds an
-# sdist + wheel and uploads them.
+# sdist + wheel and uploads them, then publishes the npm wrapper.
 #
-# Auth: uses the PYPI_API_TOKEN repository secret. To switch to PyPI Trusted
-# Publishing (recommended — no long-lived token), configure a trusted publisher
-# for this repo/workflow on PyPI, delete the `password:` line below, and keep
-# `id-token: write`; the publish action will use OIDC automatically.
+# Auth (PyPI): uses the PYPI_API_TOKEN repository secret. To switch to PyPI
+# Trusted Publishing (recommended — no long-lived token), configure a trusted
+# publisher for this repo/workflow on PyPI, delete the `password:` line below,
+# and keep `id-token: write`; the publish action will use OIDC automatically.
+#
+# Auth (npm): uses the NPM_TOKEN repository secret — an npm *automation* token
+# (Access Tokens -> Generate -> Automation), which bypasses 2FA for CI.
+#
+# Why npm is here at all: README tells Node users to `npm install -D o1js-scan`,
+# CI has smoke-tested `bin/o1js-scan.js` on every run since it was added, and
+# the package had still never been published — the registry returned 404 for
+# the name. The wrapper was built, tested and documented but never shipped.
 
 on:
   release:
@@ -43,3 +51,60 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
+
+  publish-npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write        # required by `npm publish --provenance`
+    # Deliberately independent of build-and-publish: a PyPI upload that fails
+    # because the version already exists must not silently skip npm, and vice
+    # versa. Each registry reports its own outcome.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version must match the release tag
+        # The npm manifest carries its own version number, so a release cut
+        # from a tag that disagrees with package.json would publish the wrong
+        # thing under the right tag. Fail before the upload, not after.
+        run: |
+          set -euo pipefail
+          pkg_version="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          echo "package.json=${pkg_version}  tag=${tag}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${pkg_version}" != "${tag}" ]; then
+            echo "::error::package.json version ${pkg_version} != release tag ${tag}"
+            exit 1
+          fi
+
+      - name: Cross-manifest version consistency
+        # Same check the test suite pins, re-run here so a release cut from a
+        # branch that skipped CI cannot ship drifted manifests.
+        run: python -m pytest tests/test_packaging.py -q
+
+      - name: Smoke-test the packed tarball
+        # Install the ACTUAL artifact and run it, rather than trusting that the
+        # repo working tree would have worked. Catches a bad `files` glob.
+        run: |
+          set -euo pipefail
+          npm pack --pack-destination /tmp/pkg
+          work="$(mktemp -d)"
+          cd "$work"
+          npm init -y >/dev/null
+          npm install /tmp/pkg/*.tgz
+          ./node_modules/.bin/o1js-scan --version
+          ./node_modules/.bin/noir-scan --help >/dev/null
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
