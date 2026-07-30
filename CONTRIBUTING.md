@@ -116,14 +116,14 @@ artifacts from — rewriting history would orphan the released versions from
 changes none of them. Bump first, then tag:
 
 ```bash
-python3 scripts/bump_version.py 0.11.0     # rewrites all three
+python3 scripts/bump_version.py X.Y.Z      # rewrites all three
 python3 scripts/bump_version.py --check    # verify (no args does the same)
 
-git commit -am "Release 0.11.0"
+git commit -am "Release X.Y.Z"
 git push origin main
 ```
 
-Then cut the GitHub Release against the **new** commit, with tag `v0.11.0`.
+Then cut the GitHub Release against the **new** commit, with tag `vX.Y.Z`.
 Publishing runs on `release: published` and does PyPI + npm.
 
 The `preflight` job compares the manifests to the tag and fails the whole run
