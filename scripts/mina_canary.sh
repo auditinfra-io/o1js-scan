@@ -19,10 +19,10 @@ set -euo pipefail
 # repo|pinned-sha|expected HIGH (see docs/mina_calibration.md)
 REPOS=(
   "marekyggdrasil/mac|83cea9cbc9cec530cc8dede356221140b7452f39|7"
-  "iluxonchik/zkLocus|600f4068d37b94687cb64cf9c9dd65dcce3a2a8f|2"
+  "iluxonchik/zkLocus|600f4068d37b94687cb64cf9c9dd65dcce3a2a8f|3"
   "iluxonchik/randomina|2d5781a1672f2cac43cf249ec8b63737cd854e29|1"
   "berzanorg/nacho|db85861ebbd08a06a6a52226f569829f0c5fe386|0"
-  "berzanorg/xane|9002bca5640b626adb1eb2bf2df26ea8804d2d44|0"
+  "berzanorg/xane|9002bca5640b626adb1eb2bf2df26ea8804d2d44|2"
   "o1-labs-XT/fungible-token-contract|a0d4290135ccdabcaf1defe2ea5d1a2243deb5e1|0"
   "o1-labs-XT/mastermind-zkApp|bdfc7c917f906467fd0b712661955df825d97339|0"
   "Doot-Foundation/contracts|890c9b0d281448f46bbf09d6820ab43d2b33598e|0"
@@ -30,6 +30,8 @@ REPOS=(
   "auxo-zk/Distributed-key-generation|4d191d786c9c2337e517e72f234ff40600e20f0f|0"
   "izzetemredemir/mina-token-manager|ec91c9222fc01f383555524cbe03594aa36744dc|0"
   "45930/Voting-Playground-o1js|391ef4b8e4231602bd3d16bd9f339e5398c96436|0"
+  "suenchunhui/mina-privacy-coin|8b30b709e99cb0a83deeb293a9d1920a9d6d58ab|0"
+  "enderNakamoto/zkMile-contracts|c15c9c0b05d70e230f6ce75f6cc344ebed67c525|0"
 )
 
 CORPUS="${1:-}"

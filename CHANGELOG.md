@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-30
+
+### Added
+- **`O1JS_LOGIC_OUTSIDE_PROOF`** — flags assert / approve / send / state writes inside `Provable.asProver(...)` or a `Provable.witness*` callback (Mina secure-zkApps advice #1: don't move logic outside the proof). `Provable.log`-only callbacks stay quiet.
+- **Upgrade-permission hardening** under `O1JS_WEAK_PERMISSIONS` — flags `setVerificationKey` / `setPermissions` left at `signature` / `proofOrSignature` / `none` (Mina's documented training wheels). MEDIUM alone; HIGH when the same `permissions.set` also weakens `editState` / `send`.
+- **`O1JS_APPROVE_WITHOUT_BINDING`** — `approve` / `approveAccountUpdate` / `approveBase` without reading `balanceChange` / `publicKey` or calling `assertCanMint` / `assertCanBurn` / `forEachUpdate` (FlawedTokenContract archetype). Conservation-style `approveBase` stays quiet.
+- **`O1JS_VACUOUS_ASSERT`** — self-comparisons (`x.assertEquals(x)`) and constant Bool asserts. Noir `NOIR_VACUOUS_CONSTRAINT` analog.
+- **`O1JS_CONDITIONAL_ASSERT`** — asserts gated by a prover-controlled `@method` Bool / `.toBoolean()` local. Inline comparisons stay unreported. Noir `NOIR_CONDITIONAL_ASSERT` analog.
+- **Mina calibration Wave 2.** Extended `scripts/mina_canary.sh` / `docs/mina_calibration.md` with `suenchunhui/mina-privacy-coin` and `enderNakamoto/zkMile-contracts` (from MinaFoundation/list-of-projects). Raised zkLocus HIGH floor to 3 (vacuous-assert TP) and xane to 2 (upgrade-permission TPs). Pinned `tp_regression_zklocus_vacuous_assert.ts`.
+
+### Fixed
+- **`O1JS_VACUOUS_ASSERT` dotted-receiver FP.** `update.body.tokenId.assertEquals(tokenId)` shares a basename but is not a self-comparison; only bare `x.assertEquals(x)` fires.
+- **Older `getAndAssertEquals` recognized** as a state-binding / precondition form alongside `getAndRequireEquals`.
+- **Inline Merkle membership binding.** `rootBefore.assertEquals(leafWitness.calculateRoot(...))` suppresses `O1JS_STALE_MERKLE_ROOT` even when the recomputed root is never assigned to a named local (privacy-coin shape).
+
 ## [0.12.0] - 2026-07-30
 
 ### Added
@@ -411,7 +426,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the chained `amount.lessThanOrEqual(bal).assertTrue()` form) are now
   recognized as binding a witness to on-chain state.
 
-[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.12.0...v0.13.0
+[0.12.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.7.1...v0.8.0

@@ -75,10 +75,29 @@ o1js soundness model (the three footguns this encodes)
    - ``account.permissions.set`` with ``editState`` / ``send`` set to
      ``proofOrSignature()`` or ``none()`` means the zkApp account key can
      bypass the proof logic by signing — defeating the whole circuit.
+     ``setVerificationKey`` / ``setPermissions`` left at ``signature`` /
+     ``proofOrSignature`` / ``none`` are Mina's documented training-wheel
+     upgrade gates (the account key can redeploy or rewrite permissions).
      Rule: ``O1JS_WEAK_PERMISSIONS``.
    - A raw ``Field`` (NOT ``UInt64``/``UInt32``, which are range-checked by
      construction) used as a transfer amount can exceed the field modulus
      intent / wrap. Rule: ``MissingRangeCheck``.
+
+6. **Logic outside the proof.** ``Provable.asProver(() => { ... })`` (and
+   security logic stuffed into a ``Provable.witness`` callback) runs *outside*
+   the circuit — asserts / approve / send / state writes there do not bind
+   the proof. Rule: ``O1JS_LOGIC_OUTSIDE_PROOF``.
+
+7. **Token approve without binding.** ``this.approve(update)`` /
+   ``approveAccountUpdate`` / ``approveBase`` without reading
+   ``balanceChange`` / ``publicKey`` (or calling ``assertCanMint`` /
+   ``assertCanBurn``) trusts the caller-supplied AccountUpdate. Rule:
+   ``O1JS_APPROVE_WITHOUT_BINDING``.
+
+8. **Vacuous / conditional asserts.** Self-comparisons
+   (``x.assertEquals(x)``) and asserts gated by a prover-controlled ``if``
+   (Noir ``NOIR_VACUOUS_CONSTRAINT`` / ``NOIR_CONDITIONAL_ASSERT`` analogs).
+   Rules: ``O1JS_VACUOUS_ASSERT``, ``O1JS_CONDITIONAL_ASSERT``.
 
 Lexical, not full TS AST: o1js code is decorator + brace-delimited-method-body
 shaped, regex-tractable, and the output is meant to be hand-triaged. Env
@@ -163,6 +182,44 @@ _MERKLE_DESTRUCT_RE = re.compile(
 _MERKLE_ASSIGN_RE = re.compile(
     r"(?:const|let|var)\s+(\w{1,%d})\s*=\s*([\w.]{1,%d})\s*\.\s*"
     r"(calculateRoot)\s*\(" % (_MAX_IDENT, _MAX_IDENT),
+)
+# Provable.asProver / Provable.witness* — callback bodies run outside the circuit.
+_ASPROVER_CALL_RE = re.compile(r"Provable\s*\.\s*asProver\s*\(")
+_PROVABLE_HINT_CALL_RE = re.compile(
+    r"Provable\s*\.\s*(asProver|witness|witnessFields|witnessAsync)\s*\("
+)
+# Security-relevant ops that are useless (or actively misleading) outside a proof.
+_OUTSIDE_PROOF_EFFECT_RE = re.compile(
+    r"(?:"
+    r"\.(?:assertEquals|assertTrue|assertFalse|assertLessThan|assertLessThanOrEqual|"
+    r"assertGreaterThan|assertGreaterThanOrEqual|assertNotEquals|assertBool|"
+    r"requireEquals)\s*\("
+    r"|this\s*\.\s*(?:approve|approveAccountUpdate|approveAccountUpdates|approveBase|"
+    r"send|assertCanMint|assertCanBurn)\s*\("
+    r"|(?:approveAccountUpdate|approveAccountUpdates|approveBase)\s*\("
+    r"|\.set\s*\("
+    r")"
+)
+_APPROVE_CALL_RE = re.compile(
+    r"(?:this\s*\.\s*)?(?:approve|approveAccountUpdate|approveAccountUpdates|"
+    r"approveBase)\s*\("
+)
+_APPROVE_BINDING_RE = re.compile(
+    r"(?:balanceChange|\.publicKey\b|assertCanMint|assertCanBurn|"
+    r"forEachUpdate|totalBalanceChange)"
+)
+_VACUOUS_ASSERT_EQ_RE = re.compile(
+    # Bare receiver only — `x.assertEquals(x)`. Dotted paths like
+    # `update.body.tokenId.assertEquals(tokenId)` share a basename but compare
+    # distinct values and must NOT match.
+    r"(?<![.\w])(\w{1,%d})\s*\.\s*assertEquals\s*\(\s*\1\s*\)" % _MAX_IDENT,
+)
+_VACUOUS_EQUALS_ASSERT_RE = re.compile(
+    r"(?<![.\w])(\w{1,%d})\s*\.\s*equals\s*\(\s*\1\s*\)\s*\.\s*assertTrue\s*\("
+    % _MAX_IDENT,
+)
+_VACUOUS_CONST_BOOL_RE = re.compile(
+    r"\bBool\s*\(\s*(true|false)\s*\)\s*\.\s*assert(?:True|False)\s*\("
 )
 
 
@@ -396,6 +453,10 @@ class O1jsLexer:
         vulns += self._detect_unasserted_bool(content, methods)
         vulns += self._detect_unconstrained_sender(content, methods)
         vulns += self._detect_raw_field_amount(content, methods)
+        vulns += self._detect_logic_outside_proof(content, methods)
+        vulns += self._detect_approve_without_binding(content, methods)
+        vulns += self._detect_vacuous_assert(content, methods)
+        vulns += self._detect_conditional_assert(content, methods)
         vulns += self._detect_weak_permissions(content, stripped)
         return _apply_suppressions(content, vulns)
 
@@ -469,12 +530,13 @@ class O1jsLexer:
                 #   this.<field>.assertEquals(...)   (older o1js)
                 safe = re.search(
                     r"this\s*\.\s*" + re.escape(field_name)
-                    + r"\s*\.\s*(getAndRequireEquals|requireEquals|assertEquals)\s*\(",
+                    + r"\s*\.\s*(getAndRequireEquals|getAndAssertEquals|requireEquals|assertEquals)\s*\(",
                     body,
                 )
                 # also accept getAndRequireEquals used INSTEAD of get (no bare get)
                 only_safe_form = re.search(
-                    r"this\s*\.\s*" + re.escape(field_name) + r"\s*\.\s*getAndRequireEquals",
+                    r"this\s*\.\s*" + re.escape(field_name)
+                    + r"\s*\.\s*(?:getAndRequireEquals|getAndAssertEquals)",
                     body,
                 )
                 if safe or only_safe_form:
@@ -754,6 +816,9 @@ class O1jsLexer:
             if any(self._merkle_root_bound(body, rv, state, state_bound)
                    for rv, _, _, _ in roots):
                 continue  # at least one recomputed root is tied to the live tree
+            if any(self._inline_merkle_witness_bound(body, recv, state, state_bound)
+                   for _, recv, _, _ in roots):
+                continue  # binding uses inline `recv.calculateRoot(...)` in an assert
             root_var, recv, api, off = roots[0]
             line = meth.start_line + body.count("\n", 0, off)
             out.append(Vulnerability(
@@ -1079,7 +1144,7 @@ class O1jsLexer:
         rv = re.escape(root_var)
 
         def _state_derived(expr: str) -> bool:
-            if "getAndRequireEquals" in expr or ".get()" in expr:
+            if "getAndRequireEquals" in expr or "getAndAssertEquals" in expr or ".get()" in expr:
                 return True
             if any(re.search(r"\b" + re.escape(sb) + r"\b", expr) for sb in state_bound):
                 return True
@@ -1101,13 +1166,61 @@ class O1jsLexer:
             % (_MAX_IDENT, _MAX_CALL_ARG), body,
         ):
             recv, inner = m.group(1), m.group(2)
-            in_recv = bool(re.search(r"\b" + rv + r"\b", recv))
-            in_inner = bool(re.search(r"\b" + rv + r"\b", inner))
-            if not (in_recv or in_inner):
-                continue
-            other = inner if in_recv else recv
-            if _state_derived(other):
+            if re.search(r"\b" + rv + r"\b", recv) and _state_derived(inner):
                 return True
+            if re.search(r"\b" + rv + r"\b", inner) and _state_derived(recv):
+                return True
+        return False
+
+    @staticmethod
+    def _inline_merkle_witness_bound(
+        body: str, witness_recv: str, state: Dict[str, str], state_bound: Set[str],
+    ) -> bool:
+        """True when membership is checked via inline ``recv.calculateRoot(...)``.
+
+        Covers ``rootBefore.assertEquals(leafWitness.calculateRoot(...))`` where
+        the recomputed root is never assigned to a named local (privacy-coin shape).
+        """
+        recv = re.escape(witness_recv)
+        calc = (
+            r"(?:calculateRoot|computeRootAndKey|computeRootAndKeyV2)\s*\("
+        )
+        # state_local.assertEquals(recv.calculateRoot(...))
+        for sb in state_bound:
+            if re.search(
+                r"\b" + re.escape(sb)
+                + r"\s*\.\s*(?:assertEquals|requireEquals)\s*\(\s*"
+                + recv + r"\s*\.\s*" + calc,
+                body,
+            ):
+                return True
+        # this.<root>.assertEquals(recv.calculateRoot(...))
+        for field in state:
+            if re.search(
+                r"this\s*\.\s*" + re.escape(field)
+                + r"\s*\.\s*(?:assertEquals|requireEquals)\s*\(\s*"
+                + recv + r"\s*\.\s*" + calc,
+                body,
+            ):
+                return True
+        # recv.calculateRoot(...).assertEquals(state_local) — uncommon but sound
+        if re.search(
+            recv + r"\s*\.\s*" + calc + r"[^;]{0,%d}?\)\s*\.\s*"
+            r"(?:assertEquals|requireEquals)\s*\(" % _MAX_CALL_ARG,
+            body,
+        ):
+            # verify the other side is state-derived
+            for m in re.finditer(
+                recv + r"\s*\.\s*(?:calculateRoot|computeRootAndKey|computeRootAndKeyV2)"
+                r"\s*\([^;]{0,%d}?\)\s*\.\s*(?:assertEquals|requireEquals)\s*\(([^;]{0,%d}?)\)"
+                % (_MAX_CALL_ARG, _MAX_CALL_ARG),
+                body,
+            ):
+                other = m.group(1)
+                if any(re.search(r"\b" + re.escape(sb) + r"\b", other) for sb in state_bound):
+                    return True
+                if re.search(r"this\s*\.\s*\w+", other):
+                    return True
         return False
 
     @staticmethod
@@ -1189,7 +1302,8 @@ class O1jsLexer:
         def _state_derived(other: str) -> bool:
             """True if ``other`` references an on-chain-state-derived value."""
             return (any(re.search(r"\b" + re.escape(sb) + r"\b", other) for sb in state_bound)
-                    or "getAndRequireEquals" in other or ".get()" in other)
+                    or "getAndRequireEquals" in other or "getAndAssertEquals" in other
+                    or ".get()" in other)
 
         # Equality AND ordering comparisons all bind the witness when the other
         # operand is state-derived: `amount.assertLessThanOrEqual(bal)` is the
@@ -1283,43 +1397,368 @@ class O1jsLexer:
                     ))
         return out
 
+    # --- Rule: security logic inside Provable.asProver / witness callbacks -
+
+    def _detect_logic_outside_proof(
+        self, src: str, methods: List[_Method],
+    ) -> List[Vulnerability]:
+        """Flag asserts / approve / send / state writes inside out-of-circuit
+        callbacks (Mina secure-zkApps advice #1)."""
+        out: List[Vulnerability] = []
+        for meth in methods:
+            body = meth.body
+            for m in _PROVABLE_HINT_CALL_RE.finditer(body):
+                api = m.group(1)
+                # asProver always runs outside the proof; witness* callbacks are
+                # prover hints — both are only flagged when the callback body
+                # contains security-relevant ops (empty / Provable.log-only stay quiet).
+                if api != "asProver" and api not in ("witness", "witnessFields", "witnessAsync"):
+                    continue
+                open_paren = m.end() - 1
+                args = _paren_segment(body, open_paren)
+                cb = _first_callback_brace_body(args)
+                if cb is None:
+                    continue
+                cb_body, _ = cb
+                if not _OUTSIDE_PROOF_EFFECT_RE.search(cb_body):
+                    continue
+                # Locate the offending effect for line attribution.
+                em = _OUTSIDE_PROOF_EFFECT_RE.search(cb_body)
+                # Offset: start of Provable.* call within method body, then
+                # into the callback. Approximate via the call match + effect.
+                rel = m.start() + (em.start() if em else 0)
+                line = meth.start_line + body.count("\n", 0, rel)
+                kind = "asProver" if api == "asProver" else "witness-callback"
+                out.append(Vulnerability(
+                    pattern_name="O1JS_LOGIC_OUTSIDE_PROOF",
+                    severity=Severity.HIGH,
+                    function=meth.name,
+                    location=(line, 0),
+                    origin_tier=O1JS_ORIGIN_TIER,
+                    rule_id="O1JS_LOGIC_OUTSIDE_PROOF",
+                    title=(
+                        f"Security logic inside `Provable.{api}` in `{meth.name}`"
+                    ),
+                    description=(
+                        f"`Provable.{api}(...)` runs *outside* the zk proof — whatever "
+                        f"happens in its callback is a prover hint, not a constraint. "
+                        f"This `{kind}` contains an assert / approve / send / state write, "
+                        f"so a malicious prover can delete or alter that logic and still "
+                        f"produce a verifying proof. Move the check into the circuit "
+                        f"(unconditional assert / `Provable.if`), or drop the "
+                        f"`asProver` wrapper."
+                    ),
+                    evidence={
+                        "method": meth.name,
+                        "api": api,
+                        "framework": "o1js",
+                    },
+                ))
+        return out
+
+    # --- Rule: approve(AccountUpdate) without binding update fields -------
+
+    def _detect_approve_without_binding(
+        self, src: str, methods: List[_Method],
+    ) -> List[Vulnerability]:
+        """Flag approve* that never reads balanceChange / publicKey / mint-burn guards.
+
+        Distills the Mina docs FlawedTokenContract archetype: approving a
+        caller-supplied AccountUpdate without asserting its contents.
+        """
+        out: List[Vulnerability] = []
+        for meth in methods:
+            if not meth.is_method_decorated:
+                continue
+            body = meth.body
+            am = _APPROVE_CALL_RE.search(body)
+            if not am:
+                continue
+            if _APPROVE_BINDING_RE.search(body):
+                continue
+            line = meth.start_line + body.count("\n", 0, am.start())
+            out.append(Vulnerability(
+                pattern_name="O1JS_APPROVE_WITHOUT_BINDING",
+                severity=Severity.MEDIUM,
+                function=meth.name,
+                location=(line, 0),
+                origin_tier=O1JS_ORIGIN_TIER,
+                rule_id="O1JS_APPROVE_WITHOUT_BINDING",
+                title=f"Token approve without binding update fields in `{meth.name}`",
+                description=(
+                    f"`{meth.name}` calls `approve` / `approveAccountUpdate` / "
+                    f"`approveBase` but never reads `balanceChange` / `publicKey` "
+                    f"and never calls `assertCanMint` / `assertCanBurn` (or a "
+                    f"`forEachUpdate` total-balance check). Approving a "
+                    f"caller-supplied `AccountUpdate` without constraining its "
+                    f"contents lets the prover mint/burn/transfer under a "
+                    f"mismatched authorization check. Bind the update fields "
+                    f"before approving, or extend `TokenContract` and implement "
+                    f"`approveBase` with a conservation check."
+                ),
+                evidence={"method": meth.name, "framework": "o1js"},
+            ))
+        return out
+
+    # --- Rule: vacuous self-assert / constant Bool assert -----------------
+
+    def _detect_vacuous_assert(
+        self, src: str, methods: List[_Method],
+    ) -> List[Vulnerability]:
+        """Noir ``NOIR_VACUOUS_CONSTRAINT`` analog for o1js."""
+        out: List[Vulnerability] = []
+        for meth in methods:
+            body = meth.body
+            seen_lines: Set[int] = set()
+            for rx, is_typo, label in (
+                (_VACUOUS_ASSERT_EQ_RE, True, "assertEquals(self)"),
+                (_VACUOUS_EQUALS_ASSERT_RE, True, "equals(self).assertTrue"),
+                (_VACUOUS_CONST_BOOL_RE, False, "constant Bool assert"),
+            ):
+                for m in rx.finditer(body):
+                    line = meth.start_line + body.count("\n", 0, m.start())
+                    if line in seen_lines:
+                        continue
+                    seen_lines.add(line)
+                    out.append(Vulnerability(
+                        pattern_name="O1JS_VACUOUS_ASSERT",
+                        severity=Severity.HIGH if is_typo else Severity.MEDIUM,
+                        function=meth.name,
+                        location=(line, 0),
+                        origin_tier=O1JS_ORIGIN_TIER,
+                        rule_id="O1JS_VACUOUS_ASSERT",
+                        title=f"Vacuous assert ({label}) in `{meth.name}`",
+                        description=(
+                            f"This assert is satisfied by construction ({label}), so it "
+                            f"adds no restriction to the circuit. A vacuous assert is more "
+                            f"dangerous than a missing one: the code reads as checked while "
+                            f"the prover remains free. "
+                            + (
+                                "A self-comparison is almost always a typo for a real check "
+                                "(`computed.assertEquals(expected)` mistyped as "
+                                "`expected.assertEquals(expected)`)."
+                                if is_typo else
+                                "Replace the constant Bool assert with a real constraint, "
+                                "or remove it."
+                            )
+                        ),
+                        evidence={
+                            "method": meth.name,
+                            "kind": label,
+                            "framework": "o1js",
+                        },
+                    ))
+        return out
+
+    # --- Rule: assert gated by prover-controlled JS if --------------------
+
+    def _detect_conditional_assert(
+        self, src: str, methods: List[_Method],
+    ) -> List[Vulnerability]:
+        """Noir ``NOIR_CONDITIONAL_ASSERT`` analog — JS ``if`` over a Bool witness.
+
+        Inline comparisons (``if (x.equals(y))``) stay unreported; bare
+        identifier gates (and ``.toBoolean()``) derived from ``@method`` Bool
+        args are reported when the block contains an assert.
+        """
+        out: List[Vulnerability] = []
+        for meth in methods:
+            if not meth.is_method_decorated:
+                continue
+            body = meth.body
+            # Skip bodies whose only conditional asserts live inside asProver —
+            # O1JS_LOGIC_OUTSIDE_PROOF already covers that archetype.
+            controlled = {
+                p for i, p in enumerate(meth.params)
+                if i < len(meth.param_types)
+                and meth.param_types[i]
+                and re.search(r"\bBool\b", meth.param_types[i] or "")
+            }
+            controlled |= _simple_aliases(body, controlled)
+            # Locals assigned from `.toBoolean()` on a controlled Bool.
+            for am in re.finditer(
+                r"\b(?:const|let|var)\s+(\w+)\s*=\s*(\w+)\s*\.\s*toBoolean\s*\(\s*\)",
+                body,
+            ):
+                if am.group(2) in controlled:
+                    controlled.add(am.group(1))
+            if not controlled:
+                continue
+            asserted = set()
+            for am in re.finditer(
+                r"\b(\w+)\s*\.\s*assert(?:True|False|Equals|Bool)\s*\(",
+                body,
+            ):
+                asserted.add(am.group(1))
+            n = len(body)
+            for im in re.finditer(r"\bif\b", body):
+                # Skip `if` inside asProver callbacks to avoid double-reporting.
+                preceding = body[:im.start()]
+                if _ASPROVER_CALL_RE.search(preceding):
+                    # Cheap heuristic: if an asProver appears before this if and
+                    # the nearest unmatched `{` depth from that asProver still
+                    # encloses us, skip. Use paren+brace walk from last asProver.
+                    last = None
+                    for am in _ASPROVER_CALL_RE.finditer(preceding):
+                        last = am
+                    if last is not None:
+                        args = _paren_segment(body, last.end() - 1)
+                        cb = _first_callback_brace_body(args)
+                        if cb is not None:
+                            # Approximate: if the if offset falls within the
+                            # asProver call span, treat as inside.
+                            call_end = last.end() + len(args)
+                            if last.start() <= im.start() <= call_end + 8:
+                                continue
+                j = im.end()
+                depth = 0
+                while j < n:
+                    c = body[j]
+                    if c in "([":
+                        depth += 1
+                    elif c in ")]":
+                        depth -= 1
+                    elif c == "{" and depth == 0:
+                        break
+                    j += 1
+                if j >= n or body[j] != "{":
+                    continue
+                cond = body[im.end():j].strip()
+                # Strip wrapping parens: `(flag)` / `(flag.toBoolean())`
+                core = cond
+                if core.startswith("(") and core.endswith(")"):
+                    core = core[1:-1].strip()
+                if core.startswith("!"):
+                    core = core[1:].strip()
+                to_bool = re.fullmatch(r"(\w+)\s*\.\s*toBoolean\s*\(\s*\)", core)
+                if to_bool:
+                    gate = to_bool.group(1)
+                elif re.fullmatch(r"\w+", core):
+                    gate = core
+                else:
+                    continue  # inline comparison — leave alone
+                if gate not in controlled or gate in asserted:
+                    continue
+                block = _brace_segment(body, j)
+                if not re.search(
+                    r"\.(?:assertEquals|assertTrue|assertFalse|assertLessThan|"
+                    r"assertLessThanOrEqual|assertGreaterThan|assertGreaterThanOrEqual|"
+                    r"assertNotEquals|assertBool|requireEquals)\s*\("
+                    r"|assertCanMint|assertCanBurn",
+                    block,
+                ):
+                    continue
+                line = meth.start_line + body.count("\n", 0, im.start())
+                out.append(Vulnerability(
+                    pattern_name="O1JS_CONDITIONAL_ASSERT",
+                    severity=Severity.MEDIUM,
+                    function=meth.name,
+                    location=(line, 0),
+                    origin_tier=O1JS_ORIGIN_TIER,
+                    rule_id="O1JS_CONDITIONAL_ASSERT",
+                    title=(
+                        f"Assert gated by prover-controlled condition `{gate}` "
+                        f"in `{meth.name}`"
+                    ),
+                    description=(
+                        f"An assert runs inside `if {cond} {{ ... }}`, and `{gate}` is "
+                        f"a prover-controlled `@method` Bool (or derived from one). A "
+                        f"JS conditional does not constrain the circuit the way "
+                        f"`Provable.if` does — the prover can choose the branch that "
+                        f"skips the check. Enforce the constraint unconditionally "
+                        f"(both branches), or derive the gate from constrained state."
+                    ),
+                    evidence={
+                        "method": meth.name,
+                        "condition": gate,
+                        "framework": "o1js",
+                    },
+                ))
+        return out
+
     # --- Rule 4: weak account permissions ---------------------------------
 
     def _detect_weak_permissions(self, src: str, stripped: str) -> List[Vulnerability]:
         out: List[Vulnerability] = []
-        # find permissions.set({...}) blocks
+        circuit_fields = ("editState", "send")
+        upgrade_fields = ("setVerificationKey", "setPermissions")
+        other_none_fields = ("receive", "setDelegate", "incrementNonce")
         for pm in re.finditer(r"permissions\s*\.\s*set\s*\(", stripped):
             seg = _paren_segment(stripped, pm.end() - 1)
-            for field in ("editState", "send", "receive", "setDelegate", "incrementNonce"):
+            weak_circuit: List[Tuple[str, str]] = []
+            findings_spec: List[Tuple[str, str, bool]] = []  # field, value, is_upgrade
+
+            for field in circuit_fields + upgrade_fields + other_none_fields:
                 m = re.search(
-                    re.escape(field) + r"\s*:\s*Permissions\s*\.\s*(proofOrSignature|none)\s*\(",
+                    re.escape(field)
+                    + r"\s*:\s*(?:Permissions|Permission)"
+                    r"(?:\s*\.\s*VerificationKey)?\s*\.\s*"
+                    r"(proofOrSignature|signature|none)\s*\(",
                     seg,
                 )
                 if not m:
                     continue
                 weak = m.group(1)
-                # editState/send weakened to signature-or-none defeats proof logic
-                if field in ("editState", "send") or weak == "none":
-                    line = _line_of(src, pm.start())
-                    sev = Severity.HIGH if (field in ("editState", "send") and weak == "none") else Severity.MEDIUM
-                    out.append(Vulnerability(
-                        pattern_name="O1JS_WEAK_PERMISSIONS",
-                        severity=sev,
-                        function="",
-                        location=(line, 0),
-                        origin_tier=O1JS_ORIGIN_TIER,
-                        rule_id="O1JS_WEAK_PERMISSIONS",
-                        title=f"Weak account permission `{field}: Permissions.{weak}()`",
-                        description=(
-                            f"`{field}` is set to `Permissions.{weak}()`. With "
-                            f"`proofOrSignature`, a holder of the zkApp account's private key "
-                            f"can change `{field}` by SIGNATURE, bypassing the `@method` proof "
-                            f"logic entirely; `none` removes the gate outright. For a zkApp "
-                            f"whose security depends on its circuits, `{field}` should be "
-                            f"`Permissions.proof()`."
-                        ),
-                        evidence={"permission": field, "value": weak, "framework": "o1js"},
-                    ))
+                if field in circuit_fields and weak in ("proofOrSignature", "none"):
+                    weak_circuit.append((field, weak))
+                    findings_spec.append((field, weak, False))
+                elif field in upgrade_fields and weak in (
+                    "proofOrSignature", "signature", "none",
+                ):
+                    findings_spec.append((field, weak, True))
+                elif field in other_none_fields and weak == "none":
+                    findings_spec.append((field, weak, False))
+
+            has_circuit_weak = bool(weak_circuit)
+            line = _line_of(src, pm.start())
+            for field, weak, is_upgrade in findings_spec:
+                if is_upgrade:
+                    sev = Severity.HIGH if has_circuit_weak else Severity.MEDIUM
+                    title = (
+                        f"Unlocked upgrade permission "
+                        f"`{field}: Permissions.{weak}()`"
+                    )
+                    desc = (
+                        f"`{field}` is set to `Permissions.{weak}()`. Mina documents "
+                        f"this as a development training wheel: the account key can "
+                        f"change the verification key or rewrite permissions (and "
+                        f"therefore bypass every circuit gate). For a finalized "
+                        f"zkApp set `{field}` to `Permissions.impossible()` (or "
+                        f"`proof` with an explicit permissionless upgrade path)."
+                    )
+                else:
+                    sev = (
+                        Severity.HIGH
+                        if (field in circuit_fields and weak == "none")
+                        else Severity.MEDIUM
+                    )
+                    title = f"Weak account permission `{field}: Permissions.{weak}()`"
+                    desc = (
+                        f"`{field}` is set to `Permissions.{weak}()`. With "
+                        f"`proofOrSignature`, a holder of the zkApp account's private key "
+                        f"can change `{field}` by SIGNATURE, bypassing the `@method` proof "
+                        f"logic entirely; `none` removes the gate outright. For a zkApp "
+                        f"whose security depends on its circuits, `{field}` should be "
+                        f"`Permissions.proof()`."
+                    )
+                evidence = {
+                    "permission": field,
+                    "value": weak,
+                    "framework": "o1js",
+                }
+                if is_upgrade:
+                    evidence["upgrade"] = True
+                out.append(Vulnerability(
+                    pattern_name="O1JS_WEAK_PERMISSIONS",
+                    severity=sev,
+                    function="",
+                    location=(line, 0),
+                    origin_tier=O1JS_ORIGIN_TIER,
+                    rule_id="O1JS_WEAK_PERMISSIONS",
+                    title=title,
+                    description=desc,
+                    evidence=evidence,
+                ))
         return out
 
 
@@ -1327,12 +1766,43 @@ class O1jsLexer:
 # small helpers
 # ---------------------------------------------------------------------------
 
+def _brace_segment(s: str, open_brace_idx: int) -> str:
+    """Return the text inside the braces starting at ``open_brace_idx``."""
+    if open_brace_idx >= len(s) or s[open_brace_idx] != "{":
+        return ""
+    depth = 0
+    for i in range(open_brace_idx, len(s)):
+        if s[i] == "{":
+            depth += 1
+        elif s[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return s[open_brace_idx + 1:i]
+    return s[open_brace_idx + 1:]
+
+
+def _first_callback_brace_body(args: str) -> Optional[Tuple[str, int]]:
+    """Extract the first ``() => { ... }`` / ``function (...) { ... }`` body.
+
+    Returns ``(body, brace_offset_in_args)`` or None when the callback is an
+    expression arrow without a block (``() => x``) — those cannot contain
+    multi-statement security logic and are left alone.
+    """
+    m = re.search(r"(?:=>\s*\{|\bfunction\b[^{]{0,%d}\{)" % _MAX_PARAMS, args)
+    if not m:
+        return None
+    brace = args.find("{", m.start())
+    if brace < 0:
+        return None
+    return _brace_segment(args, brace), brace
+
+
 def _state_bound_locals(body: str, state: Dict[str, str]) -> Set[str]:
     """Locals assigned from ``this.<state>.getAndRequireEquals()`` / ``.get()``."""
     bound: Set[str] = set()
     for am in re.finditer(
         r"\b(?:const|let|var)\s+(\w+)\s*=\s*this\s*\.\s*(\w+)\s*\.\s*"
-        r"(?:getAndRequireEquals|get)\s*\(", body,
+        r"(?:getAndRequireEquals|getAndAssertEquals|get)\s*\(", body,
     ):
         if am.group(2) in state:
             bound.add(am.group(1))

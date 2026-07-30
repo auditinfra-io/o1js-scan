@@ -80,5 +80,6 @@ def test_confirmed_true_positives_are_pinned():
     for required in (
         "tp_regression_mac_unasserted_bool.ts",
         "tp_regression_randomina_unverified_proof.ts",
+        "tp_regression_zklocus_vacuous_assert.ts",
     ):
         assert required in names, f"missing pinned regression fixture: {required}"

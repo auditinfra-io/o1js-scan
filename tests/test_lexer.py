@@ -437,6 +437,270 @@ def test_weak_permissions_none_is_high():
 
 
 # ---------------------------------------------------------------------------
+# Wave 1 — Mina secure-zkApps footguns (asProver / upgrade / approve / vacuous)
+# ---------------------------------------------------------------------------
+
+_ASPROVER_LOGIC = """
+import { SmartContract, method, Bool, AccountUpdate, Provable } from 'o1js';
+export class FlawedToken extends SmartContract {
+  @method async mintOrBurn(update: AccountUpdate, isMint: Bool) {
+    Provable.asProver(() => {
+      if (isMint.toBoolean()) {
+        this.assertCanMint(update.balanceChange, update.publicKey);
+      } else {
+        this.assertCanBurn(update.balanceChange, update.publicKey);
+      }
+    });
+    this.approve(update);
+  }
+  assertCanMint(a: any, b: any) {}
+  assertCanBurn(a: any, b: any) {}
+}
+"""
+
+_ASPROVER_LOG_ONLY = """
+import { SmartContract, method, Field, Provable } from 'o1js';
+export class C extends SmartContract {
+  @method async debug(x: Field) {
+    Provable.asProver(() => {
+      Provable.log(x);
+    });
+    x.assertEquals(x);
+  }
+}
+"""
+
+_WITNESS_CALLBACK_ASSERT = """
+import { SmartContract, method, Field, Provable } from 'o1js';
+export class C extends SmartContract {
+  @method async bad(expected: Field) {
+    const x = Provable.witness(Field, () => {
+      const v = Field(1);
+      v.assertEquals(expected);
+      return v;
+    });
+    this.commitment.set(x);
+  }
+}
+"""
+
+_UPGRADE_PERMS = """
+import { SmartContract, Permissions } from 'o1js';
+export class C extends SmartContract {
+  init() {
+    super.init();
+    this.account.permissions.set({
+      ...Permissions.default(),
+      setVerificationKey: Permissions.signature(),
+      setPermissions: Permissions.signature(),
+    });
+  }
+}
+"""
+
+_UPGRADE_PLUS_WEAK_EDIT = """
+import { SmartContract, Permissions } from 'o1js';
+export class C extends SmartContract {
+  init() {
+    this.account.permissions.set({
+      editState: Permissions.proofOrSignature(),
+      setVerificationKey: Permissions.signature(),
+    });
+  }
+}
+"""
+
+_APPROVE_UNBOUND = """
+import { SmartContract, method, AccountUpdate } from 'o1js';
+export class FlawedToken extends SmartContract {
+  @method async mintOrBurn(update: AccountUpdate) {
+    this.approve(update);
+  }
+}
+"""
+
+_APPROVE_BOUND = """
+import { SmartContract, method, AccountUpdate, Int64 } from 'o1js';
+export class Token extends SmartContract {
+  @method async mintOrBurn(update: AccountUpdate) {
+    let amount = update.balanceChange;
+    let address = update.publicKey;
+    amount.assertEquals(Int64.from(0));
+    this.approve(update);
+  }
+}
+"""
+
+_APPROVE_BASE_CONSERVATION = """
+import { SmartContract, method, AccountUpdateForest, Int64, Provable } from 'o1js';
+export class Token extends SmartContract {
+  @method async approveBase(updates: AccountUpdateForest) {
+    let totalBalanceChange = Int64.zero;
+    this.forEachUpdate(updates, (accountUpdate, usesToken) => {
+      totalBalanceChange = totalBalanceChange.add(
+        Provable.if(usesToken, accountUpdate.balanceChange, Int64.zero)
+      );
+    });
+    totalBalanceChange.assertEquals(0);
+  }
+}
+"""
+
+_VACUOUS_ASSERT = """
+import { SmartContract, method, Field } from 'o1js';
+export class C extends SmartContract {
+  @method async check(expected: Field) {
+    expected.assertEquals(expected);
+  }
+}
+"""
+
+_VACUOUS_CONST_BOOL = """
+import { SmartContract, method, Bool } from 'o1js';
+export class C extends SmartContract {
+  @method async check() {
+    Bool(true).assertTrue();
+  }
+}
+"""
+
+_CONDITIONAL_ASSERT = """
+import { SmartContract, method, Bool, Field } from 'o1js';
+export class C extends SmartContract {
+  @method async maybeCheck(flag: Bool, x: Field, y: Field) {
+    if (flag) {
+      x.assertEquals(y);
+    }
+  }
+}
+"""
+
+_CONDITIONAL_TOBOOLEAN = """
+import { SmartContract, method, Bool, Field } from 'o1js';
+export class C extends SmartContract {
+  @method async maybeCheck(isMint: Bool, x: Field, y: Field) {
+    const gate = isMint.toBoolean();
+    if (gate) {
+      x.assertEquals(y);
+    }
+  }
+}
+"""
+
+_CONDITIONAL_INLINE_COMPARISON_OK = """
+import { SmartContract, method, Field } from 'o1js';
+export class C extends SmartContract {
+  @method async check(x: Field, y: Field) {
+    // inline comparison — deliberately not reported
+    if (x.equals(y)) {
+      x.assertEquals(y);
+    }
+  }
+}
+"""
+
+
+def test_asprover_with_assert_fires_logic_outside_proof():
+    v = analyze_file("flawed.ts", _ASPROVER_LOGIC)
+    assert "O1JS_LOGIC_OUTSIDE_PROOF" in _rules(v)
+    f = next(x for x in v if x.rule_id == "O1JS_LOGIC_OUTSIDE_PROOF")
+    assert f.severity == Severity.HIGH
+    assert f.evidence["api"] == "asProver"
+
+
+def test_asprover_log_only_is_quiet():
+    v = analyze_file("c.ts", _ASPROVER_LOG_ONLY)
+    assert "O1JS_LOGIC_OUTSIDE_PROOF" not in _rules(v)
+
+
+def test_witness_callback_assert_fires_logic_outside_proof():
+    v = analyze_file("c.ts", _WITNESS_CALLBACK_ASSERT)
+    assert "O1JS_LOGIC_OUTSIDE_PROOF" in _rules(v)
+    f = next(x for x in v if x.rule_id == "O1JS_LOGIC_OUTSIDE_PROOF")
+    assert f.evidence["api"] == "witness"
+
+
+def test_upgrade_permissions_signature_is_medium():
+    v = analyze_file("c.ts", _UPGRADE_PERMS)
+    upgrades = [
+        x for x in v
+        if x.rule_id == "O1JS_WEAK_PERMISSIONS" and x.evidence.get("upgrade")
+    ]
+    assert len(upgrades) == 2
+    assert all(x.severity == Severity.MEDIUM for x in upgrades)
+    perms = {x.evidence["permission"] for x in upgrades}
+    assert perms == {"setVerificationKey", "setPermissions"}
+
+
+def test_upgrade_plus_weak_edit_is_high():
+    v = analyze_file("c.ts", _UPGRADE_PLUS_WEAK_EDIT)
+    upgrades = [
+        x for x in v
+        if x.rule_id == "O1JS_WEAK_PERMISSIONS" and x.evidence.get("upgrade")
+    ]
+    assert upgrades and upgrades[0].severity == Severity.HIGH
+
+
+def test_approve_without_binding_fires():
+    v = analyze_file("flawed.ts", _APPROVE_UNBOUND)
+    assert "O1JS_APPROVE_WITHOUT_BINDING" in _rules(v)
+    f = next(x for x in v if x.rule_id == "O1JS_APPROVE_WITHOUT_BINDING")
+    assert f.severity == Severity.MEDIUM
+
+
+def test_approve_with_balanceChange_is_quiet():
+    v = analyze_file("token.ts", _APPROVE_BOUND)
+    assert "O1JS_APPROVE_WITHOUT_BINDING" not in _rules(v)
+
+
+def test_approveBase_conservation_is_quiet():
+    v = analyze_file("token.ts", _APPROVE_BASE_CONSERVATION)
+    assert "O1JS_APPROVE_WITHOUT_BINDING" not in _rules(v)
+
+
+def test_vacuous_assertEquals_self_fires_high():
+    v = analyze_file("c.ts", _VACUOUS_ASSERT)
+    assert "O1JS_VACUOUS_ASSERT" in _rules(v)
+    f = next(x for x in v if x.rule_id == "O1JS_VACUOUS_ASSERT")
+    assert f.severity == Severity.HIGH
+
+
+def test_vacuous_dotted_basename_is_not_self():
+    """`body.tokenId.assertEquals(tokenId)` shares a basename but is NOT vacuous."""
+    src = """
+import { SmartContract, method, Field, AccountUpdate } from 'o1js';
+export class C extends SmartContract {
+  @method async check(tokenId: Field, update: AccountUpdate) {
+    update.body.tokenId.assertEquals(tokenId);
+  }
+}
+"""
+    v = analyze_file("c.ts", src)
+    assert "O1JS_VACUOUS_ASSERT" not in _rules(v)
+
+
+def test_vacuous_constant_bool_fires_medium():
+    v = analyze_file("c.ts", _VACUOUS_CONST_BOOL)
+    f = next(x for x in v if x.rule_id == "O1JS_VACUOUS_ASSERT")
+    assert f.severity == Severity.MEDIUM
+
+
+def test_conditional_assert_on_bool_param_fires():
+    v = analyze_file("c.ts", _CONDITIONAL_ASSERT)
+    assert "O1JS_CONDITIONAL_ASSERT" in _rules(v)
+
+
+def test_conditional_assert_toBoolean_local_fires():
+    v = analyze_file("c.ts", _CONDITIONAL_TOBOOLEAN)
+    assert "O1JS_CONDITIONAL_ASSERT" in _rules(v)
+
+
+def test_conditional_inline_comparison_stays_quiet():
+    v = analyze_file("c.ts", _CONDITIONAL_INLINE_COMPARISON_OK)
+    assert "O1JS_CONDITIONAL_ASSERT" not in _rules(v)
+
+
+# ---------------------------------------------------------------------------
 # Non-o1js / env / smoke
 # ---------------------------------------------------------------------------
 
