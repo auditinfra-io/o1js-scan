@@ -1551,9 +1551,11 @@ class NoirLexer:
     # --- Rule 5: constraint gated by a prover-controlled condition --------
 
     def _detect_conditional_assert(self, src: str, stripped: str) -> List[Vulnerability]:
-        controlled = _controlled_witnesses(stripped)
+        controlled = _controlled_with_derived(stripped)
         if not controlled:
             return []
+        asserted = _seed_from_asserts(stripped)
+        _expand_constrained_through_lets(asserted, stripped)
         out: List[Vulnerability] = []
         n = len(stripped)
         for im in re.finditer(r"\bif\b", stripped):
@@ -1572,12 +1574,16 @@ class NoirLexer:
             if j >= n or stripped[j] != "{":
                 continue
             cond = stripped[im.end():j].strip()
-            # only the high-signal case: the gate is a BARE prover-controlled
-            # bool (`if flag {` / `if !flag {`), which the prover just sets false
-            # to skip the constraint. Comparisons (e.g. `if x != 0`) are usually
-            # legitimate guards and are not flagged.
+            # The high-signal case: the gate is a bare prover-controlled bool
+            # or a local derived from prover-controlled values (`if flag {` /
+            # `if gate {` / `if !gate {`). Inline comparisons (e.g.
+            # `if x != 0`) remain unreported to avoid broad path-sensitive
+            # reasoning; assigning that comparison to a local intentionally
+            # leaves a reviewable signal.
             core = cond[1:].strip() if cond.startswith("!") else cond
             if not re.fullmatch(r"\w+", core) or core not in controlled:
+                continue
+            if core in asserted:
                 continue
             # block body must actually contain a constraint
             depth = 0
