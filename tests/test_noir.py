@@ -672,6 +672,47 @@ fn main(skip: bool, x: Field, y: pub Field) {
     assert "NOIR_CONDITIONAL_ASSERT" in _rules(analyze_noir_file("m.nr", src))
 
 
+def test_conditional_assert_follows_witness_bool_alias():
+    src = """
+fn main(enabled: bool, x: Field, y: pub Field) {
+    let gate = enabled;
+    if gate {
+        assert(x == y);
+    }
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    f = [c for c in v if c.rule_id == "NOIR_CONDITIONAL_ASSERT"]
+    assert f and f[0].evidence["condition"] == "gate"
+
+
+def test_conditional_assert_fires_on_derived_witness_gate():
+    src = """
+fn main(x: Field, y: pub Field) {
+    let gate = x != 0;
+    if gate {
+        assert(y == x);
+    }
+}
+"""
+    v = analyze_noir_file("m.nr", src)
+    f = [c for c in v if c.rule_id == "NOIR_CONDITIONAL_ASSERT"]
+    assert f and f[0].evidence["condition"] == "gate"
+
+
+def test_asserted_derived_gate_does_not_fire():
+    src = """
+fn main(x: Field, y: pub Field) {
+    let gate = x != 0;
+    assert(gate);
+    if gate {
+        assert(y == x);
+    }
+}
+"""
+    assert "NOIR_CONDITIONAL_ASSERT" not in _rules(analyze_noir_file("m.nr", src))
+
+
 def test_public_condition_does_not_fire():
     src = """
 fn main(enabled: pub bool, x: Field, y: pub Field) {

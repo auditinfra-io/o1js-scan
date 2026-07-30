@@ -90,7 +90,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 from .paths import ScanStats
 from .vuln import Severity, Vulnerability
@@ -392,7 +392,7 @@ class O1jsLexer:
         vulns += self._detect_unconstrained_witness(content, methods, state, helper_binds)
         vulns += self._detect_unconstrained_provable_witness(content, methods, state)
         vulns += self._detect_stale_merkle_root(content, methods, state, helper_binds)
-        vulns += self._detect_unverified_proof(content, methods)
+        vulns += self._detect_unverified_proof(content, methods, state)
         vulns += self._detect_unasserted_bool(content, methods)
         vulns += self._detect_unconstrained_sender(content, methods)
         vulns += self._detect_raw_field_amount(content, methods)
@@ -527,6 +527,7 @@ class O1jsLexer:
             # locals assigned from this.<state>.getAndRequireEquals()/get()
             # PLUS identifiers state-bound via a depth-1 same-class helper call.
             state_bound: Set[str] = _state_bound_locals(body, state)
+            state_bound |= _simple_aliases(body, state_bound)
             helper_bound = self._propagated_bindings(body, helper_binds)
             state_bound |= helper_bound
 
@@ -538,12 +539,13 @@ class O1jsLexer:
                     continue
                 # Bound via helper call (e.g. this.verifyX(arg) where verifyX
                 # state-binds its parameter) → treat as state-bound.
-                if arg in helper_bound:
+                aliases = _simple_aliases(body, {arg})
+                if aliases & helper_bound:
                     continue
-                effect = self._witness_effect(body, arg)
+                effect = self._witness_effect(body, aliases)
                 if effect is None:
                     continue  # arg not used in any state-changing effect → ignore
-                asserts = self._asserts_on(body, arg, state_bound)
+                asserts = self._asserts_on(body, aliases, state_bound)
                 if asserts == "bound":
                     continue  # tied to on-chain state / signature → sound
                 kind = effect[0]
@@ -562,7 +564,7 @@ class O1jsLexer:
                         rule_id="O1JS_UNCONSTRAINED_RECIPIENT",
                         title=f"Recipient `{arg}` is prover-chosen in `{meth.name}`",
                         description=(
-                            f"`{arg}` is the `to:` recipient of a `this.send(...)` in "
+                            f"`{arg}` is the `to:` recipient of a `send(...)` in "
                             f"`{meth.name}` and is a prover-chosen `@method` argument. This "
                             f"is usually INTENDED — a user initiating a withdrawal names "
                             f"their own destination. It only matters if the destination is "
@@ -652,13 +654,15 @@ class O1jsLexer:
                 continue
             # locals bound to on-chain state in this body (for _asserts_on).
             state_bound: Set[str] = _state_bound_locals(body, state)
+            state_bound |= _simple_aliases(body, state_bound)
 
             for wm in _PROVABLE_WITNESS_RE.finditer(body):
                 name, api = wm.group(1), wm.group(2)
-                effect = self._witness_effect(body, name)
+                aliases = _simple_aliases(body, {name})
+                effect = self._witness_effect(body, aliases)
                 if effect is None:
                     continue  # witness never reaches a state-changing effect
-                if self._asserts_on(body, name, state_bound) != "none":
+                if self._asserts_on(body, aliases, state_bound) != "none":
                     continue  # constrained in-circuit somehow → sound; skip
                 kind = effect[0]
                 line = meth.start_line + body.count("\n", 0, effect[1])
@@ -787,12 +791,13 @@ class O1jsLexer:
     # --- Rule 2d: proof-typed arg never verified --------------------------
 
     def _detect_unverified_proof(
-        self, src: str, methods: List[_Method],
+        self, src: str, methods: List[_Method], state: Dict[str, str],
     ) -> List[Vulnerability]:
         """A Proof/SelfProof/DynamicProof / ``*Proof`` typed ``@method``
-        argument that is never ``.verify()``/``.verifyIf()``'d. Passing a Proof
-        does not verify it — without an explicit verify the prover can supply
-        an arbitrary proof object and any use of its publicOutput is unconstrained."""
+        argument that is never unconditionally ``.verify()``'d before its public
+        fields are used. A ``verifyIf`` gated by an unconstrained method
+        argument is not enough: the prover can choose the condition that skips
+        recursive proof verification."""
         out: List[Vulnerability] = []
         for meth in methods:
             if not meth.is_method_decorated:
@@ -800,11 +805,47 @@ class O1jsLexer:
             body = meth.body
             if _method_is_signature_gated(body):
                 continue
+            state_bound: Set[str] = _state_bound_locals(body, state)
+            state_bound |= _simple_aliases(body, state_bound)
             for i, arg in enumerate(meth.params):
                 typ = meth.param_types[i] if i < len(meth.param_types) else None
                 if not _is_proof_type(typ):
                     continue
-                if _proof_is_verified(body, arg):
+                if _proof_has_unconditional_verify(body, arg):
+                    continue
+                unsafe_verify_if = _unsafe_proof_verify_if(body, arg, meth.params, state_bound)
+                if unsafe_verify_if and _proof_public_fields_used(body, arg):
+                    cond, verify_off = unsafe_verify_if
+                    line = meth.start_line + body.count("\n", 0, verify_off)
+                    out.append(Vulnerability(
+                        pattern_name="O1JS_UNVERIFIED_PROOF",
+                        severity=Severity.HIGH,
+                        function=meth.name,
+                        location=(line, 0),
+                        origin_tier=O1JS_ORIGIN_TIER,
+                        rule_id="O1JS_UNVERIFIED_PROOF",
+                        title=(
+                            f"Proof `{arg}` is verified only under prover-controlled "
+                            f"condition `{cond}` in `{meth.name}`"
+                        ),
+                        description=(
+                            f"`{arg}.verifyIf({cond})` is controlled by a private "
+                            f"`@method` argument, while `{meth.name}` reads "
+                            f"`{arg}.publicOutput` / `publicInput`. A malicious prover can "
+                            f"choose the condition so the recursive proof is not verified, "
+                            f"then supply arbitrary public fields. Assert the condition true "
+                            f"before `verifyIf`, or call `{arg}.verify()` unconditionally."
+                        ),
+                        evidence={
+                            "witness": arg,
+                            "proof_type": typ,
+                            "verify_condition": cond,
+                            "method": meth.name,
+                            "framework": "o1js",
+                        },
+                    ))
+                    continue
+                if _proof_has_verify_if(body, arg):
                     continue
                 # OffchainState.settle(proof) verifies the recursive settlement
                 # proof inside the framework API (Mina docs canonical pattern).
@@ -1070,45 +1111,80 @@ class O1jsLexer:
         return False
 
     @staticmethod
-    def _witness_effect(body: str, arg: str) -> Optional[Tuple[str, int, str]]:
-        """Return (effect_kind, offset, expr) if ``arg`` flows into a
+    def _witness_effect(body: str, arg: Union[str, Set[str]]) -> Optional[Tuple[str, int, str]]:
+        """Return (effect_kind, offset, expr) if ``arg``/an alias flows into a
         state-changing effect. Effect kinds:
           * ``send_amount``    — arg appears in the ``amount:`` value of a send
           * ``send_recipient`` — arg appears ONLY in the ``to:`` value of a send
           * ``state_set``      — arg flows into a ``this.<state>.set(...)``
         A witness that appears in both ``amount`` and ``to`` is ``send_amount``
         (the higher-severity effect wins)."""
-        a = re.escape(arg)
+        aliases = {arg} if isinstance(arg, str) else set(arg)
+
+        def _classify_send(seg: str) -> Optional[str]:
+            keys: Optional[Set[str]] = set()
+            positional = False
+            for hit in aliases:
+                hit_keys = _send_object_keys(seg, hit)
+                if hit_keys is None:
+                    if not re.search(r"\b" + re.escape(hit) + r"\b", seg):
+                        continue
+                    positional = True
+                    keys = None
+                    break
+                keys |= hit_keys
+            if keys is not None and not keys and not positional:
+                return None
+            if keys is not None and "amount" not in keys and "to" in keys:
+                return "send_recipient"
+            # amount value, both, a positional send, or some other key:
+            # treat as the amount-flow (higher severity) conservatively.
+            return "send_amount"
+
         # this.send({ ..., amount: <arg...> }) or this.send({to: <arg...>})
         for sm in re.finditer(r"this\s*\.\s*send\s*\(", body):
-            # grab the argument object up to matching )
             seg = _paren_segment(body, sm.end() - 1)
-            if not re.search(r"\b" + a + r"\b", seg):
+            kind = _classify_send(seg)
+            if kind:
+                return (kind, sm.start(), seg.strip()[:80])
+        # AccountUpdate.create(...).send(...) / createSigned(...).send(...)
+        for sm in re.finditer(
+            r"AccountUpdate\s*\.\s*create(?:Signed)?\s*\([^;]{0,%d}?\)\s*\.\s*send\s*\("
+            % _MAX_CALL_ARG,
+            body,
+        ):
+            seg = _paren_segment(body, sm.end() - 1)
+            kind = _classify_send(seg)
+            if kind:
+                return (kind, sm.start(), seg.strip()[:80])
+        # const au = AccountUpdate.create(...); au.send(...)
+        au_locals = _account_update_locals(body)
+        for sm in re.finditer(r"\b(\w+)\s*\.\s*send\s*\(", body):
+            if sm.group(1) not in au_locals:
                 continue
-            keys = _send_object_keys(seg, arg)
-            if keys is not None and "amount" not in keys and "to" in keys:
-                kind = "send_recipient"
-            else:
-                # amount value, both, a positional send, or some other key:
-                # treat as the amount-flow (higher severity) conservatively.
-                kind = "send_amount"
-            return (kind, sm.start(), seg.strip()[:80])
+            seg = _paren_segment(body, sm.end() - 1)
+            kind = _classify_send(seg)
+            if kind:
+                return (kind, sm.start(), seg.strip()[:80])
         # this.<state>.set(<arg ...>)
         for sm in re.finditer(r"this\s*\.\s*\w+\s*\.\s*set\s*\(", body):
             seg = _paren_segment(body, sm.end() - 1)
-            if re.search(r"\b" + a + r"\b", seg):
+            if any(re.search(r"\b" + re.escape(a) + r"\b", seg) for a in aliases):
                 return ("state_set", sm.start(), seg.strip()[:80])
         return None
 
     @staticmethod
-    def _asserts_on(body: str, arg: str, state_bound: Set[str]) -> str:
-        """Classify how ``arg`` is constrained: 'bound' (tied to on-chain
+    def _asserts_on(body: str, arg: Union[str, Set[str]], state_bound: Set[str]) -> str:
+        """Classify how ``arg``/an alias is constrained: 'bound' (tied to on-chain
         state / signature), 'trivial' (only >0 / !=0 / boolean), or 'none'."""
-        a = re.escape(arg)
+        aliases = {arg} if isinstance(arg, str) else set(arg)
         # collect every assert*/requireEquals expression that mentions arg
         bound = False
         trivial = False
         any_assert = False
+
+        def _mentions_alias(text: str) -> bool:
+            return any(re.search(r"\b" + re.escape(a) + r"\b", text) for a in aliases)
 
         def _state_derived(other: str) -> bool:
             """True if ``other`` references an on-chain-state-derived value."""
@@ -1132,13 +1208,15 @@ class O1jsLexer:
             body,
         ):
             recv, kind, inner = am.group(1), am.group(2), am.group(3)
-            mentions = bool(re.search(r"\b" + a + r"\b", recv) or re.search(r"\b" + a + r"\b", inner))
+            in_recv = _mentions_alias(recv)
+            in_inner = _mentions_alias(inner)
+            mentions = in_recv or in_inner
             if not mentions:
                 continue
             any_assert = True
             if kind in _state_bindable:
                 # bound if the OTHER side references on-chain-state-derived var
-                other = inner if re.search(r"\b" + a + r"\b", recv) else recv
+                other = inner if in_recv else recv
                 if _state_derived(other):
                     bound = True
                 else:
@@ -1147,15 +1225,16 @@ class O1jsLexer:
                 trivial = True
         # also: equality the other direction `configuredX.assertEquals(arg)`
         for am in re.finditer(
-            r"(\w{1,%d})\s*\.\s*(assertEquals|requireEquals)\s*\(\s*" % _MAX_IDENT
-            + a + r"\s*\)", body,
+            r"(\w{1,%d})\s*\.\s*(assertEquals|requireEquals)\s*\(\s*(\w+)\s*\)"
+            % _MAX_IDENT, body,
         ):
-            if am.group(1) in state_bound:
+            if am.group(1) in state_bound and am.group(3) in aliases:
                 bound = True
-            any_assert = True
+                any_assert = True
         # chained-comparison idiom: `amount.lessThanOrEqual(bal).assertTrue()`
+        alias_alt = "|".join(re.escape(a) for a in sorted(aliases))
         for cm in re.finditer(
-            r"\b" + a + r"\s*\.\s*(?:lessThan|lessThanOrEqual|greaterThan"
+            r"\b(?:" + alias_alt + r")\s*\.\s*(?:lessThan|lessThanOrEqual|greaterThan"
             r"|greaterThanOrEqual)\s*\(([^;]{0,%d}?)\)\s*\.\s*assertTrue\s*\(" % _MAX_CALL_ARG,
             body,
         ):
@@ -1260,6 +1339,52 @@ def _state_bound_locals(body: str, state: Dict[str, str]) -> Set[str]:
     return bound
 
 
+def _simple_aliases(body: str, seeds: Set[str]) -> Set[str]:
+    """Same-body aliases created by plain identifier assignments.
+
+    Deliberately narrow: ``const q = amount;`` and ``let q: UInt64 = amount;``
+    join the alias set, but expressions such as ``amount.add(1)`` do not. This
+    catches common readability aliases without pretending to be dataflow.
+    """
+    aliases = set(seeds)
+    if not aliases:
+        return aliases
+    lets = [
+        (m.group(1), m.group(2))
+        for m in re.finditer(
+            r"\b(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*(\w+)\s*;",
+            body,
+        )
+    ]
+    changed = True
+    while changed:
+        changed = False
+        for lhs, rhs in lets:
+            if lhs in aliases or lhs.startswith("_"):
+                continue
+            if rhs in aliases:
+                aliases.add(lhs)
+                changed = True
+    return aliases
+
+
+def _account_update_locals(body: str) -> Set[str]:
+    """Locals initialized from ``AccountUpdate.create*``.
+
+    This keeps account-update send detection narrow: ``au.send(...)`` is a
+    modeled token/account-update transfer only when ``au`` is visibly created
+    by o1js in the same method body.
+    """
+    return {
+        m.group(1)
+        for m in re.finditer(
+            r"\b(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*"
+            r"AccountUpdate\s*\.\s*create(?:Signed)?\s*\(",
+            body,
+        )
+    }
+
+
 def _arg_root_ident(arg: str) -> Optional[str]:
     """Leading identifier of a call argument (before ``.`` / ``[`` / ``(``)."""
     m = re.match(r"\s*(\w+)", arg or "")
@@ -1278,11 +1403,53 @@ def _is_proof_type(type_str: Optional[str]) -> bool:
     return bool(base and base.group(1).endswith("Proof"))
 
 
-def _proof_is_verified(body: str, param: str) -> bool:
-    """True if ``param.verify(...)`` or ``param.verifyIf(...)`` appears in body."""
+def _proof_has_unconditional_verify(body: str, param: str) -> bool:
+    """True if ``param.verify(...)`` appears in body."""
     return bool(re.search(
-        r"\b" + re.escape(param) + r"\s*\.\s*verify(?:If)?\s*\(", body,
+        r"\b" + re.escape(param) + r"\s*\.\s*verify\s*\(", body,
     ))
+
+
+def _proof_has_verify_if(body: str, param: str) -> bool:
+    """True if ``param.verifyIf(...)`` appears in body."""
+    return bool(re.search(
+        r"\b" + re.escape(param) + r"\s*\.\s*verifyIf\s*\(", body,
+    ))
+
+
+def _proof_public_fields_used(body: str, param: str) -> bool:
+    """True if a proof's public input/output is read in this method body."""
+    return bool(re.search(
+        r"\b" + re.escape(param) + r"\s*\.\s*public(?:Input|Output)\b", body,
+    ))
+
+
+def _unsafe_proof_verify_if(
+    body: str, param: str, method_params: List[str], state_bound: Set[str],
+) -> Optional[Tuple[str, int]]:
+    """A ``verifyIf`` gated by an unconstrained method parameter.
+
+    Returns ``(condition, offset)`` only for the narrow high-signal case where
+    the root condition is a private ``@method`` argument or its simple alias,
+    and that condition is not otherwise asserted/bound in the method body.
+    """
+    param_aliases = {p: _simple_aliases(body, {p}) for p in method_params}
+    for m in re.finditer(r"\b" + re.escape(param) + r"\s*\.\s*verifyIf\s*\(", body):
+        cond = _paren_segment(body, m.end() - 1).strip()
+        root = _arg_root_ident(cond)
+        if not root:
+            continue
+        for original, aliases in param_aliases.items():
+            if original == param:
+                continue
+            if root not in aliases:
+                continue
+            # If the condition/alias is itself constrained (e.g.
+            # ``shouldVerify.assertTrue()``), verifyIf is effectively forced.
+            if O1jsLexer._asserts_on(body, aliases, state_bound) != "none":
+                continue
+            return (cond[:80], m.start())
+    return None
 
 
 def _proof_settled_via_offchain_state(body: str, param: str) -> bool:

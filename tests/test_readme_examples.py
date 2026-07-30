@@ -26,6 +26,7 @@ transcripts honest against the real analyzer rather than against memory.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -37,12 +38,29 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 README = REPO_ROOT / "README.md"
 
 
+def _subprocess_env() -> dict[str, str]:
+    """Make subprocess CLI checks work from a source checkout.
+
+    CI installs the package before running tests, but a local contributor often
+    runs ``python3 -m pytest`` directly from the repo. Tests that intentionally
+    switch ``cwd`` to a temporary project still need to import the in-tree
+    ``o1js_scan`` package.
+    """
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        str(REPO_ROOT) if not existing else f"{REPO_ROOT}{os.pathsep}{existing}"
+    )
+    return env
+
+
 def _run(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, "-m", "o1js_scan.cli", *args],
         capture_output=True,
         text=True,
         cwd=str(REPO_ROOT),
+        env=_subprocess_env(),
     )
 
 
@@ -221,7 +239,7 @@ def test_o1js_pr_draft_transcript_reproduces(tmp_path):
     )
     proc = subprocess.run(
         [sys.executable, "-m", "o1js_scan.cli", "src/Vault.ts"],
-        capture_output=True, text=True, cwd=str(tmp_path),
+        capture_output=True, text=True, cwd=str(tmp_path), env=_subprocess_env(),
     )
     assert proc.returncode == 1
     assert "HIGH" in proc.stdout and "O1JS_UNCONSTRAINED_WITNESS" in proc.stdout

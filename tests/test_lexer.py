@@ -126,6 +126,98 @@ def test_unconstrained_witness_fires_high_on_send():
     assert any(x.evidence["witness"] == "amount" for x in fired)
 
 
+def test_unconstrained_witness_fires_through_simple_alias():
+    src = """
+import { SmartContract, UInt64, PublicKey, method } from 'o1js';
+export class C extends SmartContract {
+  @method async pay(to: PublicKey, amount: UInt64) {
+    const payout = amount;
+    this.send({ to, amount: payout });
+  }
+}
+"""
+    v = analyze_file("c.ts", src)
+    fired = [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_WITNESS"]
+    assert fired, _rules(v)
+    assert fired[0].evidence["witness"] == "amount"
+
+
+def test_witness_alias_bound_to_state_does_not_fire():
+    src = """
+import { SmartContract, UInt64, PublicKey, State, state, method } from 'o1js';
+export class C extends SmartContract {
+  @state(UInt64) balance = State<UInt64>();
+  @method async pay(to: PublicKey, amount: UInt64) {
+    const payout = amount;
+    const bal = this.balance.getAndRequireEquals();
+    payout.assertLessThanOrEqual(bal);
+    this.send({ to, amount: payout });
+  }
+}
+"""
+    v = analyze_file("c.ts", src)
+    assert not [x for x in v if x.evidence.get("witness") == "amount"], _rules(v)
+
+
+def test_expression_derived_local_is_not_treated_as_plain_alias():
+    src = """
+import { SmartContract, UInt64, PublicKey, method } from 'o1js';
+export class C extends SmartContract {
+  @method async pay(to: PublicKey, amount: UInt64) {
+    const payout = amount.add(UInt64.one);
+    this.send({ to, amount: payout });
+  }
+}
+"""
+    v = analyze_file("c.ts", src)
+    assert not [x for x in v if x.evidence.get("witness") == "amount"]
+
+
+def test_unconstrained_witness_fires_on_account_update_send_amount():
+    src = """
+import { SmartContract, UInt64, PublicKey, AccountUpdate, method } from 'o1js';
+export class C extends SmartContract {
+  @method async pay(from: PublicKey, to: PublicKey, amount: UInt64) {
+    const au = AccountUpdate.create(from);
+    au.send({ to, amount });
+  }
+}
+"""
+    v = analyze_file("c.ts", src)
+    fired = [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_WITNESS"]
+    assert fired, _rules(v)
+    assert fired[0].severity == Severity.HIGH
+    assert fired[0].evidence["witness"] == "amount"
+
+
+def test_unconstrained_witness_fires_on_chained_account_update_send_amount():
+    src = """
+import { SmartContract, UInt64, PublicKey, AccountUpdate, method } from 'o1js';
+export class C extends SmartContract {
+  @method async pay(from: PublicKey, to: PublicKey, amount: UInt64) {
+    AccountUpdate.create(from).send({ to, amount });
+  }
+}
+"""
+    v = analyze_file("c.ts", src)
+    fired = [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_WITNESS"]
+    assert fired, _rules(v)
+    assert fired[0].evidence["witness"] == "amount"
+
+
+def test_arbitrary_send_receiver_is_not_account_update_sink():
+    src = """
+import { SmartContract, UInt64, PublicKey, method } from 'o1js';
+export class C extends SmartContract {
+  @method async pay(to: PublicKey, amount: UInt64) {
+    messenger.send({ to, amount });
+  }
+}
+"""
+    v = analyze_file("c.ts", src)
+    assert "O1JS_UNCONSTRAINED_WITNESS" not in _rules(v)
+
+
 def test_findings_carry_o1js_origin_tier():
     from o1js_scan import O1JS_ORIGIN_TIER
 
@@ -189,6 +281,23 @@ def test_provable_witness_unconstrained_fires_high_on_send():
     assert fired[0].severity == Severity.HIGH
     assert fired[0].evidence["witness"] == "payout"
     assert fired[0].evidence["witness_source"] == "Provable.witness"
+
+
+def test_provable_witness_unconstrained_fires_through_simple_alias():
+    src = """
+import { SmartContract, UInt64, PublicKey, Provable, method } from 'o1js';
+export class Rewards extends SmartContract {
+  @method async claim(to: PublicKey) {
+    const payout = Provable.witness(UInt64, () => this.offchainReward());
+    const sendAmount: UInt64 = payout;
+    this.send({ to, amount: sendAmount });
+  }
+}
+"""
+    v = analyze_file("Rewards.ts", src)
+    fired = [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_PROVABLE_WITNESS"]
+    assert fired, _rules(v)
+    assert fired[0].evidence["witness"] == "payout"
 
 
 def test_provable_witness_reasserted_does_not_fire():
@@ -867,6 +976,62 @@ def test_unverified_proof_fires_high():
     # Must not also spam unconstrained-witness on the same proof param.
     assert not [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_WITNESS"
                 and x.evidence.get("witness") == "proof"]
+
+
+def test_verify_if_on_unconstrained_condition_is_not_verification():
+    src = """
+import { SmartContract, Field, State, state, method, Bool } from 'o1js';
+class ExactGeolocationMetadataCircuitProof {}
+export class ExactGeoPointWithMetadataContract extends SmartContract {
+  @state(Field) geoPointWithMetadata = State<Field>();
+  @method async submitProof(
+    proof: ExactGeolocationMetadataCircuitProof,
+    shouldVerify: Bool,
+  ) {
+    proof.verifyIf(shouldVerify);
+    this.geoPointWithMetadata.set(proof.publicOutput);
+  }
+}
+"""
+    v = analyze_file("Exact.ts", src)
+    fired = [x for x in v if x.rule_id == "O1JS_UNVERIFIED_PROOF"]
+    assert fired, _rules(v)
+    assert fired[0].evidence["witness"] == "proof"
+    assert fired[0].evidence["verify_condition"] == "shouldVerify"
+
+
+def test_verify_if_on_asserted_condition_suppresses():
+    src = """
+import { SmartContract, Field, State, state, method, Bool } from 'o1js';
+class ExactGeolocationMetadataCircuitProof {}
+export class ExactGeoPointWithMetadataContract extends SmartContract {
+  @state(Field) geoPointWithMetadata = State<Field>();
+  @method async submitProof(
+    proof: ExactGeolocationMetadataCircuitProof,
+    shouldVerify: Bool,
+  ) {
+    shouldVerify.assertTrue();
+    proof.verifyIf(shouldVerify);
+    this.geoPointWithMetadata.set(proof.publicOutput);
+  }
+}
+"""
+    v = analyze_file("Exact.ts", src)
+    assert "O1JS_UNVERIFIED_PROOF" not in _rules(v)
+
+
+def test_verify_if_without_reading_public_fields_is_not_reported():
+    src = """
+import { SmartContract, method, Bool } from 'o1js';
+class ExactGeolocationMetadataCircuitProof {}
+export class ExactGeoPointWithMetadataContract extends SmartContract {
+  @method async maybeVerify(proof: ExactGeolocationMetadataCircuitProof, flag: Bool) {
+    proof.verifyIf(flag);
+  }
+}
+"""
+    v = analyze_file("Exact.ts", src)
+    assert "O1JS_UNVERIFIED_PROOF" not in _rules(v)
 
 
 def test_non_proof_param_named_proofData_unaffected():

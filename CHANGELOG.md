@@ -6,7 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-30
+
+### Added
+- **o1js simple alias tracking.** Plain same-method aliases such as `const payout = amount;` now carry prover-controlled witnesses into send/state effect detection and assertion classification. This closes the common readability-alias miss while deliberately avoiding full expression dataflow (`amount.add(1)` is still out of scope).
+- **o1js `AccountUpdate.create*(...).send(...)` sinks.** Witness-flow detection now treats explicit AccountUpdate sends as value-transfer sinks, including same-method locals initialized from `AccountUpdate.create(...)` / `createSigned(...)`, while ignoring arbitrary `foo.send(...)` receivers.
+- **o1js conditional proof verification hardening.** `O1JS_UNVERIFIED_PROOF` now distinguishes unconditional `proof.verify()` from `proof.verifyIf(flag)`. A `verifyIf` gated by an unconstrained `@method` argument is reported when the proof's public fields are read, because the prover can choose the condition that skips recursive verification.
+- **Noir derived conditional-assert gates.** `NOIR_CONDITIONAL_ASSERT` now follows locals derived from prover-controlled values (`let gate = enabled; if gate { ... }`, `let gate = x != 0; if gate { ... }`) and suppresses gates that are themselves asserted. Inline comparison guards stay unreported for precision.
+- **o1js community-listing submission packet.** The draft now reflects that `o1js-scan` is published on npm and includes a ready-to-copy upstream PR checklist/body for adding it to the o1js Community Packages list.
+
 ### Fixed
+- **README transcript subprocesses work from a source checkout.** README/community-listing reproduction tests now put the repo root on `PYTHONPATH` for CLI subprocesses, so `python -m o1js_scan.cli` works even when a test intentionally runs from a temporary project directory instead of an installed package.
 - **`npm pack --pack-destination` smoke step never created its directory.**
   After the pytest install fix, `publish-npm` still died on
   `ENOENT … /tmp/pkg/o1js-scan-0.11.0.tgz` because `npm pack --pack-destination

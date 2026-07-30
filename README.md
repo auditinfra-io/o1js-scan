@@ -278,12 +278,12 @@ upload needs `security-events: write` and code scanning enabled.
 | Rule | Severity | What it means |
 |------|----------|---------------|
 | `O1JS_MISSING_STATE_PRECONDITION` | high | `this.x.get()` read without a matching `requireEquals(...)` / `getAndRequireEquals()`. A bare `get()` adds **no** account precondition, so the proof doesn't bind `x` to its on-chain value — a prover can substitute any value. |
-| `O1JS_UNCONSTRAINED_WITNESS` | high / medium | A `@method` argument (a prover-controlled private witness) flows into a `this.send` **amount** or a state `.set(...)` and is **never** asserted. Direct analog of an under-constrained Circom signal. High when it reaches a value transfer. |
-| `O1JS_UNCONSTRAINED_PROVABLE_WITNESS` | high / medium / low | A `Provable.witness(...)` local flows into a send/state effect with **no** in-circuit assertion. The witness callback runs *outside* the circuit (it's only a prover hint), so the result is a fresh prover-controlled value — the other witness source besides `@method` args. It must be re-derived and asserted (`x.assertEquals(<recomputed>)`) or bound to state. High on a send amount, medium on a state write, low on a recipient. |
-| `O1JS_UNCONSTRAINED_RECIPIENT` | low | A `@method` argument is used **only** as the `to:` recipient of `this.send(...)`. This is usually intended (a user names their own withdrawal destination) and is informational — it only matters if the destination is meant to be a fixed treasury or a state-recorded address. Does **not** trip the CI exit-code gate. |
+| `O1JS_UNCONSTRAINED_WITNESS` | high / medium | A `@method` argument (a prover-controlled private witness) flows into a send **amount** (`this.send(...)` or a same-method `AccountUpdate.create*(...).send(...)`) or a state `.set(...)` and is **never** asserted. Direct analog of an under-constrained Circom signal. High when it reaches a value transfer. |
+| `O1JS_UNCONSTRAINED_PROVABLE_WITNESS` | high / medium / low | A `Provable.witness(...)` local flows into a send/state effect with **no** in-circuit assertion. The witness callback runs *outside* the circuit (it's only a prover hint), so the result is a fresh prover-controlled value — the other witness source besides `@method` args. It must be re-derived and asserted (`x.assertEquals(<recomputed>)`) or bound to state. High on a send amount (`this.send(...)` or same-method `AccountUpdate.create*`). |
+| `O1JS_UNCONSTRAINED_RECIPIENT` | low | A `@method` argument is used **only** as the `to:` recipient of a send. This is usually intended (a user names their own withdrawal destination) and is informational — it only matters if the destination is meant to be a fixed treasury or a state-recorded address. Does **not** trip the CI exit-code gate. |
 | `O1JS_WITNESS_NOT_BOUND_TO_STATE` | medium | A witness is only *trivially* constrained (e.g. `> 0`, or compared against a constant) before an effect — never tied to on-chain state. Confirm the off-chain orchestration makes this safe, or the balance is drainable up to its standing value. |
 | `O1JS_STALE_MERKLE_ROOT` | high | A method recomputes a Merkle root from a prover-supplied witness (`computeRootAndKey` / `calculateRoot`) but binds **none** of the recomputed roots to the current on-chain root. Without a `this.root.requireEquals(...)` / `assertEquals` against the live root, a prover can pass a witness for a fabricated or stale tree — forging membership or replaying old state. Binding may live in an undecorated same-class helper (`this.verifyX(witness)`); one level of helper propagation covers that. |
-| `O1JS_UNVERIFIED_PROOF` | high | A `@method` parameter typed as `Proof<...>` / `SelfProof` / `DynamicProof` / `*Proof` is never `.verify()` / `.verifyIf()`'d. Passing a Proof does not verify it — without an explicit verify the prover can supply an arbitrary proof object, and any use of its `publicOutput` is unconstrained. |
+| `O1JS_UNVERIFIED_PROOF` | high | A `@method` parameter typed as `Proof<...>` / `SelfProof` / `DynamicProof` / `*Proof` is never `.verify()`'d before its public fields are used. Passing a Proof does not verify it — without an explicit verify the prover can supply an arbitrary proof object, and any use of its `publicOutput` is unconstrained. Also fires when `.verifyIf(flag)` is gated by an unconstrained `@method` argument and the proof's public fields are read, because the prover can make the condition false. |
 | `O1JS_UNASSERTED_BOOL` | high / medium | An o1js predicate (`equals` / `lessThanOrEqual` / …) returns a `Bool` and adds **no** constraint unless the result is asserted or used. HIGH when the call is a bare discarded statement; MEDIUM when assigned to a local that is never referenced again. |
 | `O1JS_UNCONSTRAINED_SENDER` | high / medium | `this.sender.getUnconstrained()` returns the tx sender without proving it. HIGH when that value (or a local from it) flows into an assert / state `.set` / `send` (vacuous check); MEDIUM otherwise. Prefer `this.sender.getAndRequireSignature()`, or the expanded idiom `AccountUpdate.createSigned(sender)`. **Stays quiet when** (1) the same `@method` also calls `this.sender.getAndRequireSignature()` anywhere (signature requirement is method-scoped), or (2) the witnessed sender value is the argument to `AccountUpdate.createSigned(...)` / an `AccountUpdate.create(...).requireSignature()` on that same key (argument identity required — a `createSigned` on a different key does not suppress). |
 | `MissingRangeCheck` | high | A raw `Field` (not the range-checked `UInt64`/`UInt32`) is used as a transfer amount. A `Field` is an element mod p and is not range-bounded. |
@@ -306,11 +306,13 @@ The analyzer is designed to stay quiet on correct code:
   undecorated same-class helper (`this.verifyX(arg)`) is also recognized
   (depth 1 only).
 - **Verified proofs are skipped.** A `Proof` / `SelfProof` / `DynamicProof` /
-  `*Proof`-typed argument on which `.verify()` / `.verifyIf()` is called is
-  constrained by the verified circuit — witness findings on it (and its
-  `publicOutput` / `publicInput`) are suppressed. The same applies to the
-  canonical OffchainState wrapper `this.offchainState.settle(proof)` (the
-  framework verifies inside `settle`). A hand-rolled `.settle(proof)` is
+  `*Proof`-typed argument on which `.verify()` is called is constrained by the
+  verified circuit — witness findings on it (and its `publicOutput` /
+  `publicInput`) are suppressed. A `.verifyIf(flag)` is credited only when the
+  condition is not an unconstrained method argument, or is itself asserted. The
+  same applies to the canonical OffchainState wrapper
+  `this.offchainState.settle(proof)` (the framework verifies inside `settle`).
+  A hand-rolled `.settle(proof)` is
   **not** assumed to verify. The inverse case (proof-typed arg never verified
   and not OffchainState-settled) is reported as `O1JS_UNVERIFIED_PROOF`.
 - **Asserted / used Bools are skipped.** A predicate chained with
@@ -342,7 +344,7 @@ Same lexical, dependency-free approach. Calibrated against aztec-nr oracle /
 | `NOIR_UNCHECKED_CAST` | medium | A prover-controlled value cast to a narrow unsigned type (`as u8`/`u16`/`u32`) with **no** range assertion. Analog of o1js `MissingRangeCheck`. |
 | `NOIR_UNCONSTRAINED_ARRAY_INDEX` | medium | A prover-controlled value used as an array index (`arr[i]`) with **no** check of any kind on it. Noir's implicit bounds check establishes only that the index is *in range* — not that it is the *correct* index — so the prover stays free to select any element and still produce a verifying proof. This is the selector-freedom bug behind Merkle path positions, note selection and allow-list membership. Suppressed when the index is range-bounded, pinned by an equality, bounded before a cast (`index.assert_max_bit_size::<8>(); let i = index as u32;`), or when the value read back is itself pinned by an `assert_eq`. |
 | `NOIR_UNASSERTED_BOOL` | high / medium | A comparison whose `bool` result is **discarded**. Analog of o1js `O1JS_UNASSERTED_BOOL`. |
-| `NOIR_CONDITIONAL_ASSERT` | medium | An `assert` inside `if <flag> { ... }` where `<flag>` is a prover-controlled bare `bool`. |
+| `NOIR_CONDITIONAL_ASSERT` | medium | An `assert` inside `if <flag> { ... }` where `<flag>` is a prover-controlled bare `bool` or a local derived from prover-controlled values. A constraint inside a conditional only applies when the condition is true, so a prover-chosen branch can skip the check. Inline comparisons (`if x != 0`) are left alone for precision; assigning the guard to a local (`let gate = x != 0; if gate`) is reported unless `gate` is itself asserted. |
 | `NOIR_CONDITIONAL_CONSTRAIN` | medium | A `constrain_*` / `confirm_*` / `verify_*` call only under a prover-controlled `if`, while an `unsafe` hint still reaches the output. |
 | `NOIR_UNUSED_CHECK_RESULT` | high / medium | A `check_*` / `confirm_*` / `verify_*` / `constrain_*` result is discarded (bare call) or assigned and never asserted — the check does not bind the circuit. |
 | `NOIR_VACUOUS_CONSTRAINT` | high / medium | A constraint that is satisfied by construction: a self-comparison (`assert(x == x)`, `assert_eq(x, x)`, `x >= x`) or a constant condition (`assert(true)`). It adds no restriction, but the line *reads* as a check — which makes it more dangerous than a missing constraint, because review stops there. HIGH for a self-comparison (almost always a typo for a real check: `assert(computed == expected)` mistyped as `assert(expected == expected)`); MEDIUM for a constant, which is more often a placeholder. `x != x` is **not** flagged — that is unsatisfiable, a liveness bug rather than a silent soundness hole. |
@@ -379,11 +381,13 @@ The analyzer is a **lexical, name-matching** pass, not a dataflow engine.
 Keep these blind spots in mind when triaging — they are known and intentional
 for this dependency-free design, not bugs:
 
-- **Aliasing defeats the taint.** Witness tracking matches argument *names*,
-  so copying a witness through a local hides it:
+- **Only simple aliases are followed.** Witness tracking follows plain
+  same-method aliases such as `const q = qty`, but not derived expressions or
+  destructuring:
 
   ```ts
-  const q = qty; this.send({ to: dest, amount: q });   // qty is not flagged
+  const q = qty; this.send({ to: dest, amount: q });   // followed
+  const q = qty.add(1); this.send({ to: dest, amount: q }); // not followed
   const slot = this.root; slot.get();                  // missing precondition missed
   ```
 
