@@ -48,6 +48,12 @@ jobs:
           node-version: "20"
       - name: Smoke-test the npm wrapper
         run: npm run test:npm-wrapper
+      - name: Smoke-test the packed npm tarball
+        # The exact script the release runs. Running it here means the release
+        # path is exercised on every commit instead of only during a one-shot,
+        # irreversible publish — three bugs shipped in that step before it ever
+        # executed once.
+        run: bash scripts/smoke_npm_package.sh
       - name: Prettier check (npm wrapper)
         # o1js's community-package guidance requires prettier-formatted code;
         # config mirrors theirs. Only the Node wrapper is JS — the analyzer is

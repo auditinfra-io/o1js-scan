@@ -131,27 +131,65 @@ def test_release_workflow_publishes_to_both_registries():
     assert "pypi-publish" in text, "no PyPI publish step"
 
 
-def test_npm_pack_destination_is_created_before_use():
-    """``npm pack --pack-destination DIR`` does not mkdir DIR.
+def _shell_sources() -> list:
+    """Files that can contain the pack command: workflows and shell scripts."""
+    scripts = sorted((REPO_ROOT / "scripts").glob("*.sh"))
+    return [*WORKFLOWS, *scripts]
 
-    Without an explicit ``mkdir -p``, the pack step writes nothing and the
-    following ``npm install …/*.tgz`` fails ENOENT — the 2026-07-29 blocker
-    after pytest was already fixed (run 30444927525).
+
+def test_npm_pack_destination_exists_before_use():
+    """``npm pack --pack-destination DIR`` does not create DIR.
+
+    If it is missing npm fails with ENOENT and **exit 254** (measured), so the
+    tarball is never written. That blocked the 2026-07-29 release after the
+    pytest install fix had already landed.
+
+    The destination counts as guaranteed to exist if it is either ``mkdir -p``'d
+    or assigned from ``mktemp -d``; the latter is preferable because it designs
+    the failure out instead of guarding against it.
+
+    Searches scripts as well as workflows — the logic moved into
+    ``scripts/smoke_npm_package.sh`` so CI could run it on every commit, and a
+    check that only looked at ``publish.yml`` would have gone quietly vacuous.
+    Comment lines are stripped first: prose *about* the bug is not the bug, and
+    the previous version of this test flagged its own explanatory comment.
     """
-    text = (REPO_ROOT / ".github" / "workflows" / "publish.yml").read_text(
-        encoding="utf-8"
-    )
-    assert "--pack-destination" in text, "smoke step lost npm pack"
-    # Every pack-destination must be preceded (same run block) by mkdir.
-    for match in re.finditer(
-        r"npm pack[^\n]*--pack-destination\s+(\S+)", text
-    ):
-        dest = match.group(1).strip("\"'")
-        # Look backwards in the same run: script for a mkdir of that path.
-        preceding = text[: match.start()]
-        assert re.search(
-            rf"mkdir\s+(-p\s+)?{re.escape(dest)}\b", preceding
-        ), (
-            f"npm pack --pack-destination {dest} has no preceding mkdir -p "
-            f"{dest} in publish.yml — the tarball will not be written"
+    found_any = False
+
+    for path in _shell_sources():
+        raw = path.read_text(encoding="utf-8")
+        # drop comments (workflow `#` lines and shell `#` lines alike)
+        code = "\n".join(
+            line for line in raw.splitlines() if not line.strip().startswith("#")
         )
+
+        for match in re.finditer(r"npm pack[^\n]*--pack-destination\s+(\S+)", code):
+            found_any = True
+            dest = match.group(1).strip("\"'`")
+            preceding = code[: match.start()]
+
+            var = re.fullmatch(r"\$\{?(\w+)\}?", dest)
+            if var:
+                # e.g. pack_dir="$(mktemp -d)"  /  pack_dir=$(mktemp -d)
+                created = re.search(
+                    rf'{re.escape(var.group(1))}\s*=\s*"?\$\(\s*mktemp\s+-d',
+                    preceding,
+                ) or re.search(
+                    rf"mkdir\s+(-p\s+)?\"?\$\{{?{re.escape(var.group(1))}", preceding
+                )
+            else:
+                created = re.search(
+                    rf"mkdir\s+(-p\s+)?\"?{re.escape(dest)}\b", preceding
+                )
+
+            assert created, (
+                f"{path.name}: `npm pack --pack-destination {dest}` with no "
+                f"preceding `mkdir -p {dest}` or `{dest}=$(mktemp -d)` — npm "
+                f"does not create the destination and exits 254"
+            )
+
+    assert found_any, (
+        "no `npm pack --pack-destination` found in any workflow or script — "
+        "either the smoke test is gone or this check has stopped looking in "
+        "the right place"
+    )

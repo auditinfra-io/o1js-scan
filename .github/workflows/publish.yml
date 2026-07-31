@@ -137,25 +137,15 @@ jobs:
         run: python -m pytest tests/test_packaging.py -q
 
       - name: Smoke-test the packed tarball
-        # Install the ACTUAL artifact and run it, rather than trusting that the
-        # repo working tree would have worked. Catches a bad `files` glob.
+        # The same script CI runs on every commit — see ci.yml.
         #
-        # `npm pack --pack-destination DIR` does NOT create DIR — if it is
-        # missing, npm exits 0-ish with a notice but writes nothing, and the
-        # next `npm install /tmp/pkg/*.tgz` fails ENOENT (exactly what blocked
-        # the 2026-07-29 dispatch after the pytest install fix landed).
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/pkg
-          tgz="$(npm pack --pack-destination /tmp/pkg | tail -1)"
-          test -n "${tgz}"
-          test -f "/tmp/pkg/${tgz}"
-          work="$(mktemp -d)"
-          cd "$work"
-          npm init -y >/dev/null
-          npm install "/tmp/pkg/${tgz}"
-          ./node_modules/.bin/o1js-scan --version
-          ./node_modules/.bin/noir-scan --help >/dev/null
+        # This was inline shell until 2026-07-30, and being release-only is how
+        # three consecutive bugs shipped without ever executing: pytest not
+        # installed, then `npm pack --pack-destination /tmp/pkg` into a
+        # directory npm does not create (ENOENT, exit 254). The script uses
+        # `mktemp -d` for the pack destination, so that second class of bug is
+        # designed out rather than guarded against.
+        run: bash scripts/smoke_npm_package.sh
 
       - name: Publish to npm
         # Prefer an automation token when present. If NPM_TOKEN is unset,

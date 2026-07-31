@@ -47,6 +47,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   shipped without ever executing — the same "capability that exists but is
   never reached" defect this analyzer looks for, in the pipeline that ships the
   analyzer. Adds `pip install -e ".[dev]"` before it.
+- **The tarball smoke test could never run either.** `npm pack
+  --pack-destination /tmp/pkg` fails with `ENOENT` / exit **254** when the
+  destination does not exist — npm does not create it. Third bug in a row in
+  the same job, same root cause: release-only shell that had never executed.
+  The logic now lives in `scripts/smoke_npm_package.sh`, which **CI runs on
+  every commit** as well as the release, so the release path is no longer
+  exercised for the first time during a one-shot irreversible publish. The
+  script also now asserts the installed binary reports the manifest's version
+  and that a known-vulnerable fixture produces `O1JS_UNCONSTRAINED_WITNESS` —
+  an exit-code check on a clean file passes just as happily when the analyzer
+  is broken and silently finds nothing.
 - `tests/test_workflow_sanity.py` — static checks over `.github/workflows/`:
   no job may invoke a Python tool it never installed (per-job, since each job
   gets a fresh runner and `needs:` installs nothing), every registry-uploading

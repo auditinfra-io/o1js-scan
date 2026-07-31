@@ -1,11 +1,31 @@
 # Contributing `o1js-scan` to the o1js community packages list
 
-Draft for a pull request against [`o1-labs/o1js`](https://github.com/o1-labs/o1js).
-**Ready to submit** — the package is now published on npm.
+**SUBMITTED** — [o1-labs/o1js#2904](https://github.com/o1-labs/o1js/pull/2904),
+opened 2026-07-30, one line added to the README's Community Packages section.
 
 Source of the requirements:
 [`CONTRIBUTING.md`](https://github.com/o1-labs/o1js/blob/main/CONTRIBUTING.md)
 § *Community packages*.
+
+## Open item: close the duplicate PR #2898
+
+[#2898](https://github.com/o1-labs/o1js/pull/2898) (2026-07-23) proposes the
+same listing and is **still open**. It predates the npm publish and is
+superseded by #2904. Two reasons beyond the duplication itself:
+
+1. **It links only GitHub, no npm.** Every existing entry in that list is
+   `[GitHub](…) and [npm](…)`, and o1js's own criterion is "published to npm;
+   `npm install <your-package>` works and is all that is needed". An entry
+   without an npm link reads as not meeting the bar — the package was not on
+   the registry when #2898 was written.
+2. **It also edits o1js's `CHANGELOG.md`**, adding "Documented the `o1js-scan`
+   community package in the README." No existing community entry did that.
+   Writing into a maintainer's own changelog to announce your own listing
+   invites a change request on an otherwise one-line PR.
+
+The risk is not that duplicates look untidy. It is that a maintainer triaging
+the older PR first sees a non-conforming entry plus an unwanted changelog edit,
+and forms a view of the submission before reaching #2904.
 
 ---
 
