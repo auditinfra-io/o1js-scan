@@ -72,6 +72,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     ap.add_argument("--json", action="store_true", help="emit JSONL findings")
     ap.add_argument(
+        "--explain", action="store_true",
+        help="show semantic source-to-sink paths beneath text findings when available",
+    )
+    ap.add_argument(
         "--sarif", nargs="?", const="o1js-scan.sarif", default=None, metavar="FILE",
         help="write SARIF 2.1.0 to FILE (default o1js-scan.sarif; '-' for stdout) "
              "for GitHub code scanning",
@@ -127,6 +131,15 @@ def main(argv: Optional[List[str]] = None) -> int:
             line = (v.location or [0])[0]
             print(f"{v.severity.value.upper():<8} {v.rule_id:<34} "
                   f"{Path(fp).name}:{line}  fn={v.function}  {v.title}")
+            if args.explain:
+                path = (v.evidence or {}).get("semantic_path")
+                if path:
+                    print(f"  source: {path['source']}")
+                    print("  flow:")
+                    for step in path.get("flow", []):
+                        print(f"    -> {step['label']} ({step['method']}:{step['line']})")
+                    print(f"  sink: {path['sink']}")
+                    print(f"  binding: {path['binding']}")
 
     print(_summary(prog, findings, args.fail_on, gate, args.lang), file=sys.stderr)
     # Silent suppression is invisible: say what was skipped or downgraded, on

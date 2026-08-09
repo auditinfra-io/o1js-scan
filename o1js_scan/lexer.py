@@ -667,6 +667,17 @@ class O1jsLexer:
                     ))
                     continue
                 if asserts == "none":
+                    explanation = (
+                        semantic_facts.explain_witness(meth, arg_i)
+                        if semantic_facts else None
+                    )
+                    evidence = {
+                        "witness": arg, "method": meth.name,
+                        "effect": effect[0], "effect_expr": effect[2],
+                        "framework": "o1js",
+                    }
+                    if explanation is not None:
+                        evidence["semantic_path"] = explanation.to_dict()
                     out.append(Vulnerability(
                         pattern_name="O1JS_UNCONSTRAINED_WITNESS",
                         severity=Severity.HIGH if kind == "send_amount" else Severity.MEDIUM,
@@ -686,11 +697,7 @@ class O1jsLexer:
                             f"signal. Bind `{arg}` to on-chain state or a verified signature "
                             f"before using it."
                         ),
-                        evidence={
-                            "witness": arg, "method": meth.name,
-                            "effect": effect[0], "effect_expr": effect[2],
-                            "framework": "o1js",
-                        },
+                        evidence=evidence,
                     ))
                 else:  # "trivial" — asserted but not against state
                     out.append(Vulnerability(

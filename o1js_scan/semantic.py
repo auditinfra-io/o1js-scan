@@ -59,10 +59,42 @@ class EffectFact:
     expression: str
 
 
+@dataclass(frozen=True)
+class ProvenanceStep:
+    """One analyzer-observed source location in a witness flow."""
+
+    kind: str
+    label: str
+    method: str
+    line: int
+
+
+@dataclass(frozen=True)
+class WitnessExplanation:
+    """A conservative source-to-effect explanation for :meth:`witness`."""
+
+    source: str
+    flow: Tuple[ProvenanceStep, ...]
+    sink: str
+    binding: str
+
+    def to_dict(self) -> Dict:
+        return {
+            "source": self.source,
+            "flow": [
+                {"kind": s.kind, "label": s.label, "method": s.method, "line": s.line}
+                for s in self.flow
+            ],
+            "sink": self.sink,
+            "binding": self.binding,
+        }
+
+
 @dataclass
 class _Summary:
     effects: Dict[int, EffectFact]
     constraints: Dict[int, str]
+    paths: Dict[int, Optional[Tuple[ProvenanceStep, ...]]]
 
 
 class SemanticFacts:
@@ -74,20 +106,74 @@ class SemanticFacts:
 
     def __init__(self, methods: Iterable[object], state_fields: Iterable[str]):
         method_list = list(methods)
-        self.methods = {
-            (getattr(m, "semantic_scope", 0), m.name): m for m in method_list
-        }
+        grouped: Dict[Tuple[int, str], List[object]] = {}
+        for method in method_list:
+            grouped.setdefault((getattr(method, "semantic_scope", 0), method.name), []).append(method)
+        # An overloaded/duplicate name is not an exact call edge.  Excluding it
+        # prevents both incorrect facts and fabricated explanations.
+        self.methods = {key: values[0] for key, values in grouped.items() if len(values) == 1}
         self.state_fields = set(state_fields)
-        self._summaries: Dict[str, _Summary] = {
-            name: _Summary({}, {}) for name in self.methods
+        self._summaries: Dict[Tuple[int, str], _Summary] = {
+            name: _Summary({}, {}, {}) for name in self.methods
         }
         self._compute()
 
     def witness(self, method: object, parameter_index: int) -> Tuple[Optional[EffectFact], str]:
         """Return the first reachable effect and constraint level for a parameter."""
         key = (getattr(method, "semantic_scope", 0), method.name)
-        summary = self._summaries.get(key, _Summary({}, {}))
+        summary = self._summaries.get(key, _Summary({}, {}, {}))
         return summary.effects.get(parameter_index), summary.constraints.get(parameter_index, "none")
+
+    def explain_witness(
+        self, method: object, parameter_index: int,
+    ) -> Optional[WitnessExplanation]:
+        """Explain a proven witness flow, or return ``None`` if it is ambiguous."""
+        key = (getattr(method, "semantic_scope", 0), method.name)
+        summary = self._summaries.get(key)
+        if summary is None or parameter_index >= len(method.params):
+            return None
+        effect = summary.effects.get(parameter_index)
+        path = summary.paths.get(parameter_index)
+        if effect is None or path is None:
+            return None
+        param = method.params[parameter_index]
+        source_line = getattr(method, "start_line", 1)
+        source = f"{method.name}({param}) @method parameter"
+        source_step = ProvenanceStep("source", source, method.name, source_line)
+        return WitnessExplanation(
+            source, (source_step,) + path, path[-1].label,
+            summary.constraints.get(parameter_index, "none"),
+        )
+
+    @staticmethod
+    def _line(method: object, offset: int) -> int:
+        return getattr(method, "start_line", 1) + method.body.count("\n", 0, offset)
+
+    def _alias_paths(self, method: object) -> Dict[str, Dict[int, Optional[Tuple[ProvenanceStep, ...]]]]:
+        paths = {p: {i: ()} for i, p in enumerate(method.params)}
+        assignments = list(_ASSIGN.finditer(method.body))
+        for _ in range(len(assignments) + 1):
+            changed = False
+            for match in assignments:
+                rhs = match.group(2).strip()
+                if not re.fullmatch(r"[A-Za-z_$][\w$]*", rhs):
+                    continue
+                for index, prefix in paths.get(rhs, {}).items():
+                    step = ProvenanceStep(
+                        "alias", f"{match.group(1)} = {rhs}", method.name,
+                        self._line(method, match.start()),
+                    )
+                    candidate = None if prefix is None else prefix + (step,)
+                    current = paths.setdefault(match.group(1), {}).get(index, "missing")
+                    if current == "missing":
+                        paths[match.group(1)][index] = candidate
+                        changed = True
+                    elif current != candidate and current is not None:
+                        paths[match.group(1)][index] = None
+                        changed = True
+            if not changed:
+                break
+        return paths
 
     @staticmethod
     def _deps(body: str, params: List[str]) -> Dict[str, Set[int]]:
@@ -124,14 +210,26 @@ class SemanticFacts:
     def _compute_one(self, meth: object) -> _Summary:
         body, params = meth.body, list(meth.params)
         deps = self._deps(body, params)
+        alias_paths = self._alias_paths(meth)
         state_locals = self._state_locals(body)
         effects: Dict[int, EffectFact] = {}
         constraints: Dict[int, str] = {}
+        paths: Dict[int, Optional[Tuple[ProvenanceStep, ...]]] = {}
 
         def record_effect(expr: str, kind: str, offset: int) -> None:
             for ident in _IDENT.findall(expr):
                 for index in deps.get(ident, set()):
                     effects.setdefault(index, EffectFact(kind, offset, expr.strip()))
+                    prefix = alias_paths.get(ident, {}).get(index)
+                    sink = ProvenanceStep(
+                        "sink", f"{kind}: {expr.strip()}", meth.name,
+                        self._line(meth, offset),
+                    )
+                    candidate = None if prefix is None else prefix + (sink,)
+                    if index not in paths:
+                        paths[index] = candidate
+                    elif paths[index] != candidate:
+                        paths[index] = None
 
         def record_send(match: re.Match[str]) -> None:
             segment, _ = _paren(body, match.end() - 1)
@@ -202,6 +300,23 @@ class SemanticFacts:
                     if re.fullmatch(r"[A-Za-z_$][\w$]*", arg):
                         for caller_i in deps.get(arg, set()):
                             effects.setdefault(caller_i, EffectFact(fact.kind, match.start(), fact.expression))
+                            caller_path = alias_paths.get(arg, {}).get(caller_i)
+                            callee_path = callee.paths.get(callee_i)
+                            call = ProvenanceStep(
+                                "call", f"this.{match.group(1)}({arg})", meth.name,
+                                self._line(meth, match.start()),
+                            )
+                            target = self.methods[(scope, match.group(1))]
+                            mapping = ProvenanceStep(
+                                "parameter", f"{arg} -> {target.params[callee_i]}",
+                                target.name, getattr(target, "start_line", 1),
+                            )
+                            candidate = (None if caller_path is None or callee_path is None
+                                         else caller_path + (call, mapping) + callee_path)
+                            if caller_i not in paths:
+                                paths[caller_i] = candidate
+                            elif paths[caller_i] != candidate:
+                                paths[caller_i] = None
             for callee_i, level in callee.constraints.items():
                 if callee_i < len(args):
                     # Only identity-preserving arguments transfer a constraint.
@@ -212,7 +327,7 @@ class SemanticFacts:
                         for caller_i in deps.get(arg, set()):
                             if level == "bound" or constraints.get(caller_i) != "bound":
                                 constraints[caller_i] = level
-        return _Summary(effects, constraints)
+        return _Summary(effects, constraints, paths)
 
     def _compute(self) -> None:
         # Monotone summaries converge quickly; the cap only protects malformed

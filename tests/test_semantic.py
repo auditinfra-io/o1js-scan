@@ -104,3 +104,44 @@ def test_chained_account_update_send_propagates_through_helper():
     )
     effect, _ = SemanticFacts([entry, helper], []).witness(entry, 0)
     assert effect is not None and effect.kind == "send_recipient"
+
+
+def test_explanation_records_alias_calls_mappings_and_real_sink_lines():
+    methods = [
+        Method("withdraw", ["amount"], "\nconst requested = amount;\nthis.middle(requested);"),
+        Method("middle", ["value"], "\nthis.transfer(value);"),
+        Method("transfer", ["sent"], "\nthis.send({ to: receiver, amount: sent });"),
+    ]
+    # The lightweight test Method has no start_line, so all values are still
+    # actual body-relative lines rather than invented callee call-site lines.
+    explanation = SemanticFacts(methods, []).explain_witness(methods[0], 0)
+    assert explanation is not None
+    assert [step.kind for step in explanation.flow] == [
+        "source", "alias", "call", "parameter", "call", "parameter", "sink",
+    ]
+    assert explanation.binding == "none"
+    assert explanation.flow[-1].method == "transfer"
+    assert explanation.flow[-1].line == 2
+
+
+def test_ambiguous_multiple_effect_paths_have_no_explanation():
+    entry = Method(
+        "entry", ["amount"],
+        "this.first(amount); this.second(amount);",
+    )
+    first = Method("first", ["x"], "this.send({ to: a, amount: x });")
+    second = Method("second", ["x"], "this.send({ to: b, amount: x });")
+    facts = SemanticFacts([entry, first, second], [])
+    assert facts.witness(entry, 0)[0] is not None
+    assert facts.explain_witness(entry, 0) is None
+
+
+def test_duplicate_helper_name_is_not_treated_as_exact_call_edge():
+    entry = Method("entry", ["amount"], "this.transfer(amount);")
+    helpers = [
+        Method("transfer", ["x"], "this.send({ to: a, amount: x });"),
+        Method("transfer", ["x"], "this.send({ to: b, amount: x });"),
+    ]
+    facts = SemanticFacts([entry] + helpers, [])
+    assert facts.witness(entry, 0)[0] is None
+    assert facts.explain_witness(entry, 0) is None
