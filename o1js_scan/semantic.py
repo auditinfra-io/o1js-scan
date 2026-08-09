@@ -13,7 +13,10 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 _IDENT = re.compile(r"\b[A-Za-z_$][\w$]*\b")
-_ASSIGN = re.compile(r"\b(?:const|let|var)\s+(\w+)\s*=\s*([^;]+)")
+_ASSIGN = re.compile(
+    r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)"
+    r"(?:\s*:\s*[^=;\n]+)?\s*=\s*([^;]+)"
+)
 _CALL = re.compile(r"\bthis\s*\.\s*(\w+)\s*\(")
 _ASSERT = re.compile(
     r"(?<![\w.()])([\w.()]{1,240})\s*\.\s*(assertEquals|assertLessThan|assertLessThanOrEqual|"
@@ -130,7 +133,7 @@ class SemanticFacts:
                 for index in deps.get(ident, set()):
                     effects.setdefault(index, EffectFact(kind, offset, expr.strip()))
 
-        for match in re.finditer(r"\bthis\s*\.\s*send\s*\(", body):
+        def record_send(match: re.Match[str]) -> None:
             segment, _ = _paren(body, match.end() - 1)
             amount = re.search(r"\bamount\s*:\s*([^,}]+)", segment)
             recipient = re.search(r"\bto\s*:\s*([^,}]+)", segment)
@@ -142,6 +145,29 @@ class SemanticFacts:
                 record_effect(recipient.group(1), "send_recipient", match.start())
             elif re.search(r"(?:^|[,\s{])to\s*(?:[,}]|$)", segment):
                 record_effect("to", "send_recipient", match.start())
+
+        for match in re.finditer(r"\bthis\s*\.\s*send\s*\(", body):
+            record_send(match)
+
+        # Account updates can transfer values either as a chained expression or
+        # through a local initialized by AccountUpdate.create/createSigned.
+        for match in re.finditer(
+            r"\bAccountUpdate\s*\.\s*create(?:Signed)?\s*\([^;]*?\)\s*\.\s*send\s*\(",
+            body,
+        ):
+            record_send(match)
+        account_updates = {
+            match.group(1)
+            for match in _ASSIGN.finditer(body)
+            if re.match(
+                r"\s*AccountUpdate\s*\.\s*create(?:Signed)?\s*\(",
+                match.group(2),
+            )
+        }
+        for match in re.finditer(r"\b([A-Za-z_$][\w$]*)\s*\.\s*send\s*\(", body):
+            if match.group(1) in account_updates:
+                record_send(match)
+
         for match in re.finditer(r"\bthis\s*\.\s*\w+\s*\.\s*set\s*\(", body):
             segment, _ = _paren(body, match.end() - 1)
             record_effect(segment, "state_set", match.start())

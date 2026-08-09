@@ -67,3 +67,40 @@ def test_compound_call_argument_does_not_bind_each_operand():
     facts = SemanticFacts([entry, check], ["reserve"])
     effect, constraint = facts.witness(entry, 0)
     assert effect is not None and constraint == "none"
+
+
+def test_typed_alias_and_state_local_propagate_through_helper():
+    entry = Method(
+        "entry", ["requested"],
+        "const renamed: UInt64 = requested; this.checkAndSend(renamed);",
+    )
+    helper = Method(
+        "checkAndSend", ["amount"],
+        "const available: UInt64 = this.reserve.getAndRequireEquals(); "
+        "amount.assertLessThanOrEqual(available); this.send({ to: receiver, amount });",
+    )
+    effect, constraint = SemanticFacts([entry, helper], ["reserve"]).witness(entry, 0)
+    assert effect is not None and effect.kind == "send_amount"
+    assert constraint == "bound"
+
+
+def test_account_update_local_send_propagates_through_helper():
+    entry = Method("entry", ["requested"], "this.transfer(requested);")
+    helper = Method(
+        "transfer", ["amount"],
+        "const au: AccountUpdate = AccountUpdate.create(sender); "
+        "au.send({ to: receiver, amount });",
+    )
+    effect, constraint = SemanticFacts([entry, helper], []).witness(entry, 0)
+    assert effect is not None and effect.kind == "send_amount"
+    assert constraint == "none"
+
+
+def test_chained_account_update_send_propagates_through_helper():
+    entry = Method("entry", ["recipient"], "this.transfer(recipient);")
+    helper = Method(
+        "transfer", ["to"],
+        "AccountUpdate.create(sender).send({ to, amount: UInt64.one });",
+    )
+    effect, _ = SemanticFacts([entry, helper], []).witness(entry, 0)
+    assert effect is not None and effect.kind == "send_recipient"
