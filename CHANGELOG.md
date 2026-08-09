@@ -6,6 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-09
+
+### Added
+- **Inter-procedural o1js witness dataflow.** A new `SemanticFacts` layer follows
+  prover-controlled values through typed aliases and helper-method calls to
+  state-changing effects, while keeping facts scoped to the correct contract
+  and preserving the identity of compound constraints.
+- **Explainable semantic findings.** `--explain` prints the observed
+  source-to-sink flow for text output, and SARIF reports include the same path
+  as `codeFlows` for compatible viewers.
+- **Missing-constraint taxonomy.** A new design note organizes application-layer
+  ZK soundness bugs by the semantic constraint that is absent and maps the
+  categories across o1js, Noir, Circom, and Halo2.
+
+### Changed
+- The npm package smoke test now runs on every CI build as well as during
+  publishing, installs the packed tarball in a scratch project, verifies its
+  reported version, and requires a known-vulnerable fixture to produce the
+  expected finding.
+- The README now records o1js-scan's o1js Community Packages listing; the
+  superseded submission draft has been removed.
+
 ## [0.13.0] - 2026-07-30
 
 ### Added
@@ -437,7 +459,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the chained `amount.lessThanOrEqual(bal).assertTrue()` form) are now
   recognized as binding a witness to on-chain state.
 
-[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.10.0...v0.11.0
