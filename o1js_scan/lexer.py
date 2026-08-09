@@ -112,6 +112,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Union
 
 from .paths import ScanStats
+from .semantic import SemanticFacts
 from .vuln import Severity, Vulnerability
 
 # Tier bucket stamped onto every finding this module emits.
@@ -441,12 +442,15 @@ class O1jsLexer:
         stripped = _strip_comments(content)
         state = _state_fields(stripped)
         methods = _extract_methods(stripped, content)
+        semantic_facts = SemanticFacts(methods, state)
         # Depth-1: undecorated same-class helpers → which param indices they bind.
         helper_binds = self._build_helper_binds(methods, state)
 
         vulns: List[Vulnerability] = []
         vulns += self._detect_missing_state_precondition(content, stripped, methods, state)
-        vulns += self._detect_unconstrained_witness(content, methods, state, helper_binds)
+        vulns += self._detect_unconstrained_witness(
+            content, methods, state, helper_binds, semantic_facts
+        )
         vulns += self._detect_unconstrained_provable_witness(content, methods, state)
         vulns += self._detect_stale_merkle_root(content, methods, state, helper_binds)
         vulns += self._detect_unverified_proof(content, methods, state)
@@ -572,6 +576,7 @@ class O1jsLexer:
     def _detect_unconstrained_witness(
         self, src: str, methods: List[_Method], state: Dict[str, str],
         helper_binds: Optional[Dict[str, Set[int]]] = None,
+        semantic_facts: Optional[SemanticFacts] = None,
     ) -> List[Vulnerability]:
         helper_binds = helper_binds or {}
         out: List[Vulnerability] = []
@@ -604,10 +609,23 @@ class O1jsLexer:
                 aliases = _simple_aliases(body, {arg})
                 if aliases & helper_bound:
                     continue
+                semantic_effect, semantic_asserts = (
+                    semantic_facts.witness(meth.name, arg_i)
+                    if semantic_facts else (None, "none")
+                )
                 effect = self._witness_effect(body, aliases)
+                if effect is None and semantic_effect is not None:
+                    effect = (
+                        semantic_effect.kind, semantic_effect.offset,
+                        semantic_effect.expression,
+                    )
                 if effect is None:
                     continue  # arg not used in any state-changing effect → ignore
                 asserts = self._asserts_on(body, aliases, state_bound)
+                if semantic_asserts == "bound" or (
+                    semantic_asserts == "trivial" and asserts == "none"
+                ):
+                    asserts = semantic_asserts
                 if asserts == "bound":
                     continue  # tied to on-chain state / signature → sound
                 kind = effect[0]
