@@ -5,6 +5,8 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/o1js-scan.svg)](https://pypi.org/project/o1js-scan/)
 
+> **Community package:** `o1js-scan` is listed in the official [o1js Community Packages](https://github.com/o1-labs/o1js#community-packages) directory.
+
 A fast, dependency-free static analyzer for **zk circuit soundness bugs** in:
 
 - **o1js / Mina zkApps** (TypeScript `.ts` / `.js`) — Kimchi circuits from `@method` bodies
