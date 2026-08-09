@@ -110,3 +110,57 @@ def test_cli_sarif_stdout_dash(capsys, tmp_path):
     main([str(tmp_path), "--sarif", "-"])
     doc = json.loads(capsys.readouterr().out)
     assert doc["runs"][0]["tool"]["driver"]["name"] == "o1js-scan"
+
+
+def test_sarif_interprocedural_witness_contains_code_flow():
+    src = """
+import { SmartContract, UInt64, method } from 'o1js';
+class C extends SmartContract {
+  @method async withdraw(amount: UInt64) {
+    const requested = amount;
+    this.middle(requested);
+  }
+  middle(value: UInt64) { this.transfer(value); }
+  transfer(sent: UInt64) { this.send({ to: receiver, amount: sent }); }
+}
+"""
+    finding = next(
+        v for v in analyze_file("src/C.ts", src)
+        if v.rule_id == "O1JS_UNCONSTRAINED_WITNESS"
+    )
+    result = to_sarif([("src/C.ts", finding)], "0.4.0")["runs"][0]["results"][0]
+    locations = result["codeFlows"][0]["threadFlows"][0]["locations"]
+    assert [item["location"]["physicalLocation"]["region"]["startLine"]
+            for item in locations] == [4, 5, 6, 8, 8, 9, 9]
+
+
+def test_cli_explain_is_optional_and_default_output_stays_one_line(capsys, tmp_path):
+    from o1js_scan.cli import main
+
+    path = tmp_path / "C.ts"
+    path.write_text(_DRAIN)
+    main([str(path)])
+    default_out = capsys.readouterr().out
+    assert "source:" not in default_out and "flow:" not in default_out
+
+    main([str(path), "--explain"])
+    explained = capsys.readouterr().out
+    assert "  source: pay(amount) @method parameter" in explained
+    assert "  binding: none" in explained
+
+
+def test_state_bound_helper_chain_has_no_unconstrained_witness():
+    src = """
+import { SmartContract, UInt64, State, state, method } from 'o1js';
+class C extends SmartContract {
+  @state(UInt64) reserve = State<UInt64>();
+  @method async withdraw(amount: UInt64) { this.check(amount); this.pay(amount); }
+  check(value: UInt64) {
+    const current = this.reserve.getAndRequireEquals();
+    value.assertLessThanOrEqual(current);
+  }
+  pay(value: UInt64) { this.send({ to: receiver, amount: value }); }
+}
+"""
+    assert not any(v.rule_id == "O1JS_UNCONSTRAINED_WITNESS"
+                   for v in analyze_file("C.ts", src))

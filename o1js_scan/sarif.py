@@ -78,7 +78,7 @@ def to_sarif(
             })
 
         line = max(1, (v.location or [1])[0] or 1)
-        results.append({
+        result = {
             "ruleId": rid,
             "ruleIndex": rule_index[rid],
             "level": level,
@@ -90,7 +90,31 @@ def to_sarif(
                 },
             }],
             "properties": {"security-severity": sec_sev},
-        })
+        }
+        semantic_path = (v.evidence or {}).get("semantic_path")
+        if semantic_path:
+            locations = []
+            for step in semantic_path.get("flow", []):
+                # SemanticFacts emits only analyzer-observed locations.  Be
+                # defensive for manually-created Vulnerability objects.
+                line_number = step.get("line")
+                if not isinstance(line_number, int) or line_number < 1:
+                    continue
+                locations.append({
+                    "location": {
+                        "message": {"text": step.get("label", step.get("kind", "flow"))},
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": _uri(filepath)},
+                            "region": {"startLine": line_number},
+                        },
+                    },
+                })
+            if locations:
+                result["codeFlows"] = [{
+                    "message": {"text": "Prover-controlled witness to state-changing effect"},
+                    "threadFlows": [{"locations": locations}],
+                }]
+        results.append(result)
 
     return {
         "$schema": SARIF_SCHEMA,
