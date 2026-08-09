@@ -205,6 +205,44 @@ export class C extends SmartContract {
     assert fired[0].evidence["witness"] == "amount"
 
 
+def test_typed_alias_reaches_account_update_send_in_helper():
+    src = """
+import { SmartContract, UInt64, PublicKey, AccountUpdate, method } from 'o1js';
+export class C extends SmartContract {
+  private transfer(amount: UInt64) {
+    const au: AccountUpdate = AccountUpdate.create(this.sender.getUnconstrained());
+    au.send({ to: receiver, amount });
+  }
+  @method async pay(requested: UInt64) {
+    const renamed: UInt64 = requested;
+    this.transfer(renamed);
+  }
+}
+"""
+    v = analyze_file("c.ts", src)
+    fired = [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_WITNESS"]
+    assert fired, _rules(v)
+    assert fired[0].evidence["witness"] == "requested"
+
+
+def test_chained_account_update_send_in_helper_is_an_effect():
+    src = """
+import { SmartContract, UInt64, PublicKey, AccountUpdate, method } from 'o1js';
+export class C extends SmartContract {
+  private transfer(amount: UInt64) {
+    AccountUpdate.create(this.sender.getUnconstrained()).send({ to: receiver, amount });
+  }
+  @method async pay(requested: UInt64) {
+    this.transfer(requested);
+  }
+}
+"""
+    v = analyze_file("c.ts", src)
+    fired = [x for x in v if x.rule_id == "O1JS_UNCONSTRAINED_WITNESS"]
+    assert fired, _rules(v)
+    assert fired[0].evidence["witness"] == "requested"
+
+
 def test_arbitrary_send_receiver_is_not_account_update_sink():
     src = """
 import { SmartContract, UInt64, PublicKey, method } from 'o1js';

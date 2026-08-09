@@ -112,6 +112,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Union
 
 from .paths import ScanStats
+from .semantic import SemanticFacts
 from .vuln import Severity, Vulnerability
 
 # Tier bucket stamped onto every finding this module emits.
@@ -275,15 +276,22 @@ def _line_of(src: str, idx: int) -> int:
 
 
 class _Method:
-    __slots__ = ("name", "params", "param_types", "body", "start_line", "is_method_decorated")
+    __slots__ = (
+        "name", "params", "param_types", "body", "start_line",
+        "is_method_decorated", "semantic_scope",
+    )
 
-    def __init__(self, name, params, body, start_line, is_method_decorated, param_types=None):
+    def __init__(
+        self, name, params, body, start_line, is_method_decorated,
+        param_types=None, semantic_scope=0,
+    ):
         self.name = name
         self.params = params                # List[str] param names
         self.param_types = param_types or [None] * len(params)  # parallel type strings
         self.body = body
         self.start_line = start_line
         self.is_method_decorated = is_method_decorated
+        self.semantic_scope = semantic_scope
 
 
 _FUNC_HEAD_RE = re.compile(
@@ -301,6 +309,9 @@ def _extract_methods(stripped: str, full_src: str) -> List[_Method]:
     """Brace-balanced extraction of every method-like body in the contract,
     flagging which carry the ``@method`` decorator."""
     methods: List[_Method] = []
+    # Give semantic consumers a stable declaring-contract identity.  Names are
+    # insufficient because a source file may declare several SmartContracts.
+    contract_starts = [m.start() for m in _SMARTCONTRACT_RE.finditer(stripped)]
     for m in _FUNC_HEAD_RE.finditer(stripped):
         name = m.group("name")
         if name in ("if", "for", "while", "switch", "catch", "function"):
@@ -328,6 +339,7 @@ def _extract_methods(stripped: str, full_src: str) -> List[_Method]:
             body=body,
             start_line=_line_of(full_src, m.start()),
             is_method_decorated=bool(m.group("deco")),
+            semantic_scope=sum(start <= m.start() for start in contract_starts),
         ))
     return methods
 
@@ -441,12 +453,15 @@ class O1jsLexer:
         stripped = _strip_comments(content)
         state = _state_fields(stripped)
         methods = _extract_methods(stripped, content)
+        semantic_facts = SemanticFacts(methods, state)
         # Depth-1: undecorated same-class helpers → which param indices they bind.
         helper_binds = self._build_helper_binds(methods, state)
 
         vulns: List[Vulnerability] = []
         vulns += self._detect_missing_state_precondition(content, stripped, methods, state)
-        vulns += self._detect_unconstrained_witness(content, methods, state, helper_binds)
+        vulns += self._detect_unconstrained_witness(
+            content, methods, state, helper_binds, semantic_facts
+        )
         vulns += self._detect_unconstrained_provable_witness(content, methods, state)
         vulns += self._detect_stale_merkle_root(content, methods, state, helper_binds)
         vulns += self._detect_unverified_proof(content, methods, state)
@@ -572,6 +587,7 @@ class O1jsLexer:
     def _detect_unconstrained_witness(
         self, src: str, methods: List[_Method], state: Dict[str, str],
         helper_binds: Optional[Dict[str, Set[int]]] = None,
+        semantic_facts: Optional[SemanticFacts] = None,
     ) -> List[Vulnerability]:
         helper_binds = helper_binds or {}
         out: List[Vulnerability] = []
@@ -599,15 +615,24 @@ class O1jsLexer:
                 # verify() suppression — not the generic witness rules.
                 if _is_proof_type(typ):
                     continue
-                # Bound via helper call (e.g. this.verifyX(arg) where verifyX
-                # state-binds its parameter) → treat as state-bound.
                 aliases = _simple_aliases(body, {arg})
-                if aliases & helper_bound:
-                    continue
+                semantic_effect, semantic_asserts = (
+                    semantic_facts.witness(meth, arg_i)
+                    if semantic_facts else (None, "none")
+                )
                 effect = self._witness_effect(body, aliases)
+                if effect is None and semantic_effect is not None:
+                    effect = (
+                        semantic_effect.kind, semantic_effect.offset,
+                        semantic_effect.expression,
+                    )
                 if effect is None:
                     continue  # arg not used in any state-changing effect → ignore
                 asserts = self._asserts_on(body, aliases, state_bound)
+                if semantic_asserts == "bound" or (
+                    semantic_asserts == "trivial" and asserts == "none"
+                ):
+                    asserts = semantic_asserts
                 if asserts == "bound":
                     continue  # tied to on-chain state / signature → sound
                 kind = effect[0]
