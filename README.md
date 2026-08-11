@@ -67,6 +67,7 @@ See [`examples/`](examples/) for the o1js and Noir vulnerable/fixed pairs.
 - [GitHub Action](#github-action)
 - [What it detects — o1js](#what-it-detects-o1js) · [Noir](#what-it-detects-noir)
 - [Known limitations](#known-limitations) · [Where this tool stops](#where-this-tool-stops)
+- [Post-quantum review](#post-quantum-review)
 - [Compatibility](#compatibility) · [How it works](#how-it-works)
 - [Contributing](#roadmap--contributing)
 
@@ -453,9 +454,27 @@ working on something where the difference matters — a protocol holding real
 value, a circuit you can't afford to get wrong — treat this as the first pass
 and budget for a real review.
 
-Deeper analysis is what [Proofplay Logic](https://github.com/auditinfra-io)
-works on; this scanner is the part of it we can give away. If you want a
-circuit looked at properly, reach out: `auditinfracorp@proton.me`.
+For deeper analysis, the separate full scanner is maintained in the
+[`audit-engine-cli` repository](https://github.com/auditinfra-io/audit-engine-cli).
+`o1js-scan` is the intentionally lightweight, open scanner; the full scanner's
+proprietary detection knowledge and implementation details are not reproduced
+here. For access or a more complete circuit review, reach out:
+`auditinfracorp@proton.me`.
+
+## Post-quantum review
+
+Quantum risk is related to circuit security, but it is not a missing-constraint
+rule. `o1js-scan` does not determine whether a signature, hash, commitment, the
+Kimchi proof system, or Mina itself meets a post-quantum security target. Those
+answers depend on the concrete primitive and parameters, platform assumptions,
+the deployment's required lifetime, and its migration plan—not merely on a
+TypeScript identifier that a lexical scanner can see.
+
+Inspired by O(1) Labs' [*Qubit or Not Qubit*](https://www.o1labs.org/blog/qubit-or-not-qubit),
+the [post-quantum review guide](https://github.com/auditinfra-io/o1js-scan/blob/main/docs/post-quantum-threat-model.md) turns that
+boundary into an o1js-specific inventory and crypto-agility checklist. Use it
+alongside this scanner rather than interpreting a clean scan as a post-quantum
+assessment.
 
 ## Compatibility
 
