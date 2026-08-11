@@ -471,7 +471,7 @@ the deployment's required lifetime, and its migration plan—not merely on a
 TypeScript identifier that a lexical scanner can see.
 
 Inspired by O(1) Labs' [*Qubit or Not Qubit*](https://www.o1labs.org/blog/qubit-or-not-qubit),
-the [post-quantum review guide](docs/post-quantum-threat-model.md) turns that
+the [post-quantum review guide](https://github.com/auditinfra-io/o1js-scan/blob/main/docs/post-quantum-threat-model.md) turns that
 boundary into an o1js-specific inventory and crypto-agility checklist. Use it
 alongside this scanner rather than interpreting a clean scan as a post-quantum
 assessment.
