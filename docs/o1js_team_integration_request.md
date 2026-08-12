@@ -57,10 +57,10 @@ without making every finding a merge blocker or an official vulnerability.
   `Bool`, an unverified recursive proof, an unconstrained sender, a vacuous
   self-assertion, and weak upgrade permissions. Confirmed high-severity shapes
   are retained as regression fixtures, and the canary fails if they disappear.
-- The scanner covers 14 documented o1js rule families, including missing state
-  preconditions, unconstrained method and `Provable.witness` values, stale
-  Merkle roots, unverified proofs, discarded predicates, unconstrained senders,
-  weak permissions, and security logic outside the proof.
+- The scanner covers all 15 rules documented in the README, including missing
+  state preconditions, unconstrained method and `Provable.witness` values,
+  stale Merkle roots, unverified proofs, discarded predicates, unconstrained
+  senders, weak permissions, and security logic outside the proof.
 - It is Apache-2.0, emits SARIF 2.1.0, supports inline suppressions, skips test
   code by default, and downgrades examples rather than silently hiding them.
 - It has no runtime dependency on o1js and analyzes source without compiling or
