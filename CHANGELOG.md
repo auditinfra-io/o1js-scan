@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Recognize callable `@method()` decorators, explicitly typed `@state` fields,
+  and low-level `AccountUpdate.balance.subInPlace(...)` transfer debits used by
+  newly documented o1js authoring forms.
+
 ## [0.14.0] - 2026-08-09
 
 ### Added

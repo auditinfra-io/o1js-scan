@@ -979,6 +979,22 @@ def test_o1js_2x_ungated_method_still_detects():
     assert amt[0].severity == Severity.HIGH
 
 
+def test_callable_method_decorator_and_annotated_state_are_supported():
+    source = """
+import { SmartContract, UInt64, State, state, method } from 'o1js';
+export class Vault extends SmartContract {
+  @state(UInt64) total!: State<UInt64> = State<UInt64>();
+  @method() async withdraw(amount: UInt64) {
+    this.account.balance.subInPlace(amount);
+  }
+}
+"""
+    findings = analyze_file("Vault.ts", source)
+    amount = [x for x in findings if x.evidence.get("witness") == "amount"]
+    assert amount and amount[0].rule_id == "O1JS_UNCONSTRAINED_WITNESS"
+    assert amount[0].evidence["effect"] == "send_amount"
+
+
 # ---------------------------------------------------------------------------
 # Settlement-contract archetype (real-world calibration target)
 # ---------------------------------------------------------------------------

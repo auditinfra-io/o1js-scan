@@ -510,8 +510,11 @@ Works on **o1js 1.x and 2.x**. o1js-scan analyzes TypeScript source as text
 and has **no runtime dependency on o1js** — nothing is version-pinned. It keys
 on the modern `require*` precondition API (`getAndRequireEquals`,
 `requireEquals`, `requireSignature`, `getAndRequireSignature`), the
-`@method` / `@method.returns(...)` decorators, `@state`, `this.send({...})`,
-and `Permissions.*`, all of which are unchanged across the 1.x → 2.x boundary.
+`@method` / `@method()` / `@method.returns(...)` decorators, annotated `@state`
+fields, `this.send({...})`, low-level `AccountUpdate.balance.subInPlace(...)`
+transfers, and `Permissions.*`. The established forms remain compatible across
+the 1.x → 2.x boundary, while the scanner also accepts the newly documented
+decorator and low-level transfer variants.
 The 2.x owner-auth idiom `this.sender.getAndRequireSignature()` is recognized
 as signature-gating. (Legacy `assertEquals` preconditions are still accepted,
 so older code isn't broken either.)

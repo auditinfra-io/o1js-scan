@@ -266,6 +266,24 @@ class SemanticFacts:
             if match.group(1) in account_updates:
                 record_send(match)
 
+        # Low-level transfers in current o1js examples debit an AccountUpdate
+        # directly. Treat the debit as the same value-transfer sink as send().
+        for match in re.finditer(
+            r"\b((?:this\s*\.\s*(?:account|self))|[A-Za-z_$][\w$]*)\s*\.\s*"
+            r"balance\s*\.\s*subInPlace\s*\(", body,
+        ):
+            receiver = re.sub(r"\s+", "", match.group(1))
+            if receiver not in account_updates and receiver not in ("this.account", "this.self"):
+                continue
+            segment, _ = _paren(body, match.end() - 1)
+            record_effect(segment, "send_amount", match.start())
+        for match in re.finditer(
+            r"\bAccountUpdate\s*\.\s*create(?:Signed)?\s*\([^;]*?\)\s*\.\s*"
+            r"balance\s*\.\s*subInPlace\s*\(", body,
+        ):
+            segment, _ = _paren(body, match.end() - 1)
+            record_effect(segment, "send_amount", match.start())
+
         for match in re.finditer(r"\bthis\s*\.\s*\w+\s*\.\s*set\s*\(", body):
             segment, _ = _paren(body, match.end() - 1)
             record_effect(segment, "state_set", match.start())

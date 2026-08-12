@@ -135,10 +135,14 @@ _MAX_CALL_ARG = 2000   # longest single call-argument expression
 
 _O1JS_IMPORT_RE = re.compile(r"""from\s+['"]o1js['"]""")
 _SMARTCONTRACT_RE = re.compile(r"\bclass\s+(\w+)\s+extends\s+SmartContract\b")
+_METHOD_DECORATOR = r"@method(?:\s*\(\s*\)|\.returns\([^)]{0,%d}\))?" % _MAX_PARAMS
 _METHOD_DECORATOR_RE = re.compile(
-    r"@method(?:\.returns\([^)]{0,%d}\))?\s+(?:async\s+)?(\w+)\s*\(" % _MAX_PARAMS,
+    _METHOD_DECORATOR + r"\s+(?:async\s+)?(\w+)\s*\(",
 )
-_STATE_DECL_RE = re.compile(r"@state\(\s*(\w+)\s*\)\s+(\w+)\s*=")
+_STATE_DECL_RE = re.compile(
+    r"@state\(\s*(\w+)\s*\)\s+(?:declare\s+)?(\w+)"
+    r"(?:\s*[?!])?(?:\s*:\s*State\s*<[^;=]{1,%d}>)?\s*=" % _MAX_PARAMS
+)
 # `const x = Provable.witness(Type, () => ...)` — a fresh in-circuit witness.
 # Also covers `witnessFields` and the async `witnessAsync` form.
 _PROVABLE_WITNESS_RE = re.compile(
@@ -295,9 +299,9 @@ class _Method:
 
 
 _FUNC_HEAD_RE = re.compile(
-    r"(?P<deco>@method(?:\.returns\([^)]{0,%d}\))?\s+)?"
+    r"(?P<deco>" + _METHOD_DECORATOR + r"\s+)?"
     r"(?:async\s+)?(?P<name>\w{1,%d})\s*\((?P<params>[^)]{0,%d})\)\s*"
-    r"(?::\s*[^{]{1,%d})?\{" % (_MAX_PARAMS, _MAX_IDENT, _MAX_PARAMS, _MAX_PARAMS),
+    r"(?::\s*[^{]{1,%d})?\{" % (_MAX_IDENT, _MAX_PARAMS, _MAX_PARAMS),
 )
 # Same-class helper call: `this.<helper>(...)`. Depth-1 binding propagation only.
 _THIS_HELPER_CALL_RE = re.compile(
@@ -1311,6 +1315,31 @@ class O1jsLexer:
             kind = _classify_send(seg)
             if kind:
                 return (kind, sm.start(), seg.strip()[:80])
+        # The documented low-level AccountUpdate transfer form mutates account
+        # balances directly instead of calling send():
+        #   update.balance.subInPlace(amount)
+        # `this.account.balance.subInPlace(amount)` is the equivalent zkApp
+        # account form. Only debits are sinks; addInPlace is the recipient side.
+        balance_receivers = set(au_locals)
+        balance_receivers.update(("this.account", "this.self"))
+        for sm in re.finditer(
+            r"\b((?:this\s*\.\s*(?:account|self))|\w+)\s*\.\s*balance\s*\.\s*"
+            r"subInPlace\s*\(", body,
+        ):
+            receiver = re.sub(r"\s+", "", sm.group(1))
+            if receiver not in balance_receivers:
+                continue
+            seg = _paren_segment(body, sm.end() - 1)
+            if any(re.search(r"\b" + re.escape(a) + r"\b", seg) for a in aliases):
+                return ("send_amount", sm.start(), seg.strip()[:80])
+        for sm in re.finditer(
+            r"\bAccountUpdate\s*\.\s*create(?:Signed)?\s*\([^;]{0,%d}?\)\s*\.\s*"
+            r"balance\s*\.\s*subInPlace\s*\(" % _MAX_CALL_ARG,
+            body,
+        ):
+            seg = _paren_segment(body, sm.end() - 1)
+            if any(re.search(r"\b" + re.escape(a) + r"\b", seg) for a in aliases):
+                return ("send_amount", sm.start(), seg.strip()[:80])
         # this.<state>.set(<arg ...>)
         for sm in re.finditer(r"this\s*\.\s*\w+\s*\.\s*set\s*\(", body):
             seg = _paren_segment(body, sm.end() - 1)
