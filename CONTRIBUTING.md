@@ -4,6 +4,10 @@ Thanks for helping make o1js zkApps and Noir circuits safer. Contributions of
 new rule families, false-positive guards, and real-world calibration archetypes
 are all welcome.
 
+If a useful pattern came from private work, follow the
+[privacy-safe contribution guide](docs/privacy.md) to turn it into a small
+synthetic reproducer before posting it.
+
 ## Development setup
 
 ```bash
@@ -26,6 +30,16 @@ npm run test:npm-wrapper
 
 Both run in CI. Prettier is fetched via `npx` on demand, so there is nothing to
 install and no `node_modules` in a normal Python-only workflow.
+
+To exercise the scanner against a checkout of the current public o1js
+repository without cloning it again:
+
+```bash
+bash scripts/o1js_upstream_canary.sh /path/to/o1js
+```
+
+This checks syntax and JSONL compatibility, not whether upstream examples are
+secure. The scheduled CI job clones `o1-labs/o1js` automatically.
 
 ## Documentation is tested
 
@@ -158,6 +172,9 @@ regression test.
 For false positives specifically, use the **False-positive report** issue
 template — it asks for exactly what a calibration fix needs (the snippet, the
 finding, and why the flagged pattern is intended design).
+
+Issue content and attachments are public. Please confirm that a synthetic or
+sanitized snippet still reproduces the behavior before sharing it.
 
 ## License
 
