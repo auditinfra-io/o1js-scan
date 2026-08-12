@@ -15,13 +15,25 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 _IDENT = re.compile(r"\b[A-Za-z_$][\w$]*\b")
 _ASSIGN = re.compile(
     r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)"
-    r"(?:\s*:\s*[^=;\n]+)?\s*=\s*([^;]+)"
+    r"(?:\s*:\s*[^=;]+)?\s*=\s*([^;\n]+)"
 )
 _CALL = re.compile(r"\bthis\s*\.\s*(\w+)\s*\(")
 _ASSERT = re.compile(
     r"(?<![\w.()])([\w.()]{1,240})\s*\.\s*(assertEquals|assertLessThan|assertLessThanOrEqual|"
     r"assertGreaterThan|assertGreaterThanOrEqual|assertNotEquals|requireEquals)\s*\("
 )
+_PROVABLE_ASSERT_EQUAL = re.compile(
+    r"\bProvable\s*\.\s*assertEqual\s*\(",
+)
+
+
+def _identity(expr: str) -> Optional[str]:
+    """Return the identifier preserved by a plain TS alias expression."""
+    value = expr.strip()
+    value = re.sub(r"\s+as\s+(?:const|[A-Za-z_$][\w$]*(?:\s*<[^>]+>)?)\s*$", "", value)
+    while value.startswith("(") and value.endswith(")"):
+        value = value[1:-1].strip()
+    return value if re.fullmatch(r"[A-Za-z_$][\w$]*", value) else None
 
 
 def _paren(src: str, opening: int) -> Tuple[str, int]:
@@ -155,8 +167,8 @@ class SemanticFacts:
         for _ in range(len(assignments) + 1):
             changed = False
             for match in assignments:
-                rhs = match.group(2).strip()
-                if not re.fullmatch(r"[A-Za-z_$][\w$]*", rhs):
+                rhs = _identity(match.group(2))
+                if rhs is None:
                     continue
                 for index, prefix in paths.get(rhs, {}).items():
                     step = ProvenanceStep(
@@ -185,11 +197,11 @@ class SemanticFacts:
         while changed:
             changed = False
             for match in assignments:
-                rhs = match.group(2).strip()
+                rhs = _identity(match.group(2))
                 # Alias facts are identity-preserving assignments only.  An
                 # arithmetic/method expression is a newly derived circuit
                 # value and must not be conflated with its inputs.
-                if not re.fullmatch(r"[A-Za-z_$][\w$]*", rhs):
+                if rhs is None:
                     continue
                 found: Set[int] = set()
                 for ident in _IDENT.findall(rhs):
@@ -297,6 +309,26 @@ class SemanticFacts:
             bound = any(i in state_locals for i in _IDENT.findall(whole)) or any(
                 re.search(r"\bthis\s*\.\s*" + re.escape(f) + r"\b", whole)
                 for f in self.state_fields
+            )
+            level = "bound" if bound else "trivial"
+            for index in indexes:
+                if level == "bound" or constraints.get(index) != "bound":
+                    constraints[index] = level
+
+        # Static equality is equivalent to `left.assertEquals(right)`. The
+        # first argument is the provable type, followed by the two values.
+        for match in _PROVABLE_ASSERT_EQUAL.finditer(body):
+            inner, _ = _paren(body, match.end() - 1)
+            args = _split_args(inner)
+            if len(args) < 3:
+                continue
+            values = " ".join(args[1:3])
+            indexes: Set[int] = set()
+            for ident in _IDENT.findall(values):
+                indexes |= deps.get(ident, set())
+            bound = any(local in _IDENT.findall(values) for local in state_locals) or any(
+                re.search(r"\bthis\s*\.\s*" + re.escape(field) + r"\b", values)
+                for field in self.state_fields
             )
             level = "bound" if bound else "trivial"
             for index in indexes:

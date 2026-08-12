@@ -995,6 +995,51 @@ export class Vault extends SmartContract {
     assert amount[0].evidence["effect"] == "send_amount"
 
 
+def test_multiline_decorator_params_comments_braces_and_aliases_are_supported():
+    source = """
+import { SmartContract, UInt64, State, state, method } from 'o1js';
+export class Vault extends SmartContract {
+  @state(UInt64) reserve = State<UInt64>();
+  @method
+  /* a comment with misleading braces: }}} */
+  async withdraw(
+    amount: UInt64,
+    format: (value: UInt64) => UInt64 = (value) => value,
+  ) {
+    const text = `not a method brace: }`;
+    const renamed
+      : UInt64 =
+      (amount) as UInt64
+    this.account.balance.subInPlace(renamed);
+  }
+}
+"""
+    findings = analyze_file("Vault.ts", source)
+    amount = [x for x in findings if x.evidence.get("witness") == "amount"]
+    assert amount and amount[0].rule_id == "O1JS_UNCONSTRAINED_WITNESS"
+
+
+def test_equivalent_static_and_predicate_assertions_bind_to_state():
+    static = """
+import { SmartContract, UInt64, State, state, method, Provable } from 'o1js';
+export class Vault extends SmartContract {
+  @state(UInt64) reserve = State<UInt64>();
+  @method async withdraw(amount: UInt64) {
+    const current = this.reserve.getAndRequireEquals();
+    Provable.assertEqual(UInt64, amount, current);
+    this.send({ to: this.sender.getUnconstrained(), amount });
+  }
+}
+"""
+    predicate = static.replace(
+        "Provable.assertEqual(UInt64, amount, current);",
+        "current.equals(amount).assertTrue();",
+    )
+    for source in (static, predicate):
+        findings = analyze_file("Vault.ts", source)
+        assert not [x for x in findings if x.evidence.get("witness") == "amount"]
+
+
 # ---------------------------------------------------------------------------
 # Settlement-contract archetype (real-world calibration target)
 # ---------------------------------------------------------------------------

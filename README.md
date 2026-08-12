@@ -519,6 +519,14 @@ The 2.x owner-auth idiom `this.sender.getAndRequireSignature()` is recognized
 as signature-gating. (Legacy `assertEquals` preconditions are still accepted,
 so older code isn't broken either.)
 
+Equivalent constraint spellings are normalized for analysis: instance
+`assertEquals(...)`, static `Provable.assertEqual(Type, ...)`, and
+`equals(...).assertTrue()` equality chains all bind the same operands. Method
+extraction is brace-balanced after length-preserving comment and string
+masking, and accepts multiline decorators, nested callback-shaped parameter
+types, TypeScript access modifiers, and multiline identity aliases (including
+parenthesized and `as Type` forms).
+
 Noir analysis targets Noir syntax used by Aztec / nargo projects (`.nr`); it
 does not invoke `nargo` or compile circuits.
 

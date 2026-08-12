@@ -10,6 +10,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Recognize callable `@method()` decorators, explicitly typed `@state` fields,
   and low-level `AccountUpdate.balance.subInPlace(...)` transfer debits used by
   newly documented o1js authoring forms.
+- Recognize static `Provable.assertEqual(...)` and predicate-chain equality as
+  equivalent constraints, and harden multiline decorators, nested parameter
+  types, comment/string brace masking, and identity-preserving alias handling.
 
 ## [0.14.0] - 2026-08-09
 

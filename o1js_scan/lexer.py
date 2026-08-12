@@ -242,6 +242,10 @@ def is_o1js_source(content: str, filepath: str = "") -> bool:
 def _strip_comments(src: str) -> str:
     """Length-preserving removal of // and /* */ comments and string bodies
     (so an `assert` inside a string literal can't fool a rule)."""
+    def blank(text: str) -> str:
+        """Hide tokens without changing offsets or line numbers."""
+        return "".join("\n" if char == "\n" else " " for char in text)
+
     out: List[str] = []
     i, n = 0, len(src)
     while i < n:
@@ -249,15 +253,15 @@ def _strip_comments(src: str) -> str:
         if c == "/" and i + 1 < n and src[i + 1] == "/":
             end = src.find("\n", i)
             end = n if end == -1 else end
-            out.append(" " * (end - i))
+            out.append(blank(src[i:end]))
             i = end
             continue
         if c == "/" and i + 1 < n and src[i + 1] == "*":
             end = src.find("*/", i + 2)
             if end == -1:
-                out.append(" " * (n - i))
+                out.append(blank(src[i:n]))
                 break
-            out.append(" " * (end + 2 - i))
+            out.append(blank(src[i:end + 2]))
             i = end + 2
             continue
         if c in ("'", '"', "`"):
@@ -266,8 +270,9 @@ def _strip_comments(src: str) -> str:
                 if src[j] == "\\":
                     j += 1
                 j += 1
-            # keep quotes, blank the body so identifiers inside don't match
-            out.append(c + " " * max(0, j - i - 1) + (c if j < n else ""))
+            # Keep delimiters, but preserve embedded newlines so all later
+            # offsets and line calculations continue to match the source.
+            out.append(c + blank(src[i + 1:j]) + (c if j < n else ""))
             i = j + 1
             continue
         out.append(c)
@@ -299,9 +304,13 @@ class _Method:
 
 
 _FUNC_HEAD_RE = re.compile(
-    r"(?P<deco>" + _METHOD_DECORATOR + r"\s+)?"
-    r"(?:async\s+)?(?P<name>\w{1,%d})\s*\((?P<params>[^)]{0,%d})\)\s*"
-    r"(?::\s*[^{]{1,%d})?\{" % (_MAX_IDENT, _MAX_PARAMS, _MAX_PARAMS),
+    r"^[ \t]*(?P<deco>" + _METHOD_DECORATOR + r"\s+)?"
+    r"(?:public\s+|private\s+|protected\s+|static\s+|override\s+)*"
+    r"(?:async\s+)?(?P<name>\w{1,%d})\s*\("
+    r"(?P<params>(?:[^()]|\([^()]{0,%d}\)){0,%d})\)\s*"
+    r"(?::\s*[^{]{1,%d})?\{" % (
+        _MAX_IDENT, _MAX_PARAMS, _MAX_PARAMS, _MAX_PARAMS,
+    ), re.MULTILINE,
 )
 # Same-class helper call: `this.<helper>(...)`. Depth-1 binding propagation only.
 _THIS_HELPER_CALL_RE = re.compile(
@@ -335,6 +344,10 @@ def _extract_methods(stripped: str, full_src: str) -> List[_Method]:
             elif ch == "}":
                 depth -= 1
             i += 1
+        if depth:
+            # Do not manufacture a body (or swallow later declarations) from
+            # malformed input with an unmatched opening brace.
+            continue
         body = stripped[open_idx + 1: i - 1]
         methods.append(_Method(
             name=name,
@@ -1409,12 +1422,37 @@ class O1jsLexer:
         # chained-comparison idiom: `amount.lessThanOrEqual(bal).assertTrue()`
         alias_alt = "|".join(re.escape(a) for a in sorted(aliases))
         for cm in re.finditer(
-            r"\b(?:" + alias_alt + r")\s*\.\s*(?:lessThan|lessThanOrEqual|greaterThan"
+            r"\b(?:" + alias_alt + r")\s*\.\s*(?:equals|lessThan|lessThanOrEqual|greaterThan"
             r"|greaterThanOrEqual)\s*\(([^;]{0,%d}?)\)\s*\.\s*assertTrue\s*\(" % _MAX_CALL_ARG,
             body,
         ):
             any_assert = True
             if _state_derived(cm.group(1)):
+                bound = True
+            else:
+                trivial = True
+        # Reverse predicate form: `stateValue.equals(amount).assertTrue()`.
+        for cm in re.finditer(
+            r"(?<![\w.])([\w.()]{1,%d})\s*\.\s*(?:equals|lessThan|lessThanOrEqual|greaterThan"
+            r"|greaterThanOrEqual)\s*\(([^;]{0,%d}?)\)\s*\.\s*assertTrue\s*\("
+            % (_MAX_IDENT * 2, _MAX_CALL_ARG), body,
+        ):
+            if not _mentions_alias(cm.group(2)):
+                continue
+            any_assert = True
+            if _state_derived(cm.group(1)):
+                bound = True
+            else:
+                trivial = True
+        # `Provable.assertEqual(Type, left, right)` is the static equivalent of
+        # `left.assertEquals(right)` and is common in generic helper code.
+        for pm in re.finditer(r"\bProvable\s*\.\s*assertEqual\s*\(", body):
+            args = _split_top_level(_paren_segment(body, pm.end() - 1), ",")
+            if len(args) < 3 or not _mentions_alias(" ".join(args[1:3])):
+                continue
+            any_assert = True
+            other = args[2] if _mentions_alias(args[1]) else args[1]
+            if _state_derived(other):
                 bound = True
             else:
                 trivial = True
@@ -1883,8 +1921,11 @@ def _simple_aliases(body: str, seeds: Set[str]) -> Set[str]:
     lets = [
         (m.group(1), m.group(2))
         for m in re.finditer(
-            r"\b(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*(\w+)\s*;",
+            r"\b(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*"
+            r"\(?\s*(\w+)\s*\)?(?:\s+as\s+(?:const|[\w$]+(?:\s*<[^>]+>)?))?"
+            r"\s*(?:;|$)",
             body,
+            re.MULTILINE,
         )
     ]
     changed = True
