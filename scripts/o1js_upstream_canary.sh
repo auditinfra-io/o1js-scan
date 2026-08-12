@@ -49,5 +49,9 @@ with open(sys.argv[1], encoding="utf-8") as report:
                 f"finding {line_number} is missing fields: {sorted(missing)}"
             )
         count += 1
+if count == 0:
+    raise SystemExit(
+        "o1js upstream canary: FAIL (empty report; no upstream syntax was exercised)"
+    )
 print(f"o1js upstream canary: PASS ({count} finding(s), JSONL valid)")
 PY
