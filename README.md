@@ -541,6 +541,11 @@ Findings are a starting point for review, not proofs.
 
 Contributions welcome — new rule families, more FP guards, and real-world
 calibration archetypes are all valuable. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+For a proposed path from the Community Packages listing to an advisory check in
+the o1js repository, see the ready-to-send
+[o1js upstream integration proposal](docs/o1js_upstream_proposal.md).
+
 Run the tests and linter with:
 
 ```bash
