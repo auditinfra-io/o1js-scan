@@ -67,7 +67,6 @@ See [`examples/`](examples/) for the o1js and Noir vulnerable/fixed pairs.
 - [GitHub Action](#github-action)
 - [What it detects — o1js](#what-it-detects-o1js) · [Noir](#what-it-detects-noir)
 - [Known limitations](#known-limitations) · [Where this tool stops](#where-this-tool-stops)
-- [Privacy and private code](#privacy-and-private-code)
 - [Post-quantum review](#post-quantum-review)
 - [Compatibility](#compatibility) · [How it works](#how-it-works)
 - [Contributing](#roadmap--contributing)
@@ -461,39 +460,6 @@ For deeper analysis, the separate full scanner is maintained in the
 proprietary detection knowledge and implementation details are not reproduced
 here. For access or a more complete circuit review, reach out:
 `auditinfracorp@proton.me`.
-
-## Privacy and private code
-
-The installed CLI analyzes files **locally**. It has no telemetry, network
-client, account, or upload step, and its Python runtime has no third-party
-dependencies. Running `o1js-scan path/to/private-repo` does not send the source
-or findings anywhere.
-
-Like compiler logs, scanner output can contain paths, identifiers, and source
-fragments. SARIF also identifies exact repository locations, and the GitHub
-Action uploads it to GitHub code scanning. Use the same repository and CI access
-controls you already use for the source being scanned.
-
-Want to contribute a useful false-positive or missed-detection report without
-sharing an application? Reproduce the syntax with invented names and constants,
-remove business logic one statement at a time, and verify the synthetic snippet
-still triggers the same rule before posting it. The
-[privacy-safe contribution guide](docs/privacy.md) has a concrete checklist and
-several ways to help the o1js community without disclosing a private circuit.
-
-This boundary does not prevent the open scanner from getting better. Public
-o1js documentation and repositories can support new rules and compatibility
-fixtures; synthetic examples can test false positives and missed constraints;
-and parser resilience, diagnostics, SARIF, performance, packaging, and
-calibration can all improve without publishing a private audit technique or
-client code. The open scanner should make independently explainable claims;
-private research can remain in the separate audit engine.
-
-The scheduled upstream compatibility canary scans the current public
-`o1-labs/o1js` repository—including its tests and examples—to catch syntax and
-reporting regressions as o1js evolves. It deliberately does not call upstream
-examples vulnerabilities; the separately pinned Mina corpus owns detection
-precision and recall budgets.
 
 ## Post-quantum review
 
