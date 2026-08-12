@@ -1,4 +1,4 @@
-# Proposal: pilot `o1js-scan` as a first-party o1js repository check
+# Request to bring `o1js-scan` into the o1js repository
 
 Thank you for listing [`o1js-scan`](https://github.com/auditinfra-io/o1js-scan)
 under o1js Community Packages. Since the listing was proposed on July 30, 2026,
@@ -6,13 +6,13 @@ the scanner has moved from v0.13.0 to v0.15.0. I would like to explore a closer,
 first-party integration in the o1js repository—not merely a more prominent
 directory entry.
 
-The narrow initial proposal is to add an **advisory CI job** to o1js that runs
-the released scanner against relevant TypeScript sources and uploads its SARIF
-output. Keeping the first iteration non-blocking lets maintainers evaluate its
-signal and review its security model before deciding whether it should gate
-changes. The scanner can remain version-pinned and externally maintained; this
-does not require immediately vendoring the implementation or presenting every
-finding as an o1js vulnerability.
+I would love for `o1js-scan` to live in the o1js repository itself, with the
+o1js-specific scanner maintained as part of the project rather than only linked
+as a community package. I am open to transferring the relevant implementation
+or adapting it to the repository's architecture and governance. A non-blocking
+CI integration could be a low-risk first use while the team evaluates its
+signal; it could run against relevant TypeScript sources and upload SARIF
+without making every finding a merge blocker or an official vulnerability.
 
 ### What changed since the Community Packages review
 
@@ -72,25 +72,9 @@ These points are evidence of useful engineering and calibration, not a claim
 of completeness. `o1js-scan` is a deliberately lightweight static analyzer; a
 clean run is not an audit, and every finding still requires review.
 
-### Proposed adoption path
-
-1. **Maintainer review.** Agree on the threat model, source paths, privacy
-   boundary, ownership, and what qualifies as an actionable finding.
-2. **Advisory pilot.** Add a version-pinned workflow that runs on pull requests
-   touching relevant o1js TypeScript and uploads SARIF, without blocking merges.
-3. **Measure.** Triage the pilot results, record false-positive classes, and add
-   paired regression fixtures for accepted fixes.
-4. **Choose the long-term home.** If the signal is useful, either keep the
-   pinned external action, vendor a thin integration in o1js, or discuss moving
-   the o1js-specific engine under o1js governance. Ownership, release cadence,
-   and security-response expectations should be explicit before calling it an
-   official check.
-5. **Gate only proven rules.** Make selected rules blocking only after the o1js
-   maintainers are comfortable with their precision and maintenance plan.
-
-Would the maintainers be open to an issue or RFC for this advisory pilot? I am
-happy to prepare the workflow, own the initial triage, and adapt the proposal to
-the contribution process you prefer.
+Would the team be open to bringing the o1js-specific scanner into the o1js
+repository? I am happy to contribute the integration, handle the initial result
+triage, and work within the ownership and contribution model the team prefers.
 
 ### Relevant links
 
