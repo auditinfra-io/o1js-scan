@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-12
+
 ### Added
 - Recognize callable `@method()` decorators, explicitly typed `@state` fields,
   and low-level `AccountUpdate.balance.subInPlace(...)` transfer debits used by
@@ -16,6 +18,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Accept semicolon-terminated declaration-only `@state` fields and classify
   low-level balance debits in block- or expression-bodied prover callbacks as
   logic outside the proof.
+- Add a weekly compatibility canary that scans the current public o1js source,
+  validates every emitted JSONL record, and rejects an empty, vacuous run.
+- Add privacy-safe contribution guidance and an o1js-specific post-quantum
+  threat-model and crypto-agility checklist.
+
+### Changed
+- Clarify the local CLI's privacy boundary, the separate proprietary deep
+  scanner, and the use of synthetic reproducers for public issue reports.
 
 ## [0.14.0] - 2026-08-09
 
@@ -470,7 +480,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the chained `amount.lessThanOrEqual(bal).assertTrue()` form) are now
   recognized as binding a witness to on-chain state.
 
-[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.11.0...v0.12.0

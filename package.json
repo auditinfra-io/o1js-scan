@@ -1,6 +1,6 @@
 {
   "name": "o1js-scan",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Static soundness analyzer for o1js / Mina zkApps and Noir circuits",
   "license": "Apache-2.0",
   "homepage": "https://github.com/auditinfra-io/o1js-scan",
