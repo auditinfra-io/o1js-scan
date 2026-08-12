@@ -10,6 +10,9 @@ body:
         project. Every guard in the scanner exists because someone showed a pattern where
         a rule fired on correct code.
 
+        **This issue is public.** If the original code is private, please submit a small
+        synthetic example and confirm that it produces the same finding.
+
   - type: dropdown
     id: rule
     attributes:
@@ -37,7 +40,8 @@ body:
       description: |
         The smallest self-contained excerpt that reproduces the finding — ideally the
         `@method` (or permissions block) plus any `@state` declarations it touches.
-        Trim unrelated methods. Anonymize names if the code is private.
+        Trim unrelated methods. Use a synthetic reproducer if the original is private;
+        renaming alone may not remove proprietary business logic.
       render: typescript
     validations:
       required: true
