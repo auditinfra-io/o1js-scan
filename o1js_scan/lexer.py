@@ -141,7 +141,7 @@ _METHOD_DECORATOR_RE = re.compile(
 )
 _STATE_DECL_RE = re.compile(
     r"@state\(\s*(\w+)\s*\)\s+(?:declare\s+)?(\w+)"
-    r"(?:\s*[?!])?(?:\s*:\s*State\s*<[^;=]{1,%d}>)?\s*=" % _MAX_PARAMS
+    r"(?:\s*[?!])?(?:\s*:\s*State\s*<[^;=]{1,%d}>)?\s*(?:=|;)" % _MAX_PARAMS
 )
 # `const x = Provable.witness(Type, () => ...)` — a fresh in-circuit witness.
 # Also covers `witnessFields` and the async `witnessAsync` form.
@@ -202,6 +202,7 @@ _OUTSIDE_PROOF_EFFECT_RE = re.compile(
     r"|this\s*\.\s*(?:approve|approveAccountUpdate|approveAccountUpdates|approveBase|"
     r"send|assertCanMint|assertCanBurn)\s*\("
     r"|(?:approveAccountUpdate|approveAccountUpdates|approveBase)\s*\("
+    r"|\.balance\s*\.\s*subInPlace\s*\("
     r"|\.set\s*\("
     r")"
 )
@@ -1516,9 +1517,15 @@ class O1jsLexer:
                 open_paren = m.end() - 1
                 args = _paren_segment(body, open_paren)
                 cb = _first_callback_brace_body(args)
-                if cb is None:
-                    continue
-                cb_body, _ = cb
+                if cb is not None:
+                    cb_body, _ = cb
+                else:
+                    # Expression-bodied callbacks can contain a single effect,
+                    # e.g. `() => this.account.balance.subInPlace(amount)`.
+                    arrow = re.search(r"=>\s*", args)
+                    if arrow is None:
+                        continue
+                    cb_body = args[arrow.end():]
                 if not _OUTSIDE_PROOF_EFFECT_RE.search(cb_body):
                     continue
                 # Locate the offending effect for line attribution.
