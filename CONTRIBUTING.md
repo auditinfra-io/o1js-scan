@@ -31,6 +31,16 @@ npm run test:npm-wrapper
 Both run in CI. Prettier is fetched via `npx` on demand, so there is nothing to
 install and no `node_modules` in a normal Python-only workflow.
 
+To exercise the scanner against a checkout of the current public o1js
+repository without cloning it again:
+
+```bash
+bash scripts/o1js_upstream_canary.sh /path/to/o1js
+```
+
+This checks syntax and JSONL compatibility, not whether upstream examples are
+secure. The scheduled CI job clones `o1-labs/o1js` automatically.
+
 ## Documentation is tested
 
 `tests/test_readme_examples.py` and `tests/test_docs_consistency.py` execute the

@@ -102,3 +102,16 @@ jobs:
         run: pip install -e .
       - name: Canary (Mina / o1js, classified budgets + confirmed-TP floor)
         run: bash scripts/mina_canary.sh
+
+  o1js-upstream-canary:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e .
+      - name: Canary (current public o1js syntax + JSONL compatibility)
+        run: bash scripts/o1js_upstream_canary.sh
