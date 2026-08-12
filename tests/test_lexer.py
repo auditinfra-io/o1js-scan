@@ -71,6 +71,22 @@ def test_getAndRequireEquals_does_not_fire():
     assert "O1JS_MISSING_STATE_PRECONDITION" not in _rules(v)
 
 
+def test_declaration_only_annotated_state_still_checks_preconditions():
+    source = """
+import { SmartContract, Field, State, state, method } from 'o1js';
+export class C extends SmartContract {
+  @state(Field) declare root: State<Field>;
+  @method async f() {
+    const root = this.root.get();
+    this.root.set(root);
+  }
+}
+"""
+    findings = analyze_file("c.ts", source)
+    missing = [x for x in findings if x.rule_id == "O1JS_MISSING_STATE_PRECONDITION"]
+    assert missing and missing[0].evidence["state_field"] == "root"
+
+
 # ---------------------------------------------------------------------------
 # Rule 2 — unconstrained witness flows to effect (the marquee rule)
 # ---------------------------------------------------------------------------
@@ -658,6 +674,28 @@ def test_witness_callback_assert_fires_logic_outside_proof():
     assert f.evidence["api"] == "witness"
 
 
+def test_balance_debits_inside_prover_callbacks_fire_logic_outside_proof():
+    source = """
+import { SmartContract, UInt64, Provable, method } from 'o1js';
+export class C extends SmartContract {
+  @method async bad() {
+    Provable.asProver(() => this.account.balance.subInPlace(UInt64.one));
+  }
+}
+"""
+    findings = analyze_file("c.ts", source)
+    outside = [x for x in findings if x.rule_id == "O1JS_LOGIC_OUTSIDE_PROOF"]
+    assert outside and outside[0].evidence["api"] == "asProver"
+
+    witness_source = source.replace(
+        "Provable.asProver(() =>",
+        "Provable.witness(UInt64, () =>",
+    )
+    findings = analyze_file("c.ts", witness_source)
+    outside = [x for x in findings if x.rule_id == "O1JS_LOGIC_OUTSIDE_PROOF"]
+    assert outside and outside[0].evidence["api"] == "witness"
+
+
 def test_upgrade_permissions_signature_is_medium():
     v = analyze_file("c.ts", _UPGRADE_PERMS)
     upgrades = [
@@ -977,6 +1015,67 @@ def test_o1js_2x_ungated_method_still_detects():
     amt = [x for x in v if x.evidence.get("witness") == "amount"]
     assert amt and amt[0].rule_id == "O1JS_UNCONSTRAINED_WITNESS"
     assert amt[0].severity == Severity.HIGH
+
+
+def test_callable_method_decorator_and_annotated_state_are_supported():
+    source = """
+import { SmartContract, UInt64, State, state, method } from 'o1js';
+export class Vault extends SmartContract {
+  @state(UInt64) total!: State<UInt64> = State<UInt64>();
+  @method() async withdraw(amount: UInt64) {
+    this.account.balance.subInPlace(amount);
+  }
+}
+"""
+    findings = analyze_file("Vault.ts", source)
+    amount = [x for x in findings if x.evidence.get("witness") == "amount"]
+    assert amount and amount[0].rule_id == "O1JS_UNCONSTRAINED_WITNESS"
+    assert amount[0].evidence["effect"] == "send_amount"
+
+
+def test_multiline_decorator_params_comments_braces_and_aliases_are_supported():
+    source = """
+import { SmartContract, UInt64, State, state, method } from 'o1js';
+export class Vault extends SmartContract {
+  @state(UInt64) reserve = State<UInt64>();
+  @method
+  /* a comment with misleading braces: }}} */
+  async withdraw(
+    amount: UInt64,
+    format: (value: UInt64) => UInt64 = (value) => value,
+  ) {
+    const text = `not a method brace: }`;
+    const renamed
+      : UInt64 =
+      (amount) as UInt64
+    this.account.balance.subInPlace(renamed);
+  }
+}
+"""
+    findings = analyze_file("Vault.ts", source)
+    amount = [x for x in findings if x.evidence.get("witness") == "amount"]
+    assert amount and amount[0].rule_id == "O1JS_UNCONSTRAINED_WITNESS"
+
+
+def test_equivalent_static_and_predicate_assertions_bind_to_state():
+    static = """
+import { SmartContract, UInt64, State, state, method, Provable } from 'o1js';
+export class Vault extends SmartContract {
+  @state(UInt64) reserve = State<UInt64>();
+  @method async withdraw(amount: UInt64) {
+    const current = this.reserve.getAndRequireEquals();
+    Provable.assertEqual(UInt64, amount, current);
+    this.send({ to: this.sender.getUnconstrained(), amount });
+  }
+}
+"""
+    predicate = static.replace(
+        "Provable.assertEqual(UInt64, amount, current);",
+        "current.equals(amount).assertTrue();",
+    )
+    for source in (static, predicate):
+        findings = analyze_file("Vault.ts", source)
+        assert not [x for x in findings if x.evidence.get("witness") == "amount"]
 
 
 # ---------------------------------------------------------------------------

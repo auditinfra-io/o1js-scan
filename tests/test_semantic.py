@@ -106,6 +106,41 @@ def test_chained_account_update_send_propagates_through_helper():
     assert effect is not None and effect.kind == "send_recipient"
 
 
+def test_account_update_balance_debit_is_a_transfer_effect():
+    entry = Method("entry", ["requested"], "this.transfer(requested);")
+    helper = Method(
+        "transfer", ["amount"],
+        "const payer = AccountUpdate.create(sender); payer.balance.subInPlace(amount);",
+    )
+    effect, _ = SemanticFacts([entry, helper], []).witness(entry, 0)
+    assert effect is not None and effect.kind == "send_amount"
+
+
+def test_chained_account_update_balance_debit_is_a_transfer_effect():
+    method = Method(
+        "transfer", ["amount"],
+        "AccountUpdate.create(sender).balance.subInPlace(amount);",
+    )
+    effect, _ = SemanticFacts([method], []).witness(method, 0)
+    assert effect is not None and effect.kind == "send_amount"
+
+
+def test_multiline_cast_alias_and_static_assertion_bind_through_helper():
+    entry = Method(
+        "entry", ["requested"],
+        "const amount\n: UInt64 = (requested) as UInt64; this.transfer(amount);",
+    )
+    helper = Method(
+        "transfer", ["amount"],
+        "const current = this.reserve.getAndRequireEquals(); "
+        "Provable.assertEqual(UInt64, amount, current); "
+        "this.send({ to: receiver, amount });",
+    )
+    effect, constraint = SemanticFacts([entry, helper], ["reserve"]).witness(entry, 0)
+    assert effect is not None and effect.kind == "send_amount"
+    assert constraint == "bound"
+
+
 def test_explanation_records_alias_calls_mappings_and_real_sink_lines():
     methods = [
         Method("withdraw", ["amount"], "\nconst requested = amount;\nthis.middle(requested);"),

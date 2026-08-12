@@ -135,10 +135,14 @@ _MAX_CALL_ARG = 2000   # longest single call-argument expression
 
 _O1JS_IMPORT_RE = re.compile(r"""from\s+['"]o1js['"]""")
 _SMARTCONTRACT_RE = re.compile(r"\bclass\s+(\w+)\s+extends\s+SmartContract\b")
+_METHOD_DECORATOR = r"@method(?:\s*\(\s*\)|\.returns\([^)]{0,%d}\))?" % _MAX_PARAMS
 _METHOD_DECORATOR_RE = re.compile(
-    r"@method(?:\.returns\([^)]{0,%d}\))?\s+(?:async\s+)?(\w+)\s*\(" % _MAX_PARAMS,
+    _METHOD_DECORATOR + r"\s+(?:async\s+)?(\w+)\s*\(",
 )
-_STATE_DECL_RE = re.compile(r"@state\(\s*(\w+)\s*\)\s+(\w+)\s*=")
+_STATE_DECL_RE = re.compile(
+    r"@state\(\s*(\w+)\s*\)\s+(?:declare\s+)?(\w+)"
+    r"(?:\s*[?!])?(?:\s*:\s*State\s*<[^;=]{1,%d}>)?\s*(?:=|;)" % _MAX_PARAMS
+)
 # `const x = Provable.witness(Type, () => ...)` — a fresh in-circuit witness.
 # Also covers `witnessFields` and the async `witnessAsync` form.
 _PROVABLE_WITNESS_RE = re.compile(
@@ -198,6 +202,7 @@ _OUTSIDE_PROOF_EFFECT_RE = re.compile(
     r"|this\s*\.\s*(?:approve|approveAccountUpdate|approveAccountUpdates|approveBase|"
     r"send|assertCanMint|assertCanBurn)\s*\("
     r"|(?:approveAccountUpdate|approveAccountUpdates|approveBase)\s*\("
+    r"|\.balance\s*\.\s*subInPlace\s*\("
     r"|\.set\s*\("
     r")"
 )
@@ -238,6 +243,10 @@ def is_o1js_source(content: str, filepath: str = "") -> bool:
 def _strip_comments(src: str) -> str:
     """Length-preserving removal of // and /* */ comments and string bodies
     (so an `assert` inside a string literal can't fool a rule)."""
+    def blank(text: str) -> str:
+        """Hide tokens without changing offsets or line numbers."""
+        return "".join("\n" if char == "\n" else " " for char in text)
+
     out: List[str] = []
     i, n = 0, len(src)
     while i < n:
@@ -245,15 +254,15 @@ def _strip_comments(src: str) -> str:
         if c == "/" and i + 1 < n and src[i + 1] == "/":
             end = src.find("\n", i)
             end = n if end == -1 else end
-            out.append(" " * (end - i))
+            out.append(blank(src[i:end]))
             i = end
             continue
         if c == "/" and i + 1 < n and src[i + 1] == "*":
             end = src.find("*/", i + 2)
             if end == -1:
-                out.append(" " * (n - i))
+                out.append(blank(src[i:n]))
                 break
-            out.append(" " * (end + 2 - i))
+            out.append(blank(src[i:end + 2]))
             i = end + 2
             continue
         if c in ("'", '"', "`"):
@@ -262,8 +271,9 @@ def _strip_comments(src: str) -> str:
                 if src[j] == "\\":
                     j += 1
                 j += 1
-            # keep quotes, blank the body so identifiers inside don't match
-            out.append(c + " " * max(0, j - i - 1) + (c if j < n else ""))
+            # Keep delimiters, but preserve embedded newlines so all later
+            # offsets and line calculations continue to match the source.
+            out.append(c + blank(src[i + 1:j]) + (c if j < n else ""))
             i = j + 1
             continue
         out.append(c)
@@ -295,9 +305,13 @@ class _Method:
 
 
 _FUNC_HEAD_RE = re.compile(
-    r"(?P<deco>@method(?:\.returns\([^)]{0,%d}\))?\s+)?"
-    r"(?:async\s+)?(?P<name>\w{1,%d})\s*\((?P<params>[^)]{0,%d})\)\s*"
-    r"(?::\s*[^{]{1,%d})?\{" % (_MAX_PARAMS, _MAX_IDENT, _MAX_PARAMS, _MAX_PARAMS),
+    r"^[ \t]*(?P<deco>" + _METHOD_DECORATOR + r"\s+)?"
+    r"(?:public\s+|private\s+|protected\s+|static\s+|override\s+)*"
+    r"(?:async\s+)?(?P<name>\w{1,%d})\s*\("
+    r"(?P<params>(?:[^()]|\([^()]{0,%d}\)){0,%d})\)\s*"
+    r"(?::\s*[^{]{1,%d})?\{" % (
+        _MAX_IDENT, _MAX_PARAMS, _MAX_PARAMS, _MAX_PARAMS,
+    ), re.MULTILINE,
 )
 # Same-class helper call: `this.<helper>(...)`. Depth-1 binding propagation only.
 _THIS_HELPER_CALL_RE = re.compile(
@@ -331,6 +345,10 @@ def _extract_methods(stripped: str, full_src: str) -> List[_Method]:
             elif ch == "}":
                 depth -= 1
             i += 1
+        if depth:
+            # Do not manufacture a body (or swallow later declarations) from
+            # malformed input with an unmatched opening brace.
+            continue
         body = stripped[open_idx + 1: i - 1]
         methods.append(_Method(
             name=name,
@@ -1311,6 +1329,31 @@ class O1jsLexer:
             kind = _classify_send(seg)
             if kind:
                 return (kind, sm.start(), seg.strip()[:80])
+        # The documented low-level AccountUpdate transfer form mutates account
+        # balances directly instead of calling send():
+        #   update.balance.subInPlace(amount)
+        # `this.account.balance.subInPlace(amount)` is the equivalent zkApp
+        # account form. Only debits are sinks; addInPlace is the recipient side.
+        balance_receivers = set(au_locals)
+        balance_receivers.update(("this.account", "this.self"))
+        for sm in re.finditer(
+            r"\b((?:this\s*\.\s*(?:account|self))|\w+)\s*\.\s*balance\s*\.\s*"
+            r"subInPlace\s*\(", body,
+        ):
+            receiver = re.sub(r"\s+", "", sm.group(1))
+            if receiver not in balance_receivers:
+                continue
+            seg = _paren_segment(body, sm.end() - 1)
+            if any(re.search(r"\b" + re.escape(a) + r"\b", seg) for a in aliases):
+                return ("send_amount", sm.start(), seg.strip()[:80])
+        for sm in re.finditer(
+            r"\bAccountUpdate\s*\.\s*create(?:Signed)?\s*\([^;]{0,%d}?\)\s*\.\s*"
+            r"balance\s*\.\s*subInPlace\s*\(" % _MAX_CALL_ARG,
+            body,
+        ):
+            seg = _paren_segment(body, sm.end() - 1)
+            if any(re.search(r"\b" + re.escape(a) + r"\b", seg) for a in aliases):
+                return ("send_amount", sm.start(), seg.strip()[:80])
         # this.<state>.set(<arg ...>)
         for sm in re.finditer(r"this\s*\.\s*\w+\s*\.\s*set\s*\(", body):
             seg = _paren_segment(body, sm.end() - 1)
@@ -1380,12 +1423,37 @@ class O1jsLexer:
         # chained-comparison idiom: `amount.lessThanOrEqual(bal).assertTrue()`
         alias_alt = "|".join(re.escape(a) for a in sorted(aliases))
         for cm in re.finditer(
-            r"\b(?:" + alias_alt + r")\s*\.\s*(?:lessThan|lessThanOrEqual|greaterThan"
+            r"\b(?:" + alias_alt + r")\s*\.\s*(?:equals|lessThan|lessThanOrEqual|greaterThan"
             r"|greaterThanOrEqual)\s*\(([^;]{0,%d}?)\)\s*\.\s*assertTrue\s*\(" % _MAX_CALL_ARG,
             body,
         ):
             any_assert = True
             if _state_derived(cm.group(1)):
+                bound = True
+            else:
+                trivial = True
+        # Reverse predicate form: `stateValue.equals(amount).assertTrue()`.
+        for cm in re.finditer(
+            r"(?<![\w.])([\w.()]{1,%d})\s*\.\s*(?:equals|lessThan|lessThanOrEqual|greaterThan"
+            r"|greaterThanOrEqual)\s*\(([^;]{0,%d}?)\)\s*\.\s*assertTrue\s*\("
+            % (_MAX_IDENT * 2, _MAX_CALL_ARG), body,
+        ):
+            if not _mentions_alias(cm.group(2)):
+                continue
+            any_assert = True
+            if _state_derived(cm.group(1)):
+                bound = True
+            else:
+                trivial = True
+        # `Provable.assertEqual(Type, left, right)` is the static equivalent of
+        # `left.assertEquals(right)` and is common in generic helper code.
+        for pm in re.finditer(r"\bProvable\s*\.\s*assertEqual\s*\(", body):
+            args = _split_top_level(_paren_segment(body, pm.end() - 1), ",")
+            if len(args) < 3 or not _mentions_alias(" ".join(args[1:3])):
+                continue
+            any_assert = True
+            other = args[2] if _mentions_alias(args[1]) else args[1]
+            if _state_derived(other):
                 bound = True
             else:
                 trivial = True
@@ -1449,9 +1517,15 @@ class O1jsLexer:
                 open_paren = m.end() - 1
                 args = _paren_segment(body, open_paren)
                 cb = _first_callback_brace_body(args)
-                if cb is None:
-                    continue
-                cb_body, _ = cb
+                if cb is not None:
+                    cb_body, _ = cb
+                else:
+                    # Expression-bodied callbacks can contain a single effect,
+                    # e.g. `() => this.account.balance.subInPlace(amount)`.
+                    arrow = re.search(r"=>\s*", args)
+                    if arrow is None:
+                        continue
+                    cb_body = args[arrow.end():]
                 if not _OUTSIDE_PROOF_EFFECT_RE.search(cb_body):
                     continue
                 # Locate the offending effect for line attribution.
@@ -1854,8 +1928,11 @@ def _simple_aliases(body: str, seeds: Set[str]) -> Set[str]:
     lets = [
         (m.group(1), m.group(2))
         for m in re.finditer(
-            r"\b(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*(\w+)\s*;",
+            r"\b(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=;]+)?\s*=\s*"
+            r"\(?\s*(\w+)\s*\)?(?:\s+as\s+(?:const|[\w$]+(?:\s*<[^>]+>)?))?"
+            r"\s*(?:;|$)",
             body,
+            re.MULTILINE,
         )
     ]
     changed = True
