@@ -12,6 +12,8 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from o1js_upstream_report import (  # noqa: E402
     build_summary,
+    is_example_path,
+    normalize_findings,
     read_findings,
     sorted_findings,
 )
@@ -80,6 +82,16 @@ def test_sorting_and_summary_counts_are_deterministic():
     assert summary.index("HIGH C a.ts:2") < summary.index("MEDIUM A a.ts:3")
 
 
+def test_checkout_paths_are_normalized_and_examples_are_recognized(tmp_path):
+    root = tmp_path / "random-clone" / "o1js"
+    absolute = root / "packages" / "app" / "src" / "main.ts"
+    normalized = normalize_findings([finding(file=str(absolute))], root)
+    assert normalized[0]["file"] == "packages/app/src/main.ts"
+    assert is_example_path("packages/foo/examples/unsafe.ts")
+    assert is_example_path("packages/foo/src/unsafe.eg.ts")
+    assert not is_example_path("packages/foo/src/example-client.ts")
+
+
 def test_script_preserves_output_files(tmp_path):
     checkout = tmp_path / "o1js"
     checkout.mkdir()
@@ -91,13 +103,16 @@ def test_script_preserves_output_files(tmp_path):
     subprocess.run(["git", "-C", str(checkout), "commit", "-qm", "fixture"], check=True)
 
     fake_python = tmp_path / "python"
+    example = checkout / "packages" / "demo" / "examples" / "unsafe.ts"
+    production = checkout / "packages" / "demo" / "src" / "contract.ts"
     fake_python.write_text(
         f"""#!/usr/bin/env bash
 if [[ "$1" == "-m" ]]; then
   if [[ " $* " == *" --include-tests "* ]]; then
-    echo '{{"file":"tests/a.ts","rule_id":"ALL","severity":"LOW","line":2,"title":"all"}}'
+    echo '{{"file":"{checkout}/tests/a.ts","rule_id":"ALL","severity":"LOW","line":2,"title":"all"}}'
   else
-    echo '{{"file":"src/a.ts","rule_id":"PROD","severity":"HIGH","line":7,"title":"prod"}}'
+    echo '{{"file":"{example}","rule_id":"EXAMPLE","severity":"LOW","line":3,"title":"example"}}'
+    echo '{{"file":"{production}","rule_id":"PROD","severity":"HIGH","line":7,"title":"prod"}}'
   fi
 elif [[ "$1" == "-c" ]]; then
   echo 0.15.0
@@ -116,12 +131,19 @@ fi
         capture_output=True,
         check=True,
     )
-    assert "HIGH PROD src/a.ts:7" in result.stdout
+    assert "HIGH PROD packages/demo/src/contract.ts:7" in result.stdout
+    assert "EXAMPLE" not in result.stdout
     assert {path.name for path in output.iterdir()} == {
         "all-findings.jsonl",
         "production-findings.jsonl",
         "summary.txt",
     }
+    all_text = (output / "all-findings.jsonl").read_text(encoding="utf-8")
+    production_text = (output / "production-findings.jsonl").read_text(encoding="utf-8")
+    summary = (output / "summary.txt").read_text(encoding="utf-8")
+    assert str(tmp_path) not in all_text + production_text + summary
+    assert "packages/demo/src/contract.ts" in production_text
+    assert "examples/unsafe.ts" not in production_text
 
 
 def test_workflow_uploads_reports_and_keeps_canary_triggers():

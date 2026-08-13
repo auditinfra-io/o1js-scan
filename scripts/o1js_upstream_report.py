@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import Any, Dict, List
 
 REQUIRED_FIELDS = {"file", "rule_id", "severity", "line", "title"}
 SEVERITY_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+EXAMPLE_FILE_RE = re.compile(r"\.eg\.(?:ts|tsx|js|jsx|mjs|cjs|nr)$")
 
 
 def read_findings(path: Path, *, allow_empty: bool) -> List[Dict[str, Any]]:
@@ -48,6 +50,42 @@ def sorted_findings(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             str(item["rule_id"]),
         ),
     )
+
+
+def normalize_path(path: str, root: Path) -> str:
+    """Make paths inside the checkout stable across randomized clone locations."""
+    candidate = Path(path)
+    try:
+        resolved_relative = candidate.resolve().relative_to(root.resolve())
+    except ValueError:
+        # A relative path may already be checkout-relative. Retain it, and also
+        # retain unexpected absolute paths rather than obscuring their origin.
+        pass
+    else:
+        candidate = resolved_relative
+    return candidate.as_posix()
+
+
+def normalize_findings(
+    findings: List[Dict[str, Any]], root: Path
+) -> List[Dict[str, Any]]:
+    return [{**item, "file": normalize_path(str(item["file"]), root)} for item in findings]
+
+
+def is_example_path(path: str) -> bool:
+    """Match the scanner's documented example path conventions."""
+    normalized = path.replace("\\", "/")
+    segments = normalized.split("/")
+    return EXAMPLE_FILE_RE.search(normalized) is not None or any(
+        segment in {"example", "examples"} for segment in segments[:-1]
+    )
+
+
+def write_findings(path: Path, findings: List[Dict[str, Any]]) -> None:
+    """Persist canonical JSONL after path normalization and report filtering."""
+    with path.open("w", encoding="utf-8") as report:
+        for finding in findings:
+            report.write(json.dumps(finding, sort_keys=True, separators=(",", ":")) + "\n")
 
 
 def count_lines(label: str, findings: List[Dict[str, Any]]) -> List[str]:
@@ -96,6 +134,7 @@ def main() -> int:
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--root", type=Path, required=True)
     args = parser.parse_args()
     try:
         all_findings = read_findings(args.all_report, allow_empty=False)
@@ -103,6 +142,15 @@ def main() -> int:
     except ValueError as error:
         print(f"o1js upstream canary: FAIL ({error})", file=sys.stderr)
         return 1
+
+    all_findings = normalize_findings(all_findings, args.root)
+    production = [
+        item
+        for item in normalize_findings(production, args.root)
+        if not is_example_path(str(item["file"]))
+    ]
+    write_findings(args.all_report, all_findings)
+    write_findings(args.production, production)
 
     args.summary.write_text(
         build_summary(

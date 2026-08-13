@@ -53,4 +53,4 @@ COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
 VERSION="$("$PYTHON" -c 'import o1js_scan; print(o1js_scan.__version__)')"
 "$PYTHON" "$(dirname "$0")/o1js_upstream_report.py" \
   --all "$ALL_REPORT" --production "$PRODUCTION_REPORT" --summary "$SUMMARY" \
-  --version "$VERSION" --commit "$COMMIT"
+  --version "$VERSION" --commit "$COMMIT" --root "$ROOT"
