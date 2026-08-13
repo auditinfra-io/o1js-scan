@@ -6,7 +6,7 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    # Weekly FP canary against upstream aztec-nr
+    # Weekly upstream compatibility and calibration canaries
     - cron: "0 6 * * 1"
 
 jobs:
@@ -114,4 +114,14 @@ jobs:
       - name: Install
         run: pip install -e .
       - name: Canary (current public o1js syntax + JSONL compatibility)
-        run: bash scripts/o1js_upstream_canary.sh
+        run: bash scripts/o1js_upstream_canary.sh "" artifacts/o1js-upstream
+      - name: Upload o1js upstream scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: o1js-upstream-scan
+          path: |
+            artifacts/o1js-upstream/all-findings.jsonl
+            artifacts/o1js-upstream/production-findings.jsonl
+            artifacts/o1js-upstream/summary.txt
+          retention-days: 14
