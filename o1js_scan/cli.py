@@ -80,12 +80,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="write SARIF 2.1.0 to FILE (default o1js-scan.sarif; '-' for stdout) "
              "for GitHub code scanning",
     )
-    ap.add_argument(
-        "--fail-on", choices=_FAIL_ON_CHOICES, default="high", metavar="LEVEL",
+    gate_group = ap.add_mutually_exclusive_group()
+    gate_group.add_argument(
+        "--fail-on", choices=_FAIL_ON_CHOICES, default=None, metavar="LEVEL",
         help="minimum severity that makes the run exit 1 "
              f"({'|'.join(_FAIL_ON_CHOICES)}; default: high). 'none' never fails.",
     )
+    gate_group.add_argument(
+        "--strict", action="store_true",
+        help="progressive/power-user gate: fail on MEDIUM or higher (shorthand "
+             "for --fail-on medium; LOW findings remain visible but advisory).",
+    )
     args = ap.parse_args(argv)
+    fail_on = "medium" if args.strict else (args.fail_on or "high")
 
     # Fail loudly on a missing path. Otherwise a typo'd scan target silently
     # produces zero findings and exit 0 — a green CI run that scanned nothing.
@@ -99,7 +106,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         include_examples=args.include_examples, stats=stats,
     )
 
-    gate = any(meets_threshold(v.severity.value, args.fail_on) for _f, v in findings)
+    gate = any(meets_threshold(v.severity.value, fail_on) for _f, v in findings)
 
     # SARIF is written even when the exit gate trips below, so the CI upload
     # step still runs on a repo that has high findings.
@@ -141,7 +148,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     print(f"  sink: {path['sink']}")
                     print(f"  binding: {path['binding']}")
 
-    print(_summary(prog, findings, args.fail_on, gate, args.lang), file=sys.stderr)
+    print(_summary(prog, findings, fail_on, gate, args.lang), file=sys.stderr)
     # Silent suppression is invisible: say what was skipped or downgraded, on
     # stderr so --json / --sarif consumers are unaffected.
     note = stats.note()

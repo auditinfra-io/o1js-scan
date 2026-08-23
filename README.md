@@ -131,6 +131,9 @@ noir-scan . --lang noir --sarif noir.sarif
 # choose which severity fails CI (critical|high|medium|low|none; default high)
 o1js-scan src --fail-on medium
 
+# progressive/power-user gate (equivalent to --fail-on medium)
+o1js-scan src --strict
+
 # test code is excluded by default (both backends); opt back in
 o1js-scan src --include-tests
 
@@ -144,8 +147,10 @@ Exit code is `1` when a finding at or above the `--fail-on` level (default
 `high`) is present and `0` otherwise — so you can drop it straight into CI.
 With the default, a low/medium finding (including the informational recipient
 rule below) does **not** fail the build; use `--fail-on none` to only report,
-or `--fail-on medium` to gate more strictly. A missing scan path exits `2` with
-an error on stderr, so a typo can't silently pass CI as a clean run. Every run
+or `--strict` (a shorthand for `--fail-on medium`) to gate more strictly while
+still treating low-severity findings as advisory. The two options are mutually
+exclusive so CI configuration cannot be ambiguous. A missing scan path exits `2`
+with an error on stderr, so a typo can't silently pass CI as a clean run. Every run
 prints a one-line summary (counts by severity and the gate verdict) to stderr.
 
 **Test code is excluded by default — both backends.** Tests deliberately build
@@ -229,11 +234,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: auditinfra-io/o1js-scan@v0.10.0
+      - uses: auditinfra-io/o1js-scan@v0.15.0
         with:
           path: src              # optional, defaults to the repo root
           lang: auto             # auto | o1js | noir
-          # version: 0.10.0       # optional, pin the scanner version
+          # version: 0.15.0       # optional, pin the scanner version
           # fail-on-findings: true   # optional, fail the job on any high/critical
 ```
 
@@ -243,7 +248,7 @@ Recommended for Noir projects that want code-scanning alerts and a high-severity
 gate:
 
 ```yaml
-- uses: auditinfra-io/o1js-scan@v0.10.0
+- uses: auditinfra-io/o1js-scan@v0.15.0
   with:
     path: .
     lang: noir
@@ -278,6 +283,21 @@ Inputs: `path` (default `.`), `lang` (`auto`|`o1js`|`noir`, default `auto`),
 upload needs `security-events: write` and code scanning enabled.
 
 ## What it detects (o1js)
+
+### Supported rules at a glance
+
+| Backend | Rules | High-capable | Medium-capable | Low-capable |
+|---------|------:|-------------:|---------------:|------------:|
+| o1js | 15 | 11 | 9 | 2 |
+| Noir | 10 | 4 | 9 | 1 |
+| **Total** | **25** | **15** | **18** | **3** |
+
+Counts are distinct rule IDs supported by each backend. A rule that assigns
+severity according to context (for example, high for a value transfer and
+medium for a state write) appears in more than one severity column, so the
+severity columns intentionally do not add up to the rule total. There are
+currently no critical- or info-severity rules. The full descriptions and
+false-positive guards follow below.
 
 | Rule | Severity | What it means |
 |------|----------|---------------|
