@@ -83,6 +83,50 @@ def test_rule_id_extraction_is_not_vacuous():
         assert known in documented and known in implemented
 
 
+def test_supported_rules_summary_counts_match_detailed_tables():
+    """The at-a-glance totals must be derived from the detailed rule tables."""
+    readme = _readme()
+    rows = re.findall(
+        r"^\| (o1js|Noir) \| (\d+) \| (\d+) \| (\d+) \| (\d+) \|$",
+        readme,
+        re.M,
+    )
+    summary = {
+        backend.lower(): tuple(map(int, counts))
+        for backend, *counts in rows
+    }
+    assert set(summary) == {"o1js", "noir"}
+
+    expected = {}
+    for backend, heading in (("o1js", "o1js"), ("noir", "Noir")):
+        section = re.search(
+            rf"^## What it detects \({heading}\)(.*?)(?=^## )", readme, re.M | re.S
+        )
+        assert section, f"missing detailed {backend} rules section"
+        severities = re.findall(
+            r"^\| `(?:O1JS_|NOIR_|MissingRangeCheck)[^`]*` \| ([^|]+) \|",
+            section.group(1),
+            re.M,
+        )
+        expected[backend] = (
+            len(severities),
+            sum("high" in severity for severity in severities),
+            sum("medium" in severity for severity in severities),
+            sum("low" in severity for severity in severities),
+        )
+
+    assert summary == expected
+    total = tuple(sum(expected[b][i] for b in expected) for i in range(4))
+    total_match = re.search(
+        r"^\| \*\*Total\*\* \| \*\*(\d+)\*\* \| \*\*(\d+)\*\* "
+        r"\| \*\*(\d+)\*\* \| \*\*(\d+)\*\* \|$",
+        readme,
+        re.M,
+    )
+    assert total_match
+    assert tuple(map(int, total_match.groups())) == total
+
+
 # ───────────────────────────────────────────────────────────────────
 # Skipped directories
 # ───────────────────────────────────────────────────────────────────

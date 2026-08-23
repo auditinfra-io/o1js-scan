@@ -289,8 +289,8 @@ upload needs `security-events: write` and code scanning enabled.
 | Backend | Rules | High-capable | Medium-capable | Low-capable |
 |---------|------:|-------------:|---------------:|------------:|
 | o1js | 15 | 11 | 9 | 2 |
-| Noir | 10 | 4 | 9 | 1 |
-| **Total** | **25** | **15** | **18** | **3** |
+| Noir | 11 | 4 | 9 | 1 |
+| **Total** | **26** | **15** | **18** | **3** |
 
 Counts are distinct rule IDs supported by each backend. A rule that assigns
 severity according to context (for example, high for a value transfer and
