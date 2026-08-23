@@ -66,3 +66,22 @@ def test_cli_help_mentions_lang():
     with pytest.raises(SystemExit) as ei:
         main(["--help"])
     assert ei.value.code == 0
+
+
+def test_strict_is_medium_gate(tmp_path: Path, capsys):
+    p = tmp_path / "main.nr"
+    p.write_text("fn main(unused: Field) {}\n", encoding="utf-8")
+
+    assert main([str(p), "--lang", "noir"]) == 0
+    assert "passes (--fail-on high)" in capsys.readouterr().err
+
+    assert main([str(p), "--lang", "noir", "--strict"]) == 1
+    assert "fails (--fail-on medium)" in capsys.readouterr().err
+
+
+def test_strict_and_fail_on_are_mutually_exclusive(tmp_path: Path):
+    p = tmp_path / "main.nr"
+    p.write_text("fn main() {}\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        main([str(p), "--strict", "--fail-on", "low"])
+    assert exc.value.code == 2
