@@ -1,0 +1,87 @@
+diff --git a/src/lib/provable/dynamic-array.ts b/src/lib/provable/dynamic-array.ts
+index 806a2ad..5573677 100644
+--- a/src/lib/provable/dynamic-array.ts
++++ b/src/lib/provable/dynamic-array.ts
+@@ -346,6 +346,7 @@ class DynamicArrayBase<ProvableValue = any, Value = any> {
+     let newLength = this.length.add(n).seal();
+     newLength.assertLessThanOrEqual(new Field(this.capacity), errorMessage);
+     this.length = newLength;
++    this.#invalidateLengthCaches();
+   }
+ 
+   /**
+@@ -364,6 +365,7 @@ class DynamicArrayBase<ProvableValue = any, Value = any> {
+     let oldLength = this.length;
+     n.assertLessThanOrEqual(this.length, errorMessage);
+     this.length = oldLength.sub(n).seal();
++    this.#invalidateLengthCaches();
+   }
+ 
+   /**
+@@ -383,6 +385,7 @@ class DynamicArrayBase<ProvableValue = any, Value = any> {
+       message ?? `setLengthTo: cannot set length to n because it exceeds capacity ${this.capacity}`;
+     n.assertLessThanOrEqual(new Field(this.capacity), errorMessage);
+     this.length = n;
++    this.#invalidateLengthCaches();
+   }
+ 
+   /**
+@@ -427,7 +430,7 @@ class DynamicArrayBase<ProvableValue = any, Value = any> {
+       // set the last n elements to NULL
+       for (let i = 0; i < this.capacity; i++) {
+         this.array[i] = Provable.if(
+-          new Field(i).lessThanOrEqual(this.length),
++          new Field(i).lessThan(this.length),
+           this.innerType,
+           this.array[i],
+           NULL
+@@ -606,7 +609,10 @@ class DynamicArrayBase<ProvableValue = any, Value = any> {
+    */
+   includes(value: ProvableValue): Bool {
+     let type = this.innerType;
+-    let isIncluded = this.array.map((t) => Provable.equal(type, t, value));
++    let isDummy = this.#dummyMask();
++    let isIncluded = this.array.map((t, j) =>
++      Provable.equal(type, t, value).and(isDummy[j]!.not())
++    );
+     let isSome = isIncluded.reduce((acc, curr) => acc.or(curr), new Bool(false));
+     return isSome;
+   }
+@@ -617,6 +623,22 @@ class DynamicArrayBase<ProvableValue = any, Value = any> {
+   #indicesInRange: Set<Field> = new Set();
+   #dummies?: Bool[];
+ 
++  /**
++   * Drop the caches that are only valid for one particular `length`.
++   *
++   * `#indicesInRange` remembers indices already proven to be `< length`, and
++   * `#dummies` is the mask derived from `length`. Both become wrong as soon as
++   * `length` changes, so every mutation of `length` has to clear them --
++   * otherwise a later `get`/`set` would silently skip its bounds proof, and a
++   * later `forEach` would iterate the wrong elements.
++   *
++   * `#indexMasks` is keyed by the index variable alone and stays valid.
++   */
++  #invalidateLengthCaches(): void {
++    this.#indicesInRange = new Set();
++    this.#dummies = undefined;
++  }
++
+   /**
+    * Compute i.equals(j) for all indices j in the static-size array.
+    *
+@@ -700,7 +722,13 @@ function provable<ProvableValue, Value>(
+     },
+ 
+     toCanonical(value) {
+-      return value;
++      // padding beyond `length` carries no meaning, so it must not affect
++      // equality or the hash of the array
++      let canonical = value.copy();
++      canonical.array = canonical.array.map((t, j) =>
++        Provable.if(new Field(j).lessThan(canonical.length), type, t, NULL)
++      );
++      return canonical;
+     },
+ 
+     // check has to validate length in addition to the other checks

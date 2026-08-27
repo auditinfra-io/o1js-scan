@@ -1,0 +1,13 @@
+{
+  "name": "o1js-dynamic-array-repro",
+  "private": true,
+  "type": "module",
+  "description": "Reproductions for o1js DynamicArray defects reported by o1js-scan",
+  "scripts": {
+    "repro": "node reproduce.mjs",
+    "poc": "node --stack-size=65500 proof-of-concept.mjs"
+  },
+  "dependencies": {
+    "o1js": "3.0.0"
+  }
+}
