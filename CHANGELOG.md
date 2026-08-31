@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Report five defects found in upstream o1js `DynamicArray` at `cc18a91` /
+  `o1js@3.0.0`, with reproductions, a proof-of-concept and a validated patch
+  (`docs/o1js-upstream-findings.md`, `research/o1js-dynamic-array/`). One is a
+  soundness break: `assertIndexInRange` memoises its bounds proof per index
+  variable and never invalidates it, so `get`/`set` emit no bounds constraint
+  once the array shrinks.
+
+### Changed
+- Document o1js 3.x / Mesa compatibility. Mesa's breaking changes are all
+  runtime- and protocol-level and rename no API the scanner matches on, so no
+  rule changed; the weekly upstream canary covers it.
+
 ## [0.15.0] - 2026-08-12
 
 ### Added

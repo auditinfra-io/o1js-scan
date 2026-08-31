@@ -526,18 +526,29 @@ assessment.
 
 ## Compatibility
 
-Works on **o1js 1.x and 2.x**. o1js-scan analyzes TypeScript source as text
-and has **no runtime dependency on o1js** — nothing is version-pinned. It keys
-on the modern `require*` precondition API (`getAndRequireEquals`,
-`requireEquals`, `requireSignature`, `getAndRequireSignature`), the
+Works on **o1js 1.x, 2.x and 3.x**, including the **Mesa** hard fork that o1js
+3.0.0 targets. o1js-scan analyzes TypeScript source as text and has **no runtime
+dependency on o1js** — nothing is version-pinned. It keys on the modern
+`require*` precondition API (`getAndRequireEquals`, `requireEquals`,
+`requireSignature`, `getAndRequireSignature`), the
 `@method` / `@method()` / `@method.returns(...)` decorators, annotated `@state`
 fields, `this.send({...})`, low-level `AccountUpdate.balance.subInPlace(...)`
 transfers, and `Permissions.*`. The established forms remain compatible across
-the 1.x → 2.x boundary, while the scanner also accepts the newly documented
-decorator and low-level transfer variants.
+the 1.x → 2.x → 3.x boundaries, while the scanner also accepts the newly
+documented decorator and low-level transfer variants.
 The 2.x owner-auth idiom `this.sender.getAndRequireSignature()` is recognized
 as signature-gating. (Legacy `assertEquals` preconditions are still accepted,
 so older code isn't broken either.)
+
+Mesa's breaking changes are all runtime- and protocol-level — the removal of
+`Transaction.setFeePerSnarkCost()` and the `TransactionCost.*` constants, the
+new `VerificationKey.toJSON()` shape, regenerated verification keys,
+`MAX_ZKAPP_STATE_FIELDS` raised from 8 to 32, and the `mina-signer` v4
+transaction format. None of them rename an API this scanner matches on, so no
+rule changed for Mesa. The weekly `o1js-upstream-canary` job checks this
+continuously: it scans `o1-labs/o1js` at HEAD, which is now the Mesa release,
+including the 32-state-field `big-state-zkapp.ts` example that only exists
+because of it.
 
 Equivalent constraint spellings are normalized for analysis: instance
 `assertEquals(...)`, static `Provable.assertEqual(Type, ...)`, and
