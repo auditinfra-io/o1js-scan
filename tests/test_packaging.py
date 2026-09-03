@@ -210,3 +210,59 @@ def test_bump_script_rejects_non_semver(bad, tmp_path):
     assert (work / "package.json").read_text(encoding="utf-8") == before, (
         "a rejected version still modified a manifest"
     )
+
+
+# ───────────────────────────────────────────────────────────────────
+# The sdist must carry everything the test suite reads
+# ───────────────────────────────────────────────────────────────────
+
+# setuptools ships these without being asked, so MANIFEST.in need not name them.
+_SDIST_AUTOMATIC = {"o1js_scan", "pyproject.toml", "setup.cfg", "MANIFEST.in"}
+
+
+def _paths_the_suite_reads() -> set:
+    """Top-level repo entries the tests open, derived from the tests themselves.
+
+    Every test module resolves ``REPO_ROOT`` and reads relative to it, so the
+    literals in those expressions *are* the sdist's data requirements. Deriving
+    them beats maintaining a second list that silently falls behind.
+    """
+    pattern = re.compile(r'REPO_ROOT\s*/\s*"([^"]+)"')
+    roots = set()
+    for path in sorted((REPO_ROOT / "tests").glob("test_*.py")):
+        for hit in pattern.findall(path.read_text(encoding="utf-8")):
+            roots.add(hit.replace("\\", "/").split("/")[0])
+    return roots
+
+
+def _manifest_entries() -> set:
+    """Top-level entries named by MANIFEST.in ``include`` / ``recursive-include``."""
+    manifest = REPO_ROOT / "MANIFEST.in"
+    assert manifest.is_file(), "MANIFEST.in is missing; the sdist ships no test data"
+    entries = set()
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if parts[0] == "include":
+            entries.update(p.split("/")[0] for p in parts[1:])
+        elif parts[0] == "recursive-include" and len(parts) >= 2:
+            entries.add(parts[1].split("/")[0])
+    return entries
+
+
+def test_sdist_ships_every_path_the_suite_reads():
+    """A half-shipped test suite looks runnable and isn't.
+
+    Before MANIFEST.in existed, the sdist carried ``tests/*.py`` but none of
+    the corpus, fixtures, docs or scripts they read, so a packager running the
+    suite from the sdist hit errors that said nothing about the real cause.
+    """
+    required = _paths_the_suite_reads()
+    assert required, "derivation found nothing; the REPO_ROOT pattern has drifted"
+    missing = sorted(required - _manifest_entries() - _SDIST_AUTOMATIC)
+    assert missing == [], (
+        f"the test suite reads {missing}, which MANIFEST.in does not ship. "
+        f"Add them, or the sdist's tests cannot run."
+    )

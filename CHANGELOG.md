@@ -4,6 +4,17 @@ All notable changes to o1js-scan are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- The source distribution now ships the data its tests read. setuptools put
+  `tests/*.py` in the sdist but none of the corpus, fixtures, docs or scripts
+  they open, so running the suite from a `pip download --no-binary :all:`
+  tarball — what a distro packager does to verify a release — failed on missing
+  files. A new `MANIFEST.in` makes the sdist a complete source distribution, and
+  `tests/test_packaging.py` derives the required paths from the tests themselves
+  so it cannot fall behind. The installed wheel was never affected.
+
 ## [0.16.0] - 2026-09-03
 
 ### Added

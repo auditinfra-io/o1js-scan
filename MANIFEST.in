@@ -1,0 +1,35 @@
+# What the source distribution ships beyond the package itself.
+#
+# WHY THIS EXISTS
+# ---------------
+# setuptools puts tests/*.py in the sdist by default but none of the data those
+# tests read, so `pip download --no-binary :all:` + pytest -- what a distro
+# packager does to verify a release -- failed on missing corpus files. Shipping
+# half a test suite is worse than shipping none: it looks runnable and isn't.
+#
+# The suite reads well beyond tests/: the workflow yaml, the README and docs it
+# checks for drift, the examples the README quotes, and the canary scripts whose
+# pins tests/test_scan_snapshots.py binds to the committed snapshots. So the
+# sdist is a complete source distribution. tests/test_packaging.py derives the
+# required list from the tests themselves and fails if this file falls behind.
+
+include LICENSE
+include README.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+include SECURITY.md
+include action.yml
+include package.json
+include pyproject.toml
+include .prettierrc.cjs
+
+recursive-include bin *
+recursive-include docs *
+recursive-include examples *
+recursive-include scripts *
+recursive-include tests *
+recursive-include .github *
+
+global-exclude *.py[cod]
+global-exclude .DS_Store
+prune **/__pycache__
