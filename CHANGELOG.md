@@ -28,12 +28,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   snapshot — so a budget cannot be raised to silence a finding without the
   classification the calibration doc promises. Also derives the README's
   compatibility table from the snapshot rather than trusting it.
-- Report five defects found in upstream o1js `DynamicArray` at `cc18a91` /
-  `o1js@3.0.0`, with reproductions, a proof-of-concept and a validated patch
-  (`docs/o1js-upstream-findings.md`, `research/o1js-dynamic-array/`). One is a
-  soundness break: `assertIndexInRange` memoises its bounds proof per index
-  variable and never invalidates it, so `get`/`set` emit no bounds constraint
-  once the array shrinks.
 
 ### Changed
 - Document o1js 3.x / Mesa compatibility. Mesa's breaking changes are all
