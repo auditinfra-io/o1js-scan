@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-09-03
+
 ### Fixed
 - The source distribution now ships the data its tests read. setuptools put
   `tests/*.py` in the sdist but none of the corpus, fixtures, docs or scripts
