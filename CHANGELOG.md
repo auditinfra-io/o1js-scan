@@ -28,6 +28,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   snapshot — so a budget cannot be raised to silence a finding without the
   classification the calibration doc promises. Also derives the README's
   compatibility table from the snapshot rather than trusting it.
+- Upstream findings from this release's o1js scans are held for private
+  disclosure to the o1js maintainers. Details will be published here once that
+  is complete.
 
 ### Changed
 - Document o1js 3.x / Mesa compatibility. Mesa's breaking changes are all
