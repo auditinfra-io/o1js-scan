@@ -1,0 +1,505 @@
+{
+  "schema": 1,
+  "kind": "o1js-releases",
+  "captured_with": "o1js-scan 0.16.0",
+  "scan": {
+    "lang": "o1js",
+    "include_tests": true,
+    "include_examples": true,
+    "fail_on": "none"
+  },
+  "targets": [
+    {
+      "name": "o1js 2.15.0",
+      "commit": "9620ef08db60fdbfd3953be2635691cd2b5d8f2f",
+      "totals": {
+        "findings": 36,
+        "files": 18,
+        "high": 8,
+        "medium": 26,
+        "low": 2
+      },
+      "by_rule": {
+        "O1JS_APPROVE_WITHOUT_BINDING": 2,
+        "O1JS_UNCONSTRAINED_RECIPIENT": 2,
+        "O1JS_UNCONSTRAINED_SENDER": 8,
+        "O1JS_UNCONSTRAINED_WITNESS": 10,
+        "O1JS_WEAK_PERMISSIONS": 12,
+        "O1JS_WITNESS_NOT_BOUND_TO_STATE": 2
+      },
+      "findings": [
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "benchmark/benchmarks/transaction.ts",
+          "line": 31
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_RECIPIENT",
+          "severity": "low",
+          "file": "src/examples/nullifier.ts",
+          "line": 44
+        },
+        {
+          "rule_id": "O1JS_WITNESS_NOT_BOUND_TO_STATE",
+          "severity": "medium",
+          "file": "src/examples/simple-zkapp-berkeley.ts",
+          "line": 34
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex-with-actions.ts",
+          "line": 89
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex-with-actions.ts",
+          "line": 106
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex-with-actions.ts",
+          "line": 178
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex-with-actions.ts",
+          "line": 183
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex.ts",
+          "line": 55
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex.ts",
+          "line": 160
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex.ts",
+          "line": 177
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex.ts",
+          "line": 202
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex.ts",
+          "line": 216
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_RECIPIENT",
+          "severity": "low",
+          "file": "src/examples/zkapps/escrow/escrow.ts",
+          "line": 16
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/hashing/hash.ts",
+          "line": 11
+        },
+        {
+          "rule_id": "O1JS_WITNESS_NOT_BOUND_TO_STATE",
+          "severity": "medium",
+          "file": "src/examples/zkapps/hello-world/hello-world.ts",
+          "line": 27
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/local-events-zkapp.ts",
+          "line": 40
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/simple-zkapp-payment.ts",
+          "line": 6
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "high",
+          "file": "src/examples/zkapps/simple-zkapp-payment.ts",
+          "line": 14
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "high",
+          "file": "src/examples/zkapps/simple-zkapp-payment.ts",
+          "line": 15
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/simple-zkapp-with-proof.ts",
+          "line": 35
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/sudoku/sudoku.ts",
+          "line": 32
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "src/examples/zkapps/voting/deploy-contracts.ts",
+          "line": 11
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "src/examples/zkapps/voting/dummy-contract.ts",
+          "line": 8
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/voting/dummy-contract.ts",
+          "line": 8
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/voting/dummy-contract.ts",
+          "line": 22
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/voting/dummy-contract.ts",
+          "line": 22
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "src/examples/zkapps/voting/membership.ts",
+          "line": 76
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "src/examples/zkapps/voting/membership.ts",
+          "line": 76
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/voting/membership.ts",
+          "line": 76
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "src/examples/zkapps/voting/voting.ts",
+          "line": 102
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "src/examples/zkapps/voting/voting.ts",
+          "line": 102
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/voting/voting.ts",
+          "line": 102
+        },
+        {
+          "rule_id": "O1JS_APPROVE_WITHOUT_BINDING",
+          "severity": "medium",
+          "file": "src/lib/mina/v1/token.test.ts",
+          "line": 39
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/lib/mina/v1/token.test.ts",
+          "line": 56
+        },
+        {
+          "rule_id": "O1JS_APPROVE_WITHOUT_BINDING",
+          "severity": "medium",
+          "file": "src/lib/mina/v1/token.test.ts",
+          "line": 114
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/tests/transaction-flow.ts",
+          "line": 80
+        }
+      ]
+    },
+    {
+      "name": "o1js 3.0.0",
+      "commit": "cc18a919fe40be152afb1b603c57d74a9b2225b0",
+      "totals": {
+        "findings": 39,
+        "files": 19,
+        "high": 8,
+        "medium": 29,
+        "low": 2
+      },
+      "by_rule": {
+        "O1JS_APPROVE_WITHOUT_BINDING": 2,
+        "O1JS_UNCONSTRAINED_RECIPIENT": 2,
+        "O1JS_UNCONSTRAINED_SENDER": 8,
+        "O1JS_UNCONSTRAINED_WITNESS": 13,
+        "O1JS_WEAK_PERMISSIONS": 12,
+        "O1JS_WITNESS_NOT_BOUND_TO_STATE": 2
+      },
+      "findings": [
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "benchmark/benchmarks/transaction.ts",
+          "line": 31
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_RECIPIENT",
+          "severity": "low",
+          "file": "src/examples/nullifier.ts",
+          "line": 44
+        },
+        {
+          "rule_id": "O1JS_WITNESS_NOT_BOUND_TO_STATE",
+          "severity": "medium",
+          "file": "src/examples/simple-zkapp-berkeley.ts",
+          "line": 34
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/big-state-zkapp.ts",
+          "line": 103
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/big-state-zkapp.ts",
+          "line": 104
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/big-state-zkapp.ts",
+          "line": 105
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex-with-actions.ts",
+          "line": 89
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex-with-actions.ts",
+          "line": 106
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex-with-actions.ts",
+          "line": 178
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex-with-actions.ts",
+          "line": 183
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex.ts",
+          "line": 55
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex.ts",
+          "line": 160
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex.ts",
+          "line": 177
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex.ts",
+          "line": 202
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "medium",
+          "file": "src/examples/zkapps/dex/dex.ts",
+          "line": 216
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_RECIPIENT",
+          "severity": "low",
+          "file": "src/examples/zkapps/escrow/escrow.ts",
+          "line": 16
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/hashing/hash.ts",
+          "line": 11
+        },
+        {
+          "rule_id": "O1JS_WITNESS_NOT_BOUND_TO_STATE",
+          "severity": "medium",
+          "file": "src/examples/zkapps/hello-world/hello-world.ts",
+          "line": 27
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/local-events-zkapp.ts",
+          "line": 40
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/simple-zkapp-payment.ts",
+          "line": 6
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "high",
+          "file": "src/examples/zkapps/simple-zkapp-payment.ts",
+          "line": 14
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "high",
+          "file": "src/examples/zkapps/simple-zkapp-payment.ts",
+          "line": 15
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/simple-zkapp-with-proof.ts",
+          "line": 35
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/sudoku/sudoku.ts",
+          "line": 32
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "src/examples/zkapps/voting/deploy-contracts.ts",
+          "line": 11
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "src/examples/zkapps/voting/dummy-contract.ts",
+          "line": 8
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/voting/dummy-contract.ts",
+          "line": 8
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/voting/dummy-contract.ts",
+          "line": 22
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/voting/dummy-contract.ts",
+          "line": 22
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "src/examples/zkapps/voting/membership.ts",
+          "line": 76
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "src/examples/zkapps/voting/membership.ts",
+          "line": 76
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/voting/membership.ts",
+          "line": 76
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "src/examples/zkapps/voting/voting.ts",
+          "line": 102
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "src/examples/zkapps/voting/voting.ts",
+          "line": 102
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/examples/zkapps/voting/voting.ts",
+          "line": 102
+        },
+        {
+          "rule_id": "O1JS_APPROVE_WITHOUT_BINDING",
+          "severity": "medium",
+          "file": "src/lib/mina/v1/token.test.ts",
+          "line": 39
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/lib/mina/v1/token.test.ts",
+          "line": 56
+        },
+        {
+          "rule_id": "O1JS_APPROVE_WITHOUT_BINDING",
+          "severity": "medium",
+          "file": "src/lib/mina/v1/token.test.ts",
+          "line": 114
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/tests/transaction-flow.ts",
+          "line": 80
+        }
+      ]
+    }
+  ]
+}

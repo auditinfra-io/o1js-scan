@@ -5,7 +5,30 @@ The o1js counterpart to `noir_calibration.md`. Until this pass the o1js side had
 more than for Noir, because these are the rules that produced the project's only
 **confirmed real-world findings**.
 
-Canary: `scripts/mina_canary.sh`.
+Canary: `scripts/mina_canary.sh`. Benchmark (canary + exact snapshot):
+`scripts/mina_benchmark.sh`.
+
+## Reproducible snapshot
+
+The budgets below record *how many* HIGH findings each repo has. That alone
+cannot tell one finding from another: a rule could stop firing at `Mac.ts:86`
+and start firing somewhere else in the same file, and the count would not move.
+
+[`tests/fixtures/mina_benchmark.json`](../tests/fixtures/mina_benchmark.json)
+records every finding — rule, file, line, severity — for all fourteen repos at
+the pinned commits below. `scripts/mina_benchmark.sh` runs the budget canary and
+then compares the full set, naming each finding that appeared or disappeared.
+
+Three artifacts describe this corpus: the canary's pinned array, the table
+below, and the snapshot. `tests/test_scan_snapshots.py` asserts all three agree
+on the repo list, the commits and the budgets, offline, so a budget cannot be
+raised to silence a finding without the classification this document promises.
+Regenerate deliberately, never to make a failure go away:
+
+```bash
+python3 scripts/scan_snapshot.py capture tests/fixtures/mina_benchmark.json \
+  --kind mina-corpus --target NAME=PATH ...
+```
 
 ## Corpus (fourteen repos, pinned)
 

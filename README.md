@@ -545,10 +545,23 @@ Mesa's breaking changes are all runtime- and protocol-level — the removal of
 new `VerificationKey.toJSON()` shape, regenerated verification keys,
 `MAX_ZKAPP_STATE_FIELDS` raised from 8 to 32, and the `mina-signer` v4
 transaction format. None of them rename an API this scanner matches on, so no
-rule changed for Mesa. The weekly `o1js-upstream-canary` job checks this
-continuously: it scans `o1-labs/o1js` at HEAD, which is now the Mesa release,
-including the 32-state-field `big-state-zkapp.ts` example that only exists
-because of it.
+rule changed for Mesa, and that is verified rather than asserted.
+`scripts/o1js_release_matrix.sh` scans two pinned o1js releases that straddle
+the protocol boundary — **2.15.0** (`9620ef08`, the last 2.x release) and
+**3.0.0** (`cc18a919`, Mesa) — and compares every finding against
+[`tests/fixtures/o1js_release_matrix.json`](tests/fixtures/o1js_release_matrix.json):
+
+| Release | Findings | HIGH | MEDIUM | LOW | Files |
+|---|---:|---:|---:|---:|---:|
+| o1js 2.15.0 | 36 | 8 | 26 | 2 | 18 |
+| o1js 3.0.0 (Mesa) | 39 | 8 | 29 | 2 | 19 |
+
+**33 findings are identical across the boundary, none were lost, and all three
+new ones are in `src/examples/zkapps/big-state-zkapp.ts`** — the 32-state-field
+example that exists only because Mesa raised `MAX_ZKAPP_STATE_FIELDS`. That
+delta is pinned by a test, so it cannot drift silently. The matrix runs on every
+CI build; the weekly `o1js-upstream-canary` job additionally tracks o1js at
+HEAD, ahead of any release.
 
 Equivalent constraint spellings are normalized for analysis: instance
 `assertEquals(...)`, static `Provable.assertEqual(Type, ...)`, and

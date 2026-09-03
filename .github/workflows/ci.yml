@@ -100,8 +100,20 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: pip install -e .
-      - name: Canary (Mina / o1js, classified budgets + confirmed-TP floor)
-        run: bash scripts/mina_canary.sh
+      - name: Benchmark (Mina / o1js, classified budgets + exact snapshot)
+        run: bash scripts/mina_benchmark.sh
+
+  o1js-release-matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e .
+      - name: Compatibility matrix (o1js 2.15.0 vs 3.0.0 / Mesa)
+        run: bash scripts/o1js_release_matrix.sh
 
   o1js-upstream-canary:
     runs-on: ubuntu-latest

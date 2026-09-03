@@ -1,0 +1,451 @@
+{
+  "schema": 1,
+  "kind": "mina-corpus",
+  "captured_with": "o1js-scan 0.16.0",
+  "scan": {
+    "lang": "o1js",
+    "include_tests": false,
+    "include_examples": false,
+    "fail_on": "none"
+  },
+  "targets": [
+    {
+      "name": "Distributed-key-generation",
+      "commit": "4d191d786c9c2337e517e72f234ff40600e20f0f",
+      "totals": {
+        "findings": 3,
+        "files": 2,
+        "high": 0,
+        "medium": 1,
+        "low": 2
+      },
+      "by_rule": {
+        "O1JS_UNCONSTRAINED_PROVABLE_WITNESS": 1,
+        "O1JS_UNCONSTRAINED_RECIPIENT": 2
+      },
+      "findings": [
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_RECIPIENT",
+          "severity": "low",
+          "file": "src/contracts/Request.ts",
+          "line": 976
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_RECIPIENT",
+          "severity": "low",
+          "file": "src/contracts/Request.ts",
+          "line": 982
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_PROVABLE_WITNESS",
+          "severity": "medium",
+          "file": "src/contracts/Round2.ts",
+          "line": 622
+        }
+      ]
+    },
+    {
+      "name": "Voting-Playground-o1js",
+      "commit": "391ef4b8e4231602bd3d16bd9f339e5398c96436",
+      "totals": {
+        "findings": 0,
+        "files": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "by_rule": {},
+      "findings": []
+    },
+    {
+      "name": "contracts",
+      "commit": "890c9b0d281448f46bbf09d6820ab43d2b33598e",
+      "totals": {
+        "findings": 0,
+        "files": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "by_rule": {},
+      "findings": []
+    },
+    {
+      "name": "fungible-token-contract",
+      "commit": "a0d4290135ccdabcaf1defe2ea5d1a2243deb5e1",
+      "totals": {
+        "findings": 1,
+        "files": 1,
+        "high": 0,
+        "medium": 0,
+        "low": 1
+      },
+      "by_rule": {
+        "O1JS_UNCONSTRAINED_SENDER": 1
+      },
+      "findings": [
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "low",
+          "file": "src/examples/token-manager.eg.ts",
+          "line": 130
+        }
+      ]
+    },
+    {
+      "name": "mac",
+      "commit": "83cea9cbc9cec530cc8dede356221140b7452f39",
+      "totals": {
+        "findings": 9,
+        "files": 1,
+        "high": 7,
+        "medium": 1,
+        "low": 1
+      },
+      "by_rule": {
+        "O1JS_UNASSERTED_BOOL": 7,
+        "O1JS_UNCONSTRAINED_RECIPIENT": 1,
+        "O1JS_UNCONSTRAINED_WITNESS": 1
+      },
+      "findings": [
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "contracts/src/Mac.ts",
+          "line": 74
+        },
+        {
+          "rule_id": "O1JS_UNASSERTED_BOOL",
+          "severity": "high",
+          "file": "contracts/src/Mac.ts",
+          "line": 86
+        },
+        {
+          "rule_id": "O1JS_UNASSERTED_BOOL",
+          "severity": "high",
+          "file": "contracts/src/Mac.ts",
+          "line": 182
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_RECIPIENT",
+          "severity": "low",
+          "file": "contracts/src/Mac.ts",
+          "line": 276
+        },
+        {
+          "rule_id": "O1JS_UNASSERTED_BOOL",
+          "severity": "high",
+          "file": "contracts/src/Mac.ts",
+          "line": 306
+        },
+        {
+          "rule_id": "O1JS_UNASSERTED_BOOL",
+          "severity": "high",
+          "file": "contracts/src/Mac.ts",
+          "line": 326
+        },
+        {
+          "rule_id": "O1JS_UNASSERTED_BOOL",
+          "severity": "high",
+          "file": "contracts/src/Mac.ts",
+          "line": 346
+        },
+        {
+          "rule_id": "O1JS_UNASSERTED_BOOL",
+          "severity": "high",
+          "file": "contracts/src/Mac.ts",
+          "line": 366
+        },
+        {
+          "rule_id": "O1JS_UNASSERTED_BOOL",
+          "severity": "high",
+          "file": "contracts/src/Mac.ts",
+          "line": 386
+        }
+      ]
+    },
+    {
+      "name": "mastermind-zkApp",
+      "commit": "bdfc7c917f906467fd0b712661955df825d97339",
+      "totals": {
+        "findings": 1,
+        "files": 1,
+        "high": 0,
+        "medium": 1,
+        "low": 0
+      },
+      "by_rule": {
+        "O1JS_WITNESS_NOT_BOUND_TO_STATE": 1
+      },
+      "findings": [
+        {
+          "rule_id": "O1JS_WITNESS_NOT_BOUND_TO_STATE",
+          "severity": "medium",
+          "file": "src/Mastermind.ts",
+          "line": 48
+        }
+      ]
+    },
+    {
+      "name": "mina-privacy-coin",
+      "commit": "8b30b709e99cb0a83deeb293a9d1920a9d6d58ab",
+      "totals": {
+        "findings": 3,
+        "files": 1,
+        "high": 0,
+        "medium": 3,
+        "low": 0
+      },
+      "by_rule": {
+        "O1JS_UNCONSTRAINED_WITNESS": 3
+      },
+      "findings": [
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/Sales.ts",
+          "line": 29
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/Sales.ts",
+          "line": 30
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/Sales.ts",
+          "line": 31
+        }
+      ]
+    },
+    {
+      "name": "mina-token-manager",
+      "commit": "ec91c9222fc01f383555524cbe03594aa36744dc",
+      "totals": {
+        "findings": 0,
+        "files": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "by_rule": {},
+      "findings": []
+    },
+    {
+      "name": "nacho",
+      "commit": "db85861ebbd08a06a6a52226f569829f0c5fe386",
+      "totals": {
+        "findings": 2,
+        "files": 1,
+        "high": 0,
+        "medium": 2,
+        "low": 0
+      },
+      "by_rule": {
+        "O1JS_UNCONSTRAINED_WITNESS": 1,
+        "O1JS_WEAK_PERMISSIONS": 1
+      },
+      "findings": [
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "bridge-contract/src/bridge-contract.ts",
+          "line": 42
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "bridge-contract/src/bridge-contract.ts",
+          "line": 63
+        }
+      ]
+    },
+    {
+      "name": "randomina",
+      "commit": "2d5781a1672f2cac43cf249ec8b63737cd854e29",
+      "totals": {
+        "findings": 1,
+        "files": 1,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "by_rule": {
+        "O1JS_UNVERIFIED_PROOF": 1
+      },
+      "findings": [
+        {
+          "rule_id": "O1JS_UNVERIFIED_PROOF",
+          "severity": "high",
+          "file": "src/RandoMinaContract.ts",
+          "line": 69
+        }
+      ]
+    },
+    {
+      "name": "smart-contracts",
+      "commit": "9b1e61124137c5515f7f3f7f3ba0d2c913f1040c",
+      "totals": {
+        "findings": 0,
+        "files": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "by_rule": {},
+      "findings": []
+    },
+    {
+      "name": "xane",
+      "commit": "9002bca5640b626adb1eb2bf2df26ea8804d2d44",
+      "totals": {
+        "findings": 6,
+        "files": 2,
+        "high": 2,
+        "medium": 4,
+        "low": 0
+      },
+      "by_rule": {
+        "O1JS_UNCONSTRAINED_WITNESS": 3,
+        "O1JS_WEAK_PERMISSIONS": 3
+      },
+      "findings": [
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "contracts/src/Exchange.ts",
+          "line": 130
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "contracts/src/Exchange.ts",
+          "line": 130
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "contracts/src/Exchange.ts",
+          "line": 130
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "contracts/src/Token.ts",
+          "line": 33
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "contracts/src/Token.ts",
+          "line": 34
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "contracts/src/Token.ts",
+          "line": 35
+        }
+      ]
+    },
+    {
+      "name": "zkLocus",
+      "commit": "600f4068d37b94687cb64cf9c9dd65dcce3a2a8f",
+      "totals": {
+        "findings": 8,
+        "files": 6,
+        "high": 3,
+        "medium": 5,
+        "low": 0
+      },
+      "by_rule": {
+        "O1JS_APPROVE_WITHOUT_BINDING": 1,
+        "O1JS_UNCONSTRAINED_SENDER": 1,
+        "O1JS_UNVERIFIED_PROOF": 1,
+        "O1JS_VACUOUS_ASSERT": 1,
+        "O1JS_WEAK_PERMISSIONS": 4
+      },
+      "findings": [
+        {
+          "rule_id": "O1JS_UNVERIFIED_PROOF",
+          "severity": "high",
+          "file": "contracts/src/blockchain/contracts/RandoMinaContract.ts",
+          "line": 69
+        },
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+          "severity": "high",
+          "file": "contracts/src/blockchain/contracts/RandoMinaContract.ts",
+          "line": 71
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "contracts/src/blockchain/contracts/bounty/BountyBulletinBoardSC.ts",
+          "line": 48
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "contracts/src/blockchain/contracts/bounty/BountySC.ts",
+          "line": 10
+        },
+        {
+          "rule_id": "O1JS_APPROVE_WITHOUT_BINDING",
+          "severity": "medium",
+          "file": "contracts/src/blockchain/contracts/bounty/BountySC.ts",
+          "line": 25
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "contracts/src/blockchain/contracts/experiments/DeployeeSC.ts",
+          "line": 19
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "contracts/src/blockchain/contracts/experiments/DeployerSC.ts",
+          "line": 23
+        },
+        {
+          "rule_id": "O1JS_VACUOUS_ASSERT",
+          "severity": "high",
+          "file": "contracts/src/blockchain/contracts/experiments/DeployerVerificationSC.ts",
+          "line": 26
+        }
+      ]
+    },
+    {
+      "name": "zkMile-contracts",
+      "commit": "c15c9c0b05d70e230f6ce75f6cc344ebed67c525",
+      "totals": {
+        "findings": 2,
+        "files": 2,
+        "high": 0,
+        "medium": 2,
+        "low": 0
+      },
+      "by_rule": {
+        "O1JS_UNCONSTRAINED_WITNESS": 1,
+        "O1JS_WEAK_PERMISSIONS": 1
+      },
+      "findings": [
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/OdometerOracle.ts",
+          "line": 56
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "src/OffchainOdometer.ts",
+          "line": 52
+        }
+      ]
+    }
+  ]
+}
