@@ -27,8 +27,8 @@
       "title": "Inverse assertion allows for common anti-pattern",
       "pattern": "div()/inv()/sqrt() inside a Provable.if branch; the assertion fires unconditionally",
       "reproducer": "vul060_div_in_provable_if.ts",
-      "detected": false,
-      "rule_candidate": "O1JS_GUARDED_INVERSE"
+      "detected": true,
+      "rule": "O1JS_GUARDED_INVERSE (implemented)"
     }
   },
   "borderline": {

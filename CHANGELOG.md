@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`O1JS_GUARDED_INVERSE`** (medium) — a `.div()` / `.inv()` / `.sqrt()` inside
+  a `Provable.if` branch, guarded by a condition on the value it fails on. Both
+  branches evaluate in-circuit and these calls assert unconditionally, so the
+  guard does not skip the assertion: the circuit is unsatisfiable for exactly
+  the input the guard was written to handle. Fires on both the named-local and
+  inline guard shapes; stays quiet on the corrected form and when the guard is
+  unrelated to the divisor. Zero findings across the fourteen-repo Mina corpus
+  and both pinned o1js releases, so no snapshot moved.
+- A recall study measuring the analyzer against the Veridise o1js audit that
+  o1js ships (`research/veridise-recall/`). Of 63 findings, 3 are expressible
+  in application source; the rule above closes the first of them. The Auro
+  Wallet audits were examined first and recorded as a null result — 24
+  findings, none about circuits.
+
 ## [0.16.1] - 2026-09-03
 
 ### Fixed

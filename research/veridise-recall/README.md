@@ -81,21 +81,25 @@ Classification rule, applied in `classification.json`:
 | Borderline | 2 |
 | **App-expressible** | **3** |
 
-## Result: 0 of 3
+## Result: 1 of 3
 
 | Finding | Sev | Anti-pattern | Detected |
 |---|---|---|---|
 | `V-O1J-VUL-012` | Medium | two preconditions on one property; the second silently discards the first | **no** |
 | `V-O1J-VUL-030` | Warning | state `get()` after `set()` reads the pre-set value | **no** |
-| `V-O1J-VUL-060` | Info | `div()`/`inv()`/`sqrt()` inside a `Provable.if` branch asserts unconditionally | **no** |
+| `V-O1J-VUL-060` | Info | `div()`/`inv()`/`sqrt()` inside a `Provable.if` branch asserts unconditionally | **yes**, since `O1JS_GUARDED_INVERSE` |
 
 Reproducers are in `reproducers/`, as minimal zkApps a developer could plausibly
 write. Reproduce with:
 
 ```bash
 python3 -m o1js_scan.cli research/veridise-recall/reproducers --lang o1js --fail-on none
-# o1js-scan: no findings (or no o1js files found)
+# MEDIUM  O1JS_GUARDED_INVERSE  vul060_div_in_provable_if.ts:22  fn=setRatio
 ```
+
+The other two reproducers stay silent, which is the point of keeping them here:
+they are the measured gap, and this file is where the number gets updated when
+that changes.
 
 ## What this says
 
@@ -115,8 +119,17 @@ That makes them rule candidates with an unusually strong provenance: an
 independent audit firm already judged them worth reporting, so a rule is not
 speculation about what developers get wrong.
 
-`O1JS_PRECONDITION_OVERWRITTEN`, `O1JS_STATE_READ_AFTER_WRITE` and
-`O1JS_GUARDED_INVERSE` are proposed in `classification.json`.
+`O1JS_GUARDED_INVERSE` is **implemented** as of 0.17.0 — the first rule in this
+project derived from an independent audit finding rather than from a pattern
+seen in the wild. It fires on both reproducer shapes (guard via a named local,
+and guard written inline), stays quiet on the corrected form that makes the
+divisor safe before dividing, and stays quiet when the guard says nothing about
+the divisor. Across the fourteen-repo Mina corpus and both pinned o1js releases
+it produces **zero** findings, so it introduced no false positives and left
+every pinned snapshot unchanged.
+
+`O1JS_PRECONDITION_OVERWRITTEN` and `O1JS_STATE_READ_AFTER_WRITE` remain
+proposed in `classification.json`.
 
 ## Limits of this study
 
@@ -129,5 +142,8 @@ speculation about what developers get wrong.
 * **The audit predates the current code.** V1 was June 2024 against commit
   `8dde2c3`; most findings are fixed. The question asked here is whether the
   scanner *would have* caught them, not whether they are still live.
-* **0/3 is a small denominator.** It supports "here are three concrete gaps
-  worth closing". It does not support any claim about detection rate.
+* **1/3 is a small denominator.** It supports "here are three concrete gaps,
+  one now closed". It does not support any claim about detection rate.
+* **Zero real-world hits cuts both ways.** No false positives is the good
+  reading; the other is that this anti-pattern may simply be rare in the public
+  corpus, so the rule's value is unproven until it fires on real code.

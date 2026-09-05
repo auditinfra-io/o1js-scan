@@ -164,6 +164,81 @@ _BOOL_PRED_ASSIGN_RE = re.compile(
     + _BOOL_PRED_ALT
     + r")\s*\("
 )
+# --- guarded inverse (V-O1J-VUL-060) -----------------------------------
+# `Provable.if(d.equals(0), 0, x.div(d))` still asserts d !== 0, because both
+# branches are evaluated in-circuit.
+_PROVABLE_IF_RE = re.compile(r"\bProvable\s*\.\s*if\s*\(")
+_INVERSE_CALL_RE = re.compile(
+    r"\b([A-Za-z_$][\w$]*)\s*\.\s*(div|inv|sqrt)\s*\(([^()]{0,%d})\)" % _MAX_CALL_ARG
+)
+_LEADING_IDENT_RE = re.compile(r"^\s*([A-Za-z_$][\w$]*)")
+
+
+def _balanced_args(text: str, open_paren: int) -> Optional[str]:
+    """Return the argument text of the call whose ``(`` is at ``open_paren``.
+
+    ``None`` when the parentheses do not close, which happens on truncated or
+    unparseable input; callers skip rather than guess.
+    """
+    depth = 0
+    for i in range(open_paren, len(text)):
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return text[open_paren + 1:i]
+    return None
+
+
+def _split_top_level_commas(args: str) -> List[str]:
+    """Split a call's argument text on commas outside brackets."""
+    parts, depth, start = [], 0, 0
+    for i, ch in enumerate(args):
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(args[start:i])
+            start = i + 1
+    parts.append(args[start:])
+    return [p.strip() for p in parts]
+
+
+def _resolve_condition(body: str, condition: str) -> str:
+    """Expand a guard that is just a local into the expression defining it.
+
+    The idiomatic shape is two statements::
+
+        let divisorIsZero = divisor.equals(0);
+        Provable.if(divisorIsZero, Field(0), dividend.div(divisor));
+
+    so matching the guard against the divisor only works once the local has
+    been resolved. Returns the condition unchanged when it is not a bare
+    identifier or has no visible definition.
+    """
+    ident = _LEADING_IDENT_RE.match(condition)
+    if not ident or ident.group(1) != condition.strip():
+        return condition
+    define = re.search(
+        r"\b(?:const|let|var)\s+" + re.escape(condition.strip()) +
+        r"\s*=\s*([^;\n]{0,%d})" % _MAX_CALL_ARG,
+        body,
+    )
+    return f"{condition} {define.group(1)}" if define else condition
+
+
+def _leading_identifier(expr: str) -> str:
+    """The identifier an expression starts with, or '' if it starts otherwise.
+
+    `d` and `d.mul(2)` both yield `d`; a literal such as `0` yields ''.
+    """
+    m = _LEADING_IDENT_RE.match(expr)
+    return m.group(1) if m else ""
+
+
 _SENDER_UNCONSTRAINED_RE = re.compile(
     r"this\s*\.\s*sender\s*\.\s*getUnconstrained\s*\(\s*\)"
 )
@@ -490,6 +565,7 @@ class O1jsLexer:
         vulns += self._detect_approve_without_binding(content, methods)
         vulns += self._detect_vacuous_assert(content, methods)
         vulns += self._detect_conditional_assert(content, methods)
+        vulns += self._detect_guarded_inverse(content, methods)
         vulns += self._detect_weak_permissions(content, stripped)
         return _apply_suppressions(content, vulns)
 
@@ -1783,6 +1859,92 @@ class O1jsLexer:
         return out
 
     # --- Rule 4: weak account permissions ---------------------------------
+
+    # --- Rule 2m: guarded inverse / division ------------------------------
+
+    def _detect_guarded_inverse(
+        self, src: str, methods: List[_Method],
+    ) -> List[Vulnerability]:
+        """``Provable.if(d.equals(0), 0, x.div(d))`` does not avoid the division.
+
+        ``Field.div()`` / ``.inv()`` / ``.sqrt()`` assert unconditionally that
+        the inverse or root exists. Both branches of ``Provable.if`` are
+        evaluated in-circuit, so guarding the division with the very condition
+        it fails on produces a circuit that is unsatisfiable for exactly the
+        input the guard was written to handle.
+
+        Reported by Veridise as V-O1J-VUL-060 ("Inverse assertion allows for
+        common anti-pattern"), whose impact line is "users may deploy contracts
+        which always error when certain values are 0".
+
+        Precision: we fire only when the guard condition mentions the same
+        identifier that the division/inverse depends on. A ``Provable.if``
+        whose branch merely happens to divide by something unrelated is a
+        different (and usually fine) shape, so it stays quiet.
+        """
+        out: List[Vulnerability] = []
+        for meth in methods:
+            if not meth.is_method_decorated:
+                continue
+            body = meth.body
+            seen: Set[Tuple[str, int]] = set()
+            for m in _PROVABLE_IF_RE.finditer(body):
+                args_src = _balanced_args(body, m.end() - 1)
+                if args_src is None:
+                    continue
+                args = _split_top_level_commas(args_src)
+                if len(args) < 3:
+                    continue
+                condition, branches = args[0], args[-2:]
+                condition = _resolve_condition(body, condition)
+
+                for branch in branches:
+                    for call in _INVERSE_CALL_RE.finditer(branch):
+                        receiver, op, arg = call.group(1), call.group(2), call.group(3)
+                        # div(d) fails on d == 0; inv()/sqrt() fail on the receiver.
+                        subject = arg.strip() if op == "div" else receiver
+                        subject = _leading_identifier(subject)
+                        if not subject:
+                            continue
+                        if not re.search(r"\b" + re.escape(subject) + r"\b", condition):
+                            continue
+                        line = meth.start_line + body.count("\n", 0, m.start())
+                        key = (subject, line)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        out.append(Vulnerability(
+                            pattern_name="O1JS_GUARDED_INVERSE",
+                            severity=Severity.MEDIUM,
+                            function=meth.name,
+                            location=(line, 0),
+                            origin_tier=O1JS_ORIGIN_TIER,
+                            rule_id="O1JS_GUARDED_INVERSE",
+                            title=(
+                                f"`Provable.if` cannot guard `.{op}()` on "
+                                f"`{subject}` in `{meth.name}`"
+                            ),
+                            description=(
+                                f"`.{op}()` asserts unconditionally that the "
+                                f"inverse or root exists, and both branches of "
+                                f"`Provable.if` are evaluated in-circuit. "
+                                f"Guarding it with a condition on `{subject}` "
+                                f"does not skip the assertion: the circuit "
+                                f"becomes unsatisfiable for exactly the input "
+                                f"the guard was written to handle, so the "
+                                f"method can never be proven for it. Compute a "
+                                f"safe divisor first — e.g. "
+                                f"`Provable.if(isZero, Field(1), {subject})` — "
+                                f"and select the result afterwards."
+                            ),
+                            evidence={
+                                "method": meth.name,
+                                "operation": op,
+                                "subject": subject,
+                                "framework": "o1js",
+                            },
+                        ))
+        return out
 
     def _detect_weak_permissions(self, src: str, stripped: str) -> List[Vulnerability]:
         out: List[Vulnerability] = []

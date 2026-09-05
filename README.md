@@ -288,9 +288,9 @@ upload needs `security-events: write` and code scanning enabled.
 
 | Backend | Rules | High-capable | Medium-capable | Low-capable |
 |---------|------:|-------------:|---------------:|------------:|
-| o1js | 15 | 11 | 9 | 2 |
+| o1js | 16 | 11 | 10 | 2 |
 | Noir | 11 | 4 | 9 | 1 |
-| **Total** | **26** | **15** | **18** | **3** |
+| **Total** | **27** | **15** | **19** | **3** |
 
 Counts are distinct rule IDs supported by each backend. A rule that assigns
 severity according to context (for example, high for a value transfer and
@@ -316,6 +316,7 @@ false-positive guards follow below.
 | `O1JS_APPROVE_WITHOUT_BINDING` | medium | A `@method` calls `approve` / `approveAccountUpdate` / `approveBase` without reading `balanceChange` / `publicKey` and without `assertCanMint` / `assertCanBurn` / a `forEachUpdate` conservation check — the Mina FlawedTokenContract archetype. |
 | `O1JS_VACUOUS_ASSERT` | high / medium | An assert that is satisfied by construction: `x.assertEquals(x)`, `x.equals(x).assertTrue()`, or `Bool(true).assertTrue()`. HIGH for self-comparisons (almost always a typo); MEDIUM for constant Bool asserts. |
 | `O1JS_CONDITIONAL_ASSERT` | medium | An assert inside `if <flag> { ... }` where `<flag>` is a prover-controlled `@method` `Bool` (or a local from `.toBoolean()`). A JS conditional does not constrain the circuit the way `Provable.if` does. Inline comparisons stay unreported for precision. |
+| `O1JS_GUARDED_INVERSE` | medium | A `.div()` / `.inv()` / `.sqrt()` inside a `Provable.if` branch, guarded by a condition on the very value it fails on. Both branches are evaluated in-circuit and these calls assert unconditionally that the inverse or root exists, so the guard does not skip the assertion — the circuit is unsatisfiable for exactly the input the guard was written to handle, and the method can never be proven for it. Reported by Veridise as `V-O1J-VUL-060`. Compute a safe divisor first (`Provable.if(isZero, Field(1), d)`) and select the result afterwards. **Stays quiet when** the guard says nothing about the divisor, so an unrelated `Provable.if` around a safe division is not flagged. |
 
 ### False-positive guards (o1js)
 
