@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-05
+
+Three new o1js rules, each derived from a finding in the Veridise audit of
+o1js rather than from a pattern seen in the wild. All three are MEDIUM, so a
+run at the default `--fail-on high` is unaffected; a pipeline set to
+`--fail-on medium` may see new failures.
+
 ### Added
 - **`O1JS_GUARDED_INVERSE`** (medium) — a `.div()` / `.inv()` / `.sqrt()` inside
   a `Provable.if` branch, guarded by a condition on the value it fails on. Both
