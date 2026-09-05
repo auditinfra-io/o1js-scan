@@ -288,9 +288,9 @@ upload needs `security-events: write` and code scanning enabled.
 
 | Backend | Rules | High-capable | Medium-capable | Low-capable |
 |---------|------:|-------------:|---------------:|------------:|
-| o1js | 16 | 11 | 10 | 2 |
+| o1js | 17 | 11 | 11 | 2 |
 | Noir | 11 | 4 | 9 | 1 |
-| **Total** | **27** | **15** | **19** | **3** |
+| **Total** | **28** | **15** | **20** | **3** |
 
 Counts are distinct rule IDs supported by each backend. A rule that assigns
 severity according to context (for example, high for a value transfer and
@@ -317,6 +317,7 @@ false-positive guards follow below.
 | `O1JS_VACUOUS_ASSERT` | high / medium | An assert that is satisfied by construction: `x.assertEquals(x)`, `x.equals(x).assertTrue()`, or `Bool(true).assertTrue()`. HIGH for self-comparisons (almost always a typo); MEDIUM for constant Bool asserts. |
 | `O1JS_CONDITIONAL_ASSERT` | medium | An assert inside `if <flag> { ... }` where `<flag>` is a prover-controlled `@method` `Bool` (or a local from `.toBoolean()`). A JS conditional does not constrain the circuit the way `Provable.if` does. Inline comparisons stay unreported for precision. |
 | `O1JS_GUARDED_INVERSE` | medium | A `.div()` / `.inv()` / `.sqrt()` inside a `Provable.if` branch, guarded by a condition on the very value it fails on. Both branches are evaluated in-circuit and these calls assert unconditionally that the inverse or root exists, so the guard does not skip the assertion — the circuit is unsatisfiable for exactly the input the guard was written to handle, and the method can never be proven for it. Reported by Veridise as `V-O1J-VUL-060`. Compute a safe divisor first (`Provable.if(isZero, Field(1), d)`) and select the result afterwards. **Stays quiet when** the guard says nothing about the divisor, so an unrelated `Provable.if` around a safe division is not flagged. |
+| `O1JS_PRECONDITION_OVERWRITTEN` | medium | Two or more `requireEquals` / `requireBetween` / `requireNothing` calls on the **same** property in one method, with differing arguments. Preconditions are *set* on the AccountUpdate rather than accumulated, so each call overwrites the previous one and only the last is enforced — unlike in-circuit assertions, which compose. `a.requireEquals(b)` then `a.requireEquals(c)` implies `a === c`, not `a === b`. Reported by Veridise as `V-O1J-VUL-012`. **Stays quiet when** the arguments are identical (idempotent, nothing lost), on `getAndRequireEquals()` (a different method, so repeated state reads are fine), and when the calls sit in mutually exclusive JS branches, which are resolved at circuit-build time. That last exemption can hide a real overwrite that straddles an unrelated `if`/`else`. |
 
 ### False-positive guards (o1js)
 

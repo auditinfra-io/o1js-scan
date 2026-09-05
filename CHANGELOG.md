@@ -15,9 +15,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   inline guard shapes; stays quiet on the corrected form and when the guard is
   unrelated to the divisor. Zero findings across the fourteen-repo Mina corpus
   and both pinned o1js releases, so no snapshot moved.
+- **`O1JS_PRECONDITION_OVERWRITTEN`** (medium) — two or more `requireEquals` /
+  `requireBetween` / `requireNothing` calls on the same property in one method
+  with differing arguments. Preconditions are set rather than accumulated, so
+  only the last is enforced and any earlier guard is silently absent. Quiet on
+  identical arguments, on `getAndRequireEquals()`, and on mutually exclusive JS
+  branches — that last exemption was a real false positive found while building
+  the rule, and it can hide an overwrite straddling an unrelated `if`/`else`.
 - A recall study measuring the analyzer against the Veridise o1js audit that
   o1js ships (`research/veridise-recall/`). Of 63 findings, 3 are expressible
-  in application source; the rule above closes the first of them. The Auro
+  in application source; the two rules above close two of them. The Auro
   Wallet audits were examined first and recorded as a null result — 24
   findings, none about circuits.
 

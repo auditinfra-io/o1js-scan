@@ -171,6 +171,16 @@ _PROVABLE_IF_RE = re.compile(r"\bProvable\s*\.\s*if\s*\(")
 _INVERSE_CALL_RE = re.compile(
     r"\b([A-Za-z_$][\w$]*)\s*\.\s*(div|inv|sqrt)\s*\(([^()]{0,%d})\)" % _MAX_CALL_ARG
 )
+# --- precondition overwrite (V-O1J-VUL-012) ----------------------------
+# Preconditions are SET, not accumulated: a second requireBetween/requireEquals
+# on the same property silently discards the first. Only the modern `require*`
+# spellings are matched -- `assertEquals` is overwhelmingly the in-circuit
+# Field assertion, which composes normally and must not be flagged.
+_ELSE_BETWEEN_RE = re.compile(r"\}\s*else\b")
+_PRECONDITION_CALL_RE = re.compile(
+    r"\b((?:this|[A-Za-z_$][\w$]*)(?:\s*\.\s*[A-Za-z_$][\w$]*)*)"
+    r"\s*\.\s*(requireEquals|requireBetween|requireNothing)\s*\("
+)
 _LEADING_IDENT_RE = re.compile(r"^\s*([A-Za-z_$][\w$]*)")
 
 
@@ -566,6 +576,7 @@ class O1jsLexer:
         vulns += self._detect_vacuous_assert(content, methods)
         vulns += self._detect_conditional_assert(content, methods)
         vulns += self._detect_guarded_inverse(content, methods)
+        vulns += self._detect_precondition_overwrite(content, methods)
         vulns += self._detect_weak_permissions(content, stripped)
         return _apply_suppressions(content, vulns)
 
@@ -1944,6 +1955,115 @@ class O1jsLexer:
                                 "framework": "o1js",
                             },
                         ))
+        return out
+
+    # --- Rule 2n: precondition overwritten --------------------------------
+
+    def _detect_precondition_overwrite(
+        self, src: str, methods: List[_Method],
+    ) -> List[Vulnerability]:
+        """Two preconditions on one property: the second discards the first.
+
+        In-circuit assertions accumulate — asserting twice gives you the
+        conjunction. Preconditions do not. ``requireEquals`` / ``requireBetween``
+        / ``requireNothing`` **set** fields on the AccountUpdate, so::
+
+            timestamp.requireBetween(UInt32.from(0), UInt32.from(2));
+            timestamp.requireBetween(UInt32.from(1), UInt32.from(3));
+
+        constrains the timestamp to ``[1, 3)`` — not to the intersection the
+        author almost certainly wanted. Veridise reported this as
+        V-O1J-VUL-012, noting that ``a.requireEquals(b)`` followed by
+        ``a.requireEquals(c)`` implies ``a === c`` but not ``a === b``.
+
+        Precision: repeated calls with identical arguments are the benign
+        idempotent case and stay quiet — only differing arguments can lose a
+        constraint. ``getAndRequireEquals()`` is a different method and is not
+        matched, so reading the same state twice is not flagged. Calls in
+        mutually exclusive JS branches are not overwrites either — the ``if``
+        runs at circuit-build time, so only one is emitted — so a differing
+        pair separated by an ``else`` is skipped. That trades a false negative
+        (a real overwrite straddling an unrelated if/else) for precision on a
+        shape that is common in real contracts.
+        """
+        out: List[Vulnerability] = []
+        for meth in methods:
+            if not meth.is_method_decorated:
+                continue
+            body = meth.body
+            # property path -> [(kind, normalized args, offset)]
+            seen: Dict[str, List[Tuple[str, str, int]]] = {}
+            for m in _PRECONDITION_CALL_RE.finditer(body):
+                path = re.sub(r"\s+", "", m.group(1))
+                # Keep this to account/network/state preconditions on a contract
+                # or account update, not arbitrary objects that happen to expose
+                # a require* method.
+                if not (path.startswith("this.") or ".account." in path
+                        or ".network." in path):
+                    continue
+                args = _balanced_args(body, m.end() - 1)
+                if args is None:
+                    continue
+                seen.setdefault(path, []).append(
+                    (m.group(2), re.sub(r"\s+", "", args), m.start())
+                )
+
+            for path, calls in sorted(seen.items()):
+                if len(calls) < 2:
+                    continue
+                # Identical arguments cannot lose a constraint.
+                if len({(kind, args) for kind, args, _ in calls}) < 2:
+                    continue
+                # Calls in mutually exclusive JS branches do not overwrite each
+                # other: the `if` runs at circuit-build time, so only one is
+                # ever emitted. Report only when some adjacent differing pair
+                # is NOT separated by an else, which costs a false negative
+                # when a real overwrite happens to straddle an unrelated
+                # if/else and buys precision on the common branching shape.
+                overwriting = False
+                for (k1, a1, o1), (k2, a2, o2) in zip(calls, calls[1:]):
+                    if (k1, a1) == (k2, a2):
+                        continue
+                    if not _ELSE_BETWEEN_RE.search(body[o1:o2]):
+                        overwriting = True
+                        break
+                if not overwriting:
+                    continue
+                last = calls[-1]
+                line = meth.start_line + body.count("\n", 0, last[2])
+                kinds = ", ".join(sorted({f"{k}()" for k, _, _ in calls}))
+                out.append(Vulnerability(
+                    pattern_name="O1JS_PRECONDITION_OVERWRITTEN",
+                    severity=Severity.MEDIUM,
+                    function=meth.name,
+                    location=(line, 0),
+                    origin_tier=O1JS_ORIGIN_TIER,
+                    rule_id="O1JS_PRECONDITION_OVERWRITTEN",
+                    title=(
+                        f"`{path}` precondition set {len(calls)} times in "
+                        f"`{meth.name}`; only the last survives"
+                    ),
+                    description=(
+                        f"`{path}` has {len(calls)} precondition calls "
+                        f"({kinds}) in this method with differing arguments. "
+                        f"Preconditions are set on the AccountUpdate rather "
+                        f"than accumulated, so each call overwrites the "
+                        f"previous one and only the last is enforced — unlike "
+                        f"in-circuit assertions, which compose. Any guard "
+                        f"expressed by an earlier call is silently absent from "
+                        f"the transaction. Combine them into the single "
+                        f"precondition you mean (the intersection of the "
+                        f"ranges, or the one equality that must hold)."
+                    ),
+                    evidence={
+                        "method": meth.name,
+                        "property": path,
+                        "calls": [
+                            {"kind": kind, "args": args} for kind, args, _ in calls
+                        ],
+                        "framework": "o1js",
+                    },
+                ))
         return out
 
     def _detect_weak_permissions(self, src: str, stripped: str) -> List[Vulnerability]:

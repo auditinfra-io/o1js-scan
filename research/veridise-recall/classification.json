@@ -11,8 +11,8 @@
       "title": "Asserting preconditions may overwrite previous assertions",
       "pattern": "two precondition assertions on the same property in one method; the second silently discards the first",
       "reproducer": "vul012_precondition_overwrite.ts",
-      "detected": false,
-      "rule_candidate": "O1JS_PRECONDITION_OVERWRITTEN"
+      "detected": true,
+      "rule": "O1JS_PRECONDITION_OVERWRITTEN (implemented)"
     },
     "V-O1J-VUL-030": {
       "severity": "Warning",
