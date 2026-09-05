@@ -1,0 +1,40 @@
+{
+  "source": {
+    "report": "Veridise, o1js audit, V3, 2024-08-27",
+    "file": "o1js/audits/VAR_o1js_240318_o1js_V3.pdf",
+    "findings": 63
+  },
+  "scope_rule": "A finding is 'app-expressible' when a developer can commit the same defect in their own zkApp source. A finding is 'library-internal' when correct application code still hits the bug, so no pattern exists in app source to detect.",
+  "app_expressible": {
+    "V-O1J-VUL-012": {
+      "severity": "Medium",
+      "title": "Asserting preconditions may overwrite previous assertions",
+      "pattern": "two precondition assertions on the same property in one method; the second silently discards the first",
+      "reproducer": "vul012_precondition_overwrite.ts",
+      "detected": false,
+      "rule_candidate": "O1JS_PRECONDITION_OVERWRITTEN"
+    },
+    "V-O1J-VUL-030": {
+      "severity": "Warning",
+      "title": "Prover errors when calling set() on same contract",
+      "pattern": "state get() after set() in the same method reads the pre-set value",
+      "reproducer": "vul030_get_after_set.ts",
+      "detected": false,
+      "rule_candidate": "O1JS_STATE_READ_AFTER_WRITE"
+    },
+    "V-O1J-VUL-060": {
+      "severity": "Info",
+      "title": "Inverse assertion allows for common anti-pattern",
+      "pattern": "div()/inv()/sqrt() inside a Provable.if branch; the assertion fires unconditionally",
+      "reproducer": "vul060_div_in_provable_if.ts",
+      "detected": false,
+      "rule_candidate": "O1JS_GUARDED_INVERSE"
+    }
+  },
+  "borderline": {
+    "V-O1J-VUL-014": "Struct/CircuitValue inheritance breaks the static check(). Expressible as `class B extends A` where A is a Struct, but the defect is in o1js's static dispatch, and it is Fixed.",
+    "V-O1J-VUL-018": "Wrong setVerificationKey auth in o1js's own dummy/allImpossible presets. Adjacent to O1JS_WEAK_PERMISSIONS, but the bug is in the preset, not in app code."
+  },
+  "library_internal_count": 58,
+  "notes": "The 58 library-internal findings sit in gadgets/, o1js-bindings/, crypto/, foreign-field, group, int and merkle-map internals. A static analyzer of @method bodies cannot observe them; detecting those requires analyzing o1js itself, which is a different tool."
+}
