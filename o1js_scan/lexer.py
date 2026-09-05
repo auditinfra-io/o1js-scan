@@ -577,6 +577,7 @@ class O1jsLexer:
         vulns += self._detect_conditional_assert(content, methods)
         vulns += self._detect_guarded_inverse(content, methods)
         vulns += self._detect_precondition_overwrite(content, methods)
+        vulns += self._detect_state_read_after_write(content, methods, state)
         vulns += self._detect_weak_permissions(content, stripped)
         return _apply_suppressions(content, vulns)
 
@@ -2061,6 +2062,107 @@ class O1jsLexer:
                         "calls": [
                             {"kind": kind, "args": args} for kind, args, _ in calls
                         ],
+                        "framework": "o1js",
+                    },
+                ))
+        return out
+
+    # --- Rule 2o: state read after write ----------------------------------
+
+    def _detect_state_read_after_write(
+        self, src: str, methods: List[_Method], state: Dict[str, str],
+    ) -> List[Vulnerability]:
+        """``set()`` does not write through to ``get()``.
+
+        ``State.set()`` records the app-state change on the AccountUpdate; it
+        does not update what ``get()`` reads. A read after a write in the same
+        method therefore returns the value from *before* the write, so::
+
+            let n = this.counter.getAndRequireEquals();
+            this.counter.set(n.add(1));
+            let m = this.counter.getAndRequireEquals();   // m === n, not n + 1
+
+        Veridise reported this as V-O1J-VUL-030, noting that variable caching
+        extends the effect across method calls on the same contract within one
+        transaction, where it surfaces as a prover error or a precondition
+        failure rather than a wrong value.
+
+        Scope: within a single method. The cross-method case is real but needs
+        call-graph knowledge this rule does not have, so it is out of reach
+        here rather than approximated badly.
+        """
+        out: List[Vulnerability] = []
+        for meth in methods:
+            if not meth.is_method_decorated:
+                continue
+            body = meth.body
+            for field in sorted(state):
+                f = re.escape(field)
+                # A write "happens" when its call completes, so the comparison
+                # point is the closing paren, not the opening one. The
+                # read-modify-write idiom
+                #     this.counter.set(this.counter.getAndRequireEquals().add(1))
+                # nests the read INSIDE the write's arguments, where it reads
+                # the pre-write value correctly. Keying on the opening paren
+                # flagged that, and it is the single most common way state gets
+                # updated in real contracts.
+                writes = []
+                for m in re.finditer(
+                    r"this\s*\.\s*" + f + r"\s*\.\s*set\s*\(", body
+                ):
+                    args = _balanced_args(body, m.end() - 1)
+                    if args is None:
+                        continue
+                    writes.append(m.end() + len(args))
+                if not writes:
+                    continue
+                reads = [
+                    m for m in re.finditer(
+                        r"this\s*\.\s*" + f +
+                        r"\s*\.\s*(get|getAndRequireEquals|getAndAssertEquals)\s*\(",
+                        body,
+                    )
+                ]
+                first_write = min(writes)
+                stale = [
+                    m for m in reads
+                    if m.start() > first_write
+                    # A write and a read in mutually exclusive JS branches never
+                    # both run: the `if` resolves at circuit-build time.
+                    and not _ELSE_BETWEEN_RE.search(body[first_write:m.start()])
+                ]
+                if not stale:
+                    continue
+                read = stale[0]
+                read_line = meth.start_line + body.count("\n", 0, read.start())
+                write_line = meth.start_line + body.count("\n", 0, first_write)
+                out.append(Vulnerability(
+                    pattern_name="O1JS_STATE_READ_AFTER_WRITE",
+                    severity=Severity.MEDIUM,
+                    function=meth.name,
+                    location=(read_line, 0),
+                    origin_tier=O1JS_ORIGIN_TIER,
+                    rule_id="O1JS_STATE_READ_AFTER_WRITE",
+                    title=(
+                        f"`{field}` is read after being set in `{meth.name}`; "
+                        f"the read returns the pre-set value"
+                    ),
+                    description=(
+                        f"`this.{field}.set(...)` on line {write_line} records "
+                        f"the change on the AccountUpdate but does not update "
+                        f"what `get()` reads, so the `{read.group(1)}()` on "
+                        f"line {read_line} still observes the value from "
+                        f"before the write. Any arithmetic built on it is off "
+                        f"by that write, silently. Keep the new value in a "
+                        f"local and use that, rather than reading the state "
+                        f"back."
+                    ),
+                    evidence={
+                        "method": meth.name,
+                        "state_field": field,
+                        "write_line": write_line,
+                        "read_line": read_line,
+                        "read_form": read.group(1),
                         "framework": "o1js",
                     },
                 ))

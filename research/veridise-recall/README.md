@@ -81,12 +81,12 @@ Classification rule, applied in `classification.json`:
 | Borderline | 2 |
 | **App-expressible** | **3** |
 
-## Result: 2 of 3
+## Result: 3 of 3
 
 | Finding | Sev | Anti-pattern | Detected |
 |---|---|---|---|
 | `V-O1J-VUL-012` | Medium | two preconditions on one property; the second silently discards the first | **yes**, since `O1JS_PRECONDITION_OVERWRITTEN` |
-| `V-O1J-VUL-030` | Warning | state `get()` after `set()` reads the pre-set value | **no** |
+| `V-O1J-VUL-030` | Warning | state `get()` after `set()` reads the pre-set value | **yes**, since `O1JS_STATE_READ_AFTER_WRITE` |
 | `V-O1J-VUL-060` | Info | `div()`/`inv()`/`sqrt()` inside a `Provable.if` branch asserts unconditionally | **yes**, since `O1JS_GUARDED_INVERSE` |
 
 Reproducers are in `reproducers/`, as minimal zkApps a developer could plausibly
@@ -97,8 +97,8 @@ python3 -m o1js_scan.cli research/veridise-recall/reproducers --lang o1js --fail
 # MEDIUM  O1JS_GUARDED_INVERSE  vul060_div_in_provable_if.ts:22  fn=setRatio
 ```
 
-Only `vul030_get_after_set.ts` stays silent now — the remaining measured gap,
-and this file is where the number gets updated when that changes.
+All three now report. The reproducers stay here as the regression floor: if a
+future change stops one of them firing, this directory is where that shows up.
 
 ## What this says
 
@@ -135,9 +135,21 @@ pair separated by an `else`, which costs a false negative when a genuine
 overwrite straddles an unrelated branch. That fixture is pinned as
 `fp_precondition_exclusive_branches.ts`.
 
-`O1JS_STATE_READ_AFTER_WRITE` remains proposed in `classification.json`. It is
-the hardest of the three: it needs state reads and writes tracked across a
-method body rather than a local syntactic shape.
+`O1JS_STATE_READ_AFTER_WRITE` is **implemented**, closing the set. It was the
+only one of the three to fire on real code, and the only one whose first cut
+produced false positives on public repositories rather than on a contrived
+probe: it flagged the read-modify-write idiom
+`this.x.set(this.x.getAndRequireEquals().add(1))` in o1js's own dex and reducer
+examples, because the read is nested inside the write's arguments and a textual
+offset comparison puts it "after" the write. Treating a write as complete at
+its closing paren fixes it, and the shape is pinned as
+`fp_state_read_modify_write.ts`.
+
+It also produced this project's first real-world finding derived from an audit
+rule: `mastermind-zkApp` `Mastermind.ts:125`, classified in
+`docs/mina_calibration.md` as a low-impact true positive. Both `Provable.if`
+branch expressions are ordinary JS arguments, so the `set()` the author gated
+behind "if first guess" executes on every call.
 
 ## Limits of this study
 
@@ -150,8 +162,11 @@ method body rather than a local syntactic shape.
 * **The audit predates the current code.** V1 was June 2024 against commit
   `8dde2c3`; most findings are fixed. The question asked here is whether the
   scanner *would have* caught them, not whether they are still live.
-* **2/3 is a small denominator.** It supports "here are three concrete gaps,
-  two now closed". It does not support any claim about detection rate.
-* **Zero real-world hits cuts both ways.** No false positives is the good
-  reading; the other is that this anti-pattern may simply be rare in the public
-  corpus, so the rule's value is unproven until it fires on real code.
+* **3/3 is a small denominator.** It supports "the three app-expressible
+  findings in this report are now detected". It does not support any claim
+  about detection rate, and 3 of 63 is the honest framing of the scope.
+* **Two of the three still have no real-world hit.** `O1JS_GUARDED_INVERSE` and
+  `O1JS_PRECONDITION_OVERWRITTEN` fire on nothing in the fourteen-repo corpus or
+  either pinned o1js release. No false positives is the good reading; the other
+  is that those anti-patterns may be rare in public code, leaving their value
+  unproven. Only `O1JS_STATE_READ_AFTER_WRITE` has found something real.

@@ -19,8 +19,8 @@
       "title": "Prover errors when calling set() on same contract",
       "pattern": "state get() after set() in the same method reads the pre-set value",
       "reproducer": "vul030_get_after_set.ts",
-      "detected": false,
-      "rule_candidate": "O1JS_STATE_READ_AFTER_WRITE"
+      "detected": true,
+      "rule": "O1JS_STATE_READ_AFTER_WRITE (implemented)"
     },
     "V-O1J-VUL-060": {
       "severity": "Info",

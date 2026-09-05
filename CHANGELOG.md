@@ -22,9 +22,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   identical arguments, on `getAndRequireEquals()`, and on mutually exclusive JS
   branches — that last exemption was a real false positive found while building
   the rule, and it can hide an overwrite straddling an unrelated `if`/`else`.
+- **`O1JS_STATE_READ_AFTER_WRITE`** (medium) — a `@state` field read after a
+  `set(...)` on the same field completes, in the same method. `set()` does not
+  write through to `get()`, so the read observes the pre-write value. Quiet on
+  the read-modify-write idiom (the read nested inside the write's own
+  arguments) and on mutually exclusive branches. Scoped to one method; the
+  cross-method caching case needs call-graph knowledge this rule lacks. Found
+  one real finding: `mastermind-zkApp` `Mastermind.ts:125`, classified in
+  `docs/mina_calibration.md`.
 - A recall study measuring the analyzer against the Veridise o1js audit that
   o1js ships (`research/veridise-recall/`). Of 63 findings, 3 are expressible
-  in application source; the two rules above close two of them. The Auro
+  in application source; the three rules above close all three. The Auro
   Wallet audits were examined first and recorded as a null result — 24
   findings, none about circuits.
 

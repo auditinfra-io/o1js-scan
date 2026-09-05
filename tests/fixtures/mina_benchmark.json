@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "kind": "mina-corpus",
-  "captured_with": "o1js-scan 0.16.0",
+  "captured_with": "o1js-scan 0.16.1",
   "scan": {
     "lang": "o1js",
     "include_tests": false,
@@ -168,13 +168,14 @@
       "name": "mastermind-zkApp",
       "commit": "bdfc7c917f906467fd0b712661955df825d97339",
       "totals": {
-        "findings": 1,
+        "findings": 2,
         "files": 1,
         "high": 0,
-        "medium": 1,
+        "medium": 2,
         "low": 0
       },
       "by_rule": {
+        "O1JS_STATE_READ_AFTER_WRITE": 1,
         "O1JS_WITNESS_NOT_BOUND_TO_STATE": 1
       },
       "findings": [
@@ -183,6 +184,12 @@
           "severity": "medium",
           "file": "src/Mastermind.ts",
           "line": 48
+        },
+        {
+          "rule_id": "O1JS_STATE_READ_AFTER_WRITE",
+          "severity": "medium",
+          "file": "src/Mastermind.ts",
+          "line": 125
         }
       ]
     },
