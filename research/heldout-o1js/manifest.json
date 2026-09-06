@@ -1,0 +1,122 @@
+{
+  "schema": 1,
+  "name": "heldout-o1js",
+  "frozen_at": "2026-09-05",
+  "scanner_version_at_freeze": "0.18.0",
+  "label_provenance": "Labels were written by reading each contract's source against o1js semantics and recorded in this file BEFORE o1js-scan was run on any of these repositories. They are predictions, not scanner output. They are NOT third-party labels \u2014 see the limitations section of README.md.",
+  "inclusion_criteria": [
+    "Listed in MinaFoundation/list-of-projects (the ecosystem's own index), so selection is not ours.",
+    "Contains at least one `class ... extends SmartContract` with `@method`, outside test and node_modules paths.",
+    "Imports `o1js`, not the pre-o1js `snarkyjs` package.",
+    "Not present in docs/mina_calibration.md \u2014 the calibration corpus was used to tune rules and is not held out."
+  ],
+  "exclusion_criteria": [
+    "Pre-o1js `snarkyjs`-era contracts. The analyzer documents keying on the modern require* precondition API and the o1js decorator forms; scoring it on a 2022 API would measure the wrong thing. Ten candidate repos were excluded on this basis and are listed under `excluded`.",
+    "Repositories with no SmartContract source (frontends, backends, SDK wrappers).",
+    "Repositories that no longer clone."
+  ],
+  "excluded": {
+    "snarkyjs_era": [
+      "BlindMansBluff",
+      "CheckerSnapp",
+      "keito",
+      "mina-wordle",
+      "rankproof",
+      "snapp-hangman",
+      "snarkyjs-sudoku",
+      "snarkyjs-tender",
+      "zkapp-guesser-race",
+      "zkvote"
+    ],
+    "unreachable": [
+      "Identicon-Dao/socialcap",
+      "petemccarthy/bullscows",
+      "snarky-bio/biosnarks"
+    ]
+  },
+  "cases": [
+    {
+      "id": "whisper-key-escrow",
+      "repo": "anandcsingh/whisper-key",
+      "commit": "c1b7897e",
+      "primary_path": "whisper-key-core/src/EscrowContract.ts",
+      "label": "vulnerable",
+      "expected_rules": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "reasoning": "withdraw() sends a fixed 2 MINA to `this.receiverPublicKey.get()` with no authorization and no precondition on the read. setReceiver()/setSender() let any caller overwrite those addresses from an unconstrained @method argument, so anyone can point the escrow at themselves and drain it. Expect a HIGH missing-precondition on the bare .get() and unconstrained-witness findings on the setters.",
+      "notes": "The same EscrowContract is vendored four times (ui/src, whisper-key-core/src, api/src/deployer, plus a build copy). Counted as one case; duplicate findings are expected and are not scored separately.",
+      "label_correction": "The original label also expected O1JS_MISSING_STATE_PRECONDITION on withdraw(). That was MY error, found when the scanner did not fire: whisper-key-core/src/EscrowContract.ts:19 does carry a precondition (`this.receiverPublicKey.assertEquals(this.receiverPublicKey.get())`, the legacy spelling). I had read the ui/src copy and assumed a bare get(). The scanner was right and the label was wrong. Corrected after the run, which is recorded here because it weakens this expectation as a blind prediction."
+    },
+    {
+      "id": "usdm-token-owner",
+      "repo": "zk0ath/usdm",
+      "commit": "1014184b",
+      "primary_path": "contracts/src/TokenContract.ts",
+      "label": "vulnerable",
+      "expected_rules": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "reasoning": "initialize() writes symbol/decimals/maxSupply/owner with no precondition that the contract is uninitialized, so any caller can re-initialize and take ownership. Ownership is then checked with `this.owner.getAndAssertEquals().assertEquals(this.sender)` on o1js 0.15, where bare `this.sender` is not signature-constrained, so the check is prover-chosen on both sides.",
+      "known_defects_not_expressible": [
+        "Re-initialisation / ownership takeover: no rule models 'a state write that should be one-shot'.",
+        "Legacy bare `this.sender` used as an authorization subject. O1JS_UNCONSTRAINED_SENDER matches `this.sender.getUnconstrained()`, the modern spelling, so the 0.15-era form is expected to be missed."
+      ]
+    },
+    {
+      "id": "mina-navi-token-election",
+      "repo": "45930/mina-navi-voting-demo",
+      "commit": "4a1a9827",
+      "primary_path": "src/TokenElection.ts",
+      "label": "vulnerable",
+      "expected_rules": [],
+      "reasoning": "faucet(toAddress) mints 50,000 tokens to any caller-supplied address with no authorization. setElectionDetails() sets two preconditions on the same property with different arguments (getAndAssertEquals() then assertEquals(empty)), which is the V-O1J-VUL-012 shape in the legacy spelling.",
+      "known_defects_not_expressible": [
+        "Unauthorized mint: no rule models mint authorization; O1JS_UNCONSTRAINED_RECIPIENT covers send recipients only.",
+        "Precondition overwrite in the legacy `assertEquals` spelling. O1JS_PRECONDITION_OVERWRITTEN deliberately matches only require* because assertEquals is overwhelmingly the in-circuit Field assertion, so this real instance is expected to be missed."
+      ]
+    },
+    {
+      "id": "tokenizk-finance",
+      "repo": "TokeniZK/tokenizk-finance",
+      "commit": "0535e737",
+      "primary_path": "packages/contracts/src",
+      "label": "vulnerable",
+      "expected_rules": [
+        "O1JS_UNCONSTRAINED_SENDER",
+        "O1JS_WEAK_PERMISSIONS"
+      ],
+      "reasoning": "Uses this.sender.getUnconstrained() in airdrop claim and factory fee paths, and sets account permissions explicitly in several contracts. Expect unconstrained-sender findings and permission findings; severity depends on whether a signature is required on the same account update.",
+      "notes": "Largest case in the corpus (1864 contract lines). Reviewed at method-effect granularity, not exhaustively."
+    },
+    {
+      "id": "zeroid-mid",
+      "repo": "boidushya/ZeroID",
+      "commit": "d888153b",
+      "primary_path": "contracts/mid/src/mid.ts",
+      "label": "vulnerable",
+      "expected_rules": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "reasoning": "updateRoot() writes an unconstrained @method argument straight to the commitment state. The write is gated by proving knowledge of a private key, so real impact is admin-scoped, but the witness-to-state-write finding is correct and expected.",
+      "known_defects_not_expressible": [
+        "A PrivateKey is taken as a @method parameter, so the key becomes part of the witness. No rule models this."
+      ]
+    },
+    {
+      "id": "repeating-life-gameoflife",
+      "repo": "Raunaque97/RepeatingLifeZK",
+      "commit": "12b0ecf4",
+      "primary_path": "Contracts/src/gameOfLife.ts",
+      "label": "clean",
+      "expected_rules": [],
+      "expected_absent": [
+        "O1JS_UNVERIFIED_PROOF",
+        "O1JS_UNCONSTRAINED_WITNESS",
+        "O1JS_MISSING_STATE_PRECONDITION"
+      ],
+      "reasoning": "submitRepeaterSolution() calls zkProgram.verify() before reading its public input, and asserts the step count. submitStillSolution() constrains every board cell to 0 or 1 and checks the transition. The contract holds no state and moves no funds, so there is nothing for a witness to reach. Negative case: any HIGH or MEDIUM finding here is a false positive."
+    }
+  ],
+  "label_corrections_note": "One expectation was corrected after the first run \u2014 see whisper-key-escrow. Corrections made after seeing scanner output are recorded inline rather than silently applied, because a label edited to match the tool is not evidence."
+}

@@ -6,6 +6,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **A held-out o1js benchmark** (`research/heldout-o1js/`). Six zkApps from the
+  ecosystem's own project index, none used to tune any rule, pinned by commit,
+  with labels written from reading the contracts and recorded *before* the
+  scanner was run on them. `scripts/heldout_benchmark.sh` reproduces it;
+  `results-0.18.0.json` is the frozen baseline. No recall percentage is quoted —
+  six cases cannot support one, and a test enforces that.
+- `tests/test_heldout_manifest.py` keeps the manifest a checkable artifact:
+  commits pinned as hex shas, every expected rule present in the registry, no
+  overlap with the calibration corpus, recorded results matching the declared
+  freeze version.
+
+### Fixed
+- The sdist now ships `research/`, which `tests/test_heldout_manifest.py` reads.
+  Caught by the packaging guard added in 0.16.1.
+
+### Known
+- **`O1JS_UNVERIFIED_PROOF` fires on user Structs whose name ends in `Proof`.**
+  The benchmark found 60 false-positive HIGH findings in one repository:
+  `BlockProof extends Struct({...})` is not an o1js `Proof`, and the contract
+  does check it. Recorded rather than fixed, because the fix must be developed
+  against that case, which moves it out of the held-out set. Details in
+  `research/heldout-o1js/README.md`.
+
 ## [0.18.0] - 2026-09-05
 
 Rule metadata gets one source of truth. No rule changes and no detector

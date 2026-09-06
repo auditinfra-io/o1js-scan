@@ -1,0 +1,121 @@
+{
+  "scanner_version": "0.18.0",
+  "cases": [
+    {
+      "id": "whisper-key-escrow",
+      "label": "vulnerable",
+      "expected_rules": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "observed_rules": {
+        "O1JS_STALE_MERKLE_ROOT": 3,
+        "O1JS_UNCONSTRAINED_WITNESS": 22
+      },
+      "total_findings": 25,
+      "highest_severity": "high",
+      "expected_and_found": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "expected_not_found": [],
+      "unexpected": [
+        "O1JS_STALE_MERKLE_ROOT"
+      ],
+      "outcome": "flagged"
+    },
+    {
+      "id": "usdm-token-owner",
+      "label": "vulnerable",
+      "expected_rules": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "observed_rules": {
+        "O1JS_STALE_MERKLE_ROOT": 1,
+        "O1JS_UNCONSTRAINED_WITNESS": 6,
+        "O1JS_UNVERIFIED_PROOF": 60
+      },
+      "total_findings": 67,
+      "highest_severity": "high",
+      "expected_and_found": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "expected_not_found": [],
+      "unexpected": [
+        "O1JS_STALE_MERKLE_ROOT",
+        "O1JS_UNVERIFIED_PROOF"
+      ],
+      "outcome": "flagged"
+    },
+    {
+      "id": "mina-navi-token-election",
+      "label": "vulnerable",
+      "expected_rules": [],
+      "observed_rules": {},
+      "total_findings": 0,
+      "highest_severity": null,
+      "expected_and_found": [],
+      "expected_not_found": [],
+      "unexpected": [],
+      "outcome": "MISSED - no finding on a vulnerable case"
+    },
+    {
+      "id": "tokenizk-finance",
+      "label": "vulnerable",
+      "expected_rules": [
+        "O1JS_UNCONSTRAINED_SENDER",
+        "O1JS_WEAK_PERMISSIONS"
+      ],
+      "observed_rules": {
+        "O1JS_APPROVE_WITHOUT_BINDING": 1,
+        "O1JS_PRECONDITION_OVERWRITTEN": 1,
+        "O1JS_UNCONSTRAINED_SENDER": 1,
+        "O1JS_UNCONSTRAINED_WITNESS": 1,
+        "O1JS_WEAK_PERMISSIONS": 1,
+        "O1JS_WITNESS_NOT_BOUND_TO_STATE": 5
+      },
+      "total_findings": 10,
+      "highest_severity": "medium",
+      "expected_and_found": [
+        "O1JS_UNCONSTRAINED_SENDER",
+        "O1JS_WEAK_PERMISSIONS"
+      ],
+      "expected_not_found": [],
+      "unexpected": [
+        "O1JS_APPROVE_WITHOUT_BINDING",
+        "O1JS_PRECONDITION_OVERWRITTEN",
+        "O1JS_UNCONSTRAINED_WITNESS",
+        "O1JS_WITNESS_NOT_BOUND_TO_STATE"
+      ],
+      "outcome": "flagged"
+    },
+    {
+      "id": "zeroid-mid",
+      "label": "vulnerable",
+      "expected_rules": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "observed_rules": {
+        "O1JS_UNCONSTRAINED_WITNESS": 3
+      },
+      "total_findings": 3,
+      "highest_severity": "medium",
+      "expected_and_found": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "expected_not_found": [],
+      "unexpected": [],
+      "outcome": "flagged"
+    },
+    {
+      "id": "repeating-life-gameoflife",
+      "label": "clean",
+      "expected_rules": [],
+      "observed_rules": {},
+      "total_findings": 0,
+      "highest_severity": null,
+      "expected_and_found": [],
+      "expected_not_found": [],
+      "unexpected": [],
+      "outcome": "clean-negative"
+    }
+  ]
+}

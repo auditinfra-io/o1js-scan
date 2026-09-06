@@ -27,6 +27,7 @@ recursive-include bin *
 recursive-include docs *
 recursive-include examples *
 recursive-include scripts *
+recursive-include research *
 recursive-include tests *
 recursive-include .github *
 
