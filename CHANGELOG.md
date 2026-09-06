@@ -6,7 +6,45 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-05
+
+Rule metadata gets one source of truth. No rule changes and no detector
+changes: every corpus and snapshot is byte-identical, and the rendered README
+tables are byte-identical to the hand-written ones they replace.
+
+Includes everything listed under 0.17.1 below, which was prepared but never
+tagged.
+
+### Added
+- **`o1js_scan/rules.py`** — a `RuleSpec` registry describing all 29 rules
+  (18 o1js, 11 Noir): id, backend, title, severity spread, description, SARIF
+  tags, and the audit finding a rule came from where there is one. Frozen
+  dataclasses, no runtime dependencies, Python 3.8 compatible.
+- **`scripts/render_rule_docs.py`** renders the README rule tables, the summary
+  counts, and a new `docs/rules.md` reference from the registry. `--check` fails
+  when the committed docs drift, so a rule cannot be added without its
+  documentation following.
+- `tests/test_rule_registry.py` enforces the invariants that make the registry
+  trustworthy: unique ids, valid backend and severities, severities ordered
+  worst-first, every emitted rule registered, every registered rule emittable,
+  backend matching the id prefix, and every SARIF `helpUri` resolving to a real
+  heading in `docs/rules.md`.
+
+### Fixed
+- **Noir findings were tagged `o1js` in SARIF.** Every rule carried
+  `["security", "zk", "o1js"]` regardless of backend, mislabelling Noir alerts
+  in code scanning. Tags now come from the registry: `o1js`/`mina` or
+  `noir`/`aztec`.
+- **SARIF rule descriptions depended on scan order.** A rule object is
+  per-rule, but `shortDescription` and `fullDescription` were taken from
+  whichever finding happened to be reported first — so the rule's description
+  named one arbitrary method. Both now come from the registry.
+- SARIF `helpUri` pointed every rule at the repository root. Each rule now
+  links to its own heading in `docs/rules.md`.
+
 ## [0.17.1] - 2026-09-05
+
+*Never tagged — these changes shipped as part of 0.18.0.*
 
 A reliability release: no rule changes, no new findings on any corpus.
 

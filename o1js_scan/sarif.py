@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from typing import Dict, List, Tuple
 
+from .rules import spec_for
 from .vuln import Severity, Vulnerability
 
 SARIF_SCHEMA = (
@@ -17,6 +18,12 @@ SARIF_SCHEMA = (
     "Schemata/sarif-schema-2.1.0.json"
 )
 INFO_URI = "https://github.com/auditinfra-io/o1js-scan"
+# Rule reference lives in a generated file, so an anchor stays valid as the
+# README is reorganised. A rule with no registry entry falls back to INFO_URI.
+RULE_DOC_URI = INFO_URI + "/blob/main/docs/rules.md"
+# Used only when a rule is missing from the registry; the registry test makes
+# that a failure, so this is belt-and-braces for third-party Vulnerability objects.
+_FALLBACK_TAGS = ("security", "zk")
 
 # severity -> (SARIF level, GitHub security-severity score)
 # GitHub buckets security-severity as: >=9 critical, 7-8.9 high, 4-6.9 medium, <4 low.
@@ -63,17 +70,28 @@ def to_sarif(
         level, sec_sev = _LEVEL.get(sev, ("warning", "5.0"))
 
         if rid not in rule_index:
+            spec = spec_for(rid)
             rule_index[rid] = len(rules)
+            # Rule-level metadata comes from the registry, not from whichever
+            # finding happened to be first: a per-finding title names one
+            # method, and using it here made the rule's description depend on
+            # scan order. Noir rules were also tagged `o1js`.
             rules.append({
                 "id": rid,
                 "name": rid,
-                "shortDescription": {"text": (v.title or rid)[:200]},
-                "fullDescription": {"text": v.description or v.title or rid},
-                "helpUri": INFO_URI,
+                "shortDescription": {
+                    "text": (spec.title if spec else v.title or rid)[:200]
+                },
+                "fullDescription": {
+                    "text": spec.description if spec else (v.description or v.title or rid)
+                },
+                "helpUri": (
+                    "{0}#{1}".format(RULE_DOC_URI, spec.help_anchor) if spec else INFO_URI
+                ),
                 "defaultConfiguration": {"level": level},
                 "properties": {
                     "security-severity": sec_sev,
-                    "tags": ["security", "zk", "o1js"],
+                    "tags": list(spec.tags if spec else _FALLBACK_TAGS),
                 },
             })
 
