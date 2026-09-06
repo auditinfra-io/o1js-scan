@@ -120,7 +120,9 @@ Read these before quoting anything above.
 * **Findings beyond the predicted rules were not all triaged.**
   `O1JS_STALE_MERKLE_ROOT` on two cases and the `tokenizk` extras are recorded
   but unclassified. They are not counted as either true or false positives.
-* **This corpus burns on use.** Fixing the `*Proof` false positive means
-  developing against `usdm`, which moves that case from held-out to regression
-  in the next benchmark version. That is the anti-overfitting rule, and it is
-  the intended cost.
+* **This corpus burns on use, and it has.** The `*Proof` false positive was
+  fixed in 0.19.0, developed against `usdm`. Under the anti-overfitting rule
+  that case is now marked `development` in the manifest and must not be counted
+  as unseen evidence again. **Five cases remain genuinely held out.**
+  `results-0.19.0.json` records the post-fix state: `usdm` drops from 67
+  findings to 7, keeping the real ones and losing all 60 false HIGHs.

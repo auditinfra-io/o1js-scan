@@ -46,7 +46,8 @@
       ],
       "reasoning": "withdraw() sends a fixed 2 MINA to `this.receiverPublicKey.get()` with no authorization and no precondition on the read. setReceiver()/setSender() let any caller overwrite those addresses from an unconstrained @method argument, so anyone can point the escrow at themselves and drain it. Expect a HIGH missing-precondition on the bare .get() and unconstrained-witness findings on the setters.",
       "notes": "The same EscrowContract is vendored four times (ui/src, whisper-key-core/src, api/src/deployer, plus a build copy). Counted as one case; duplicate findings are expected and are not scored separately.",
-      "label_correction": "The original label also expected O1JS_MISSING_STATE_PRECONDITION on withdraw(). That was MY error, found when the scanner did not fire: whisper-key-core/src/EscrowContract.ts:19 does carry a precondition (`this.receiverPublicKey.assertEquals(this.receiverPublicKey.get())`, the legacy spelling). I had read the ui/src copy and assumed a bare get(). The scanner was right and the label was wrong. Corrected after the run, which is recorded here because it weakens this expectation as a blind prediction."
+      "label_correction": "The original label also expected O1JS_MISSING_STATE_PRECONDITION on withdraw(). That was MY error, found when the scanner did not fire: whisper-key-core/src/EscrowContract.ts:19 does carry a precondition (`this.receiverPublicKey.assertEquals(this.receiverPublicKey.get())`, the legacy spelling). I had read the ui/src copy and assumed a bare get(). The scanner was right and the label was wrong. Corrected after the run, which is recorded here because it weakens this expectation as a blind prediction.",
+      "status": "held-out"
     },
     {
       "id": "usdm-token-owner",
@@ -61,7 +62,9 @@
       "known_defects_not_expressible": [
         "Re-initialisation / ownership takeover: no rule models 'a state write that should be one-shot'.",
         "Legacy bare `this.sender` used as an authorization subject. O1JS_UNCONSTRAINED_SENDER matches `this.sender.getUnconstrained()`, the modern spelling, so the 0.15-era form is expected to be missed."
-      ]
+      ],
+      "status": "development",
+      "status_reason": "The *Proof false-positive fix in 0.19.0 was developed against this case, so under the anti-overfitting rule it is no longer held out. It stays in the corpus as a regression case; the next benchmark version must not count it as unseen evidence."
     },
     {
       "id": "mina-navi-token-election",
@@ -74,7 +77,8 @@
       "known_defects_not_expressible": [
         "Unauthorized mint: no rule models mint authorization; O1JS_UNCONSTRAINED_RECIPIENT covers send recipients only.",
         "Precondition overwrite in the legacy `assertEquals` spelling. O1JS_PRECONDITION_OVERWRITTEN deliberately matches only require* because assertEquals is overwhelmingly the in-circuit Field assertion, so this real instance is expected to be missed."
-      ]
+      ],
+      "status": "held-out"
     },
     {
       "id": "tokenizk-finance",
@@ -87,7 +91,8 @@
         "O1JS_WEAK_PERMISSIONS"
       ],
       "reasoning": "Uses this.sender.getUnconstrained() in airdrop claim and factory fee paths, and sets account permissions explicitly in several contracts. Expect unconstrained-sender findings and permission findings; severity depends on whether a signature is required on the same account update.",
-      "notes": "Largest case in the corpus (1864 contract lines). Reviewed at method-effect granularity, not exhaustively."
+      "notes": "Largest case in the corpus (1864 contract lines). Reviewed at method-effect granularity, not exhaustively.",
+      "status": "held-out"
     },
     {
       "id": "zeroid-mid",
@@ -101,7 +106,8 @@
       "reasoning": "updateRoot() writes an unconstrained @method argument straight to the commitment state. The write is gated by proving knowledge of a private key, so real impact is admin-scoped, but the witness-to-state-write finding is correct and expected.",
       "known_defects_not_expressible": [
         "A PrivateKey is taken as a @method parameter, so the key becomes part of the witness. No rule models this."
-      ]
+      ],
+      "status": "held-out"
     },
     {
       "id": "repeating-life-gameoflife",
@@ -115,8 +121,11 @@
         "O1JS_UNCONSTRAINED_WITNESS",
         "O1JS_MISSING_STATE_PRECONDITION"
       ],
-      "reasoning": "submitRepeaterSolution() calls zkProgram.verify() before reading its public input, and asserts the step count. submitStillSolution() constrains every board cell to 0 or 1 and checks the transition. The contract holds no state and moves no funds, so there is nothing for a witness to reach. Negative case: any HIGH or MEDIUM finding here is a false positive."
+      "reasoning": "submitRepeaterSolution() calls zkProgram.verify() before reading its public input, and asserts the step count. submitStillSolution() constrains every board cell to 0 or 1 and checks the transition. The contract holds no state and moves no funds, so there is nothing for a witness to reach. Negative case: any HIGH or MEDIUM finding here is a false positive.",
+      "status": "held-out"
     }
   ],
-  "label_corrections_note": "One expectation was corrected after the first run \u2014 see whisper-key-escrow. Corrections made after seeing scanner output are recorded inline rather than silently applied, because a label edited to match the tool is not evidence."
+  "label_corrections_note": "One expectation was corrected after the first run \u2014 see whisper-key-escrow. Corrections made after seeing scanner output are recorded inline rather than silently applied, because a label edited to match the tool is not evidence.",
+  "benchmark_version": 2,
+  "benchmark_version_note": "v1 froze six held-out cases at 0.18.0. v2 records that usdm-token-owner moved to development status after a fix was built against it. Five cases remain genuinely unseen."
 }

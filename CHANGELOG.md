@@ -6,6 +6,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-05
+
+### Fixed
+- **`O1JS_UNVERIFIED_PROOF` no longer fires on user Structs named `*Proof`.**
+  The held-out benchmark found 60 false HIGH findings in one repository, where
+  `BlockProof extends Struct({...})` is not an o1js `Proof` and the contract
+  does check it. An explicit `Proof<...>` / `SelfProof<...>` / `DynamicProof<...>`
+  type still fires unconditionally; the `*Proof` naming convention alone now
+  requires the method to use the recursive-proof API (`publicInput` /
+  `publicOutput`) on that parameter before it is believed. Both disclosed
+  true positives — randomina and zkLocus — still fire at HIGH, and the shape is
+  pinned as `fp_proof_named_struct.ts`.
+
+### Changed
+- Same-class helper binding propagation runs to a fixed point instead of
+  stopping after one level, so a binding several helpers deep marks the whole
+  chain. Termination is structural — binding sets only grow and are bounded by
+  the parameter count — so recursion and mutual recursion converge rather than
+  loop; the round cap is a guard, not the mechanism. Ambiguous argument mappings
+  (anything but a bare parameter reference) still refuse to propagate.
+  **No end-to-end finding is known to change:** `SemanticFacts` already covered
+  the multi-level witness case by another route, and every corpus and snapshot
+  is byte-identical. `tests/test_helper_propagation.py` pins the specification
+  — chains followed, cycles terminating, and eight negative cases that must
+  never launder a witness.
+
 ### Added
 - **A held-out o1js benchmark** (`research/heldout-o1js/`). Six zkApps from the
   ecosystem's own project index, none used to tune any rule, pinned by commit,
@@ -22,13 +48,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The sdist now ships `research/`, which `tests/test_heldout_manifest.py` reads.
   Caught by the packaging guard added in 0.16.1.
 
-### Known
-- **`O1JS_UNVERIFIED_PROOF` fires on user Structs whose name ends in `Proof`.**
-  The benchmark found 60 false-positive HIGH findings in one repository:
-  `BlockProof extends Struct({...})` is not an o1js `Proof`, and the contract
-  does check it. Recorded rather than fixed, because the fix must be developed
-  against that case, which moves it out of the held-out set. Details in
-  `research/heldout-o1js/README.md`.
+  The benchmark's first run found the `*Proof` false positive fixed above, and
+  `usdm` is therefore marked `development` rather than held out from 0.19.0 on;
+  five cases remain genuinely unseen.
 
 ## [0.18.0] - 2026-09-05
 

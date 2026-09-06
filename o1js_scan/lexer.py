@@ -398,7 +398,9 @@ _FUNC_HEAD_RE = re.compile(
         _MAX_IDENT, _MAX_PARAMS, _MAX_PARAMS, _MAX_PARAMS,
     ), re.MULTILINE,
 )
-# Same-class helper call: `this.<helper>(...)`. Depth-1 binding propagation only.
+# Same-class helper call: `this.<helper>(...)`. Bindings propagate through
+# chains of these to a fixed point; see _build_helper_binds.
+_MAX_HELPER_PROPAGATION_ROUNDS = 8
 _THIS_HELPER_CALL_RE = re.compile(
     r"this\s*\.\s*(\w{1,%d})\s*\(" % _MAX_IDENT,
 )
@@ -592,18 +594,54 @@ class O1jsLexer:
         propagate nothing anyway; omitting them also means calling a no-op
         helper cannot launder a witness). ``@method``-decorated methods are
         never treated as helpers."""
-        out: Dict[str, Set[int]] = {}
-        for meth in methods:
-            if meth.is_method_decorated:
-                continue
+        helpers = {m.name: m for m in methods if not m.is_method_decorated}
+
+        # Round 0: what each helper binds by itself.
+        binds: Dict[str, Set[int]] = {}
+        for name, meth in helpers.items():
             state_bound = _state_bound_locals(meth.body, state)
-            idxs: Set[int] = set()
-            for i, pname in enumerate(meth.params):
-                if self._asserts_on(meth.body, pname, state_bound) == "bound":
-                    idxs.add(i)
+            idxs = {
+                i for i, pname in enumerate(meth.params)
+                if self._asserts_on(meth.body, pname, state_bound) == "bound"
+            }
             if idxs:
-                out[meth.name] = idxs
-        return out
+                binds[name] = idxs
+
+        # Then propagate through same-class helper calls to a fixed point, so a
+        # binding two or three helpers deep is still seen:
+        #     @method -> checkAll(x) -> checkOne(x) -> x.assertEquals(state)
+        #
+        # Termination is structural rather than a depth counter: the sets only
+        # ever grow and are bounded by the parameter count, so recursion and
+        # mutual recursion converge instead of looping. The iteration cap below
+        # is a guard against a future non-monotone edit, not the mechanism.
+        for _ in range(_MAX_HELPER_PROPAGATION_ROUNDS):
+            changed = False
+            for name, meth in helpers.items():
+                for call in _THIS_HELPER_CALL_RE.finditer(meth.body):
+                    callee_binds = binds.get(call.group(1))
+                    if not callee_binds:
+                        continue
+                    args = _split_top_level(_paren_segment(meth.body, call.end() - 1), ",")
+                    for j in callee_binds:
+                        if j >= len(args):
+                            continue
+                        # Only a bare parameter reference maps back. Anything
+                        # derived (`x.add(1)`, a literal, a local) is ambiguous,
+                        # and a wrong mapping here would suppress a real finding.
+                        root = _arg_root_ident(args[j])
+                        if root is None or root.strip() != args[j].strip():
+                            continue
+                        if root not in meth.params:
+                            continue
+                        i = meth.params.index(root)
+                        if i not in binds.setdefault(name, set()):
+                            binds[name].add(i)
+                            changed = True
+            if not changed:
+                break
+
+        return {name: idxs for name, idxs in binds.items() if idxs}
 
     @staticmethod
     def _propagated_bindings(body: str, helper_binds: Dict[str, Set[int]]) -> Set[str]:
@@ -1012,7 +1050,17 @@ class O1jsLexer:
             state_bound |= _simple_aliases(body, state_bound)
             for i, arg in enumerate(meth.params):
                 typ = meth.param_types[i] if i < len(meth.param_types) else None
-                if not _is_proof_type(typ):
+                if _is_explicit_proof_type(typ):
+                    pass
+                elif _is_proof_named_type(typ):
+                    # A `*Proof` name is only a convention. Require the method to
+                    # actually use the recursive-proof API on this parameter
+                    # before believing it: a user Struct named `BlockProof`
+                    # reads its own fields and never touches publicInput /
+                    # publicOutput.
+                    if not _proof_public_fields_used(body, arg):
+                        continue
+                else:
                     continue
                 if _proof_has_unconditional_verify(body, arg):
                     continue
@@ -2354,16 +2402,30 @@ def _arg_root_ident(arg: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def _is_proof_type(type_str: Optional[str]) -> bool:
-    """True for ``Proof<...>``, ``SelfProof<...>``, ``DynamicProof<...>``,
-    or an identifier ending in ``Proof`` (ZkProgram proof-class convention)."""
+def _is_explicit_proof_type(type_str: Optional[str]) -> bool:
+    """``Proof<...>`` / ``SelfProof<...>`` / ``DynamicProof<...>`` — unambiguous."""
     if not type_str:
         return False
-    t = type_str.strip()
-    if re.match(r"^(?:Proof|SelfProof|DynamicProof)\s*<", t):
-        return True
-    base = re.match(r"^(\w+)", t)
+    return bool(re.match(r"^(?:Proof|SelfProof|DynamicProof)\s*<", type_str.strip()))
+
+
+def _is_proof_named_type(type_str: Optional[str]) -> bool:
+    """An identifier ending in ``Proof`` — the ZkProgram proof-class convention.
+
+    Only a naming convention, and a widely used one for things that are not
+    proofs at all. The held-out benchmark found `BlockProof extends Struct({…})`
+    in zk0ath/usdm, where twenty such parameters produced sixty false HIGH
+    findings, so callers must corroborate this before trusting it.
+    """
+    if not type_str:
+        return False
+    base = re.match(r"^(\w+)", type_str.strip())
     return bool(base and base.group(1).endswith("Proof"))
+
+
+def _is_proof_type(type_str: Optional[str]) -> bool:
+    """Kept for compatibility: either form."""
+    return _is_explicit_proof_type(type_str) or _is_proof_named_type(type_str)
 
 
 def _proof_has_unconditional_verify(body: str, param: str) -> bool:
