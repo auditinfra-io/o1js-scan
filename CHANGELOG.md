@@ -24,6 +24,15 @@ tagged.
   counts, and a new `docs/rules.md` reference from the registry. `--check` fails
   when the committed docs drift, so a rule cannot be added without its
   documentation following.
+- **`tests/test_metamorphic.py`** — 242 checks that semantics-preserving
+  reformatting does not change what the analyzer reports. Five mutations
+  (blank lines, indentation, trailing comments, CRLF, trailing whitespace) are
+  enforced across every corpus fixture in both languages; three more that do
+  change the verdict are recorded in an explicit `KNOWN_GAPS` manifest, so new
+  fragility fails the suite and *fixed* fragility fails it too, forcing the
+  manifest to stay honest. All four remaining gaps are exotic spacing
+  (`a . b`, `f ( x )`) that no formatter emits. Prettier-style wrapping,
+  including wrapped method signatures, is handled correctly.
 - `tests/test_rule_registry.py` enforces the invariants that make the registry
   trustworthy: unique ids, valid backend and severities, severities ordered
   worst-first, every emitted rule registered, every registered rule emittable,
@@ -31,6 +40,9 @@ tagged.
   heading in `docs/rules.md`.
 
 ### Fixed
+- A `ruff` B017 violation in `tests/test_rule_registry.py` (`pytest.raises(Exception)`
+  rather than the specific `FrozenInstanceError`). It was committed because a
+  stale `.ruff_cache` reported the tree clean; `ruff check --no-cache` shows it.
 - **Noir findings were tagged `o1js` in SARIF.** Every rule carried
   `["security", "zk", "o1js"]` regardless of backend, mislabelling Noir alerts
   in code scanning. Tags now come from the registry: `o1js`/`mina` or

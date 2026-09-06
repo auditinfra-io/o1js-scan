@@ -11,6 +11,7 @@ these tests check.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import subprocess
@@ -62,8 +63,9 @@ def test_spec_fields_are_valid(spec):
 
 
 def test_specs_are_immutable():
+    """A frozen spec cannot be edited at runtime, so the registry is the truth."""
     spec = next(iter(REGISTRY.values()))
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         spec.rule_id = "MUTATED"  # type: ignore[misc]
 
 
