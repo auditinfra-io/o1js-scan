@@ -6,6 +6,56 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-09-05
+
+A reliability release: no rule changes, no new findings on any corpus.
+
+### Fixed
+- **The GitHub Action no longer hides operational failures.** The scan step
+  ended in `|| true`, which suppressed the non-zero exit that findings cause —
+  and equally suppressed a bad path, a CLI usage error, or a crash, publishing
+  an empty SARIF as a clean result. The reporting pass now runs at
+  `--fail-on none`, so findings never block the upload while real failures
+  still fail the step.
+- **The Action's report and gate now analyze the same sources.** The
+  enforcement pass ignored `include-tests` / `include-examples`, so the SARIF
+  you read and the exit code you gated on could describe different source sets.
+  Both passes are now built from one argument array.
+- **Action inputs no longer reach the shell through `${{ }}`.** A composite
+  action interpolates before bash parses, so an input containing shell
+  metacharacters would execute. Every input now arrives via `env:`.
+- Workflow and documentation guard tests can no longer silently skip: `PyYAML`
+  is a dev dependency and the `pytest.importorskip("yaml")` guards are gone. A
+  guard that skips itself guards nothing.
+
+### Added
+- **`fail-on` Action input** (`critical`|`high`|`medium`|`low`|`none`, default
+  `none`) so the gate severity is configurable. `fail-on-findings` is retained
+  for one release, maps to `fail-on: high` when `fail-on` is `none`, and emits
+  a deprecation warning.
+- `tests/test_action_contract.py` asserts the Action's shape — no swallowed
+  failures, shared include flags, `env:`-passed inputs, gate severity, and
+  legacy-input compatibility — without needing a runner.
+- Documentation guards: README Action version examples must match the shipped
+  version, and the CI matrix must cover every Python version the classifiers
+  advertise.
+
+### Changed
+- CI tests Python 3.8, 3.9, 3.10, 3.11, 3.12 and 3.13 — previously only 3.8,
+  3.10 and 3.12 while the classifiers advertised all six.
+- README Action examples move from `v0.15.0` to the shipped version; they had
+  been stale since 0.15.0.
+- Documentation describes the analyzer accurately as a lexical frontend plus a
+  lightweight semantic layer, rather than "not a dataflow engine", which stopped
+  being true when the `SemanticFacts` layer landed in 0.14.0.
+- The Veridise recall study no longer says the three findings are "currently
+  undetected" after establishing that all three are detected.
+- `CONTRIBUTING.md` documents coordinated disclosure for bugs found in other
+  people's projects: nothing about an embargoed upstream finding — write-up,
+  reproducer, or commit message — belongs in this repository before the
+  maintainers clear it, and deleting a file afterwards does not make it
+  private.
+
 ## [0.17.0] - 2026-09-05
 
 Three new o1js rules, each derived from a finding in the Veridise audit of

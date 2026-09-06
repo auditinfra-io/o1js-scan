@@ -22,8 +22,12 @@ inputs:
     description: 'Upload the SARIF report to GitHub code scanning (requires security-events: write).'
     required: false
     default: 'true'
+  fail-on:
+    description: 'Minimum finding severity that fails the job: critical, high, medium, low, or none.'
+    required: false
+    default: 'none'
   fail-on-findings:
-    description: 'Fail the job when any high/critical finding is present.'
+    description: 'DEPRECATED — use fail-on instead. When true and fail-on is none, behaves as fail-on: high.'
     required: false
     default: 'false'
   include-tests:
@@ -50,9 +54,16 @@ runs:
 
     - name: Install o1js-scan
       shell: bash
+      # Inputs reach the script through the environment, never through
+      # ${{ }} interpolation into the script body: a composite action
+      # interpolates before bash parses, so an input containing shell
+      # metacharacters would execute in this step.
+      env:
+        VERSION: ${{ inputs.version }}
       run: |
-        if [ -n "${{ inputs.version }}" ]; then
-          python -m pip install "o1js-scan==${{ inputs.version }}"
+        set -euo pipefail
+        if [ -n "$VERSION" ]; then
+          python -m pip install "o1js-scan==$VERSION"
         else
           python -m pip install o1js-scan
         fi
@@ -60,14 +71,36 @@ runs:
     - name: Run o1js-scan
       id: scan
       shell: bash
+      env:
+        SCAN_PATH: ${{ inputs.path }}
+        LANG_INPUT: ${{ inputs.lang }}
+        INCLUDE_TESTS: ${{ inputs.include-tests }}
+        INCLUDE_EXAMPLES: ${{ inputs.include-examples }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
       run: |
-        # Always produce a (possibly empty) SARIF so the upload step can run
-        # even when the scan finds high-severity issues (non-zero exit).
-        EXTRA=""
-        if [ "${{ inputs.include-tests }}" = "true" ]; then EXTRA="$EXTRA --include-tests"; fi
-        if [ "${{ inputs.include-examples }}" = "true" ]; then EXTRA="$EXTRA --include-examples"; fi
-        o1js-scan "${{ inputs.path }}" --lang "${{ inputs.lang }}" $EXTRA --sarif o1js-scan.sarif || true
+        set -euo pipefail
+
+        # One argument array drives both passes, so the report and the gate can
+        # never analyze different effective inputs.
+        ARGS=("$SCAN_PATH" --lang "$LANG_INPUT")
+        if [ "$INCLUDE_TESTS" = "true" ]; then ARGS+=(--include-tests); fi
+        if [ "$INCLUDE_EXAMPLES" = "true" ]; then ARGS+=(--include-examples); fi
+
+        # Reporting pass: --fail-on none means findings do not fail this step,
+        # so the SARIF upload always has a file to consume. Operational
+        # failures (bad path, CLI usage error, crash) still fail the step --
+        # a blanket `|| true` here would turn a broken scan into a clean one.
+        o1js-scan "${ARGS[@]}" --fail-on none --sarif o1js-scan.sarif
         echo "sarif-file=o1js-scan.sarif" >> "$GITHUB_OUTPUT"
+
+        # Resolve the gate: fail-on wins; the deprecated boolean maps to high.
+        GATE="$FAIL_ON"
+        if [ "$GATE" = "none" ] && [ "$FAIL_ON_FINDINGS" = "true" ]; then
+          GATE="high"
+          echo "::warning::fail-on-findings is deprecated; use fail-on: high"
+        fi
+        echo "gate=$GATE" >> "$GITHUB_OUTPUT"
 
     - name: Upload SARIF to code scanning
       if: ${{ inputs.upload-sarif == 'true' }}
@@ -77,6 +110,17 @@ runs:
         category: o1js-scan
 
     - name: Enforce finding gate
-      if: ${{ inputs.fail-on-findings == 'true' }}
+      if: ${{ steps.scan.outputs.gate != 'none' }}
       shell: bash
-      run: o1js-scan "${{ inputs.path }}" --lang "${{ inputs.lang }}"
+      env:
+        SCAN_PATH: ${{ inputs.path }}
+        LANG_INPUT: ${{ inputs.lang }}
+        INCLUDE_TESTS: ${{ inputs.include-tests }}
+        INCLUDE_EXAMPLES: ${{ inputs.include-examples }}
+        GATE: ${{ steps.scan.outputs.gate }}
+      run: |
+        set -euo pipefail
+        ARGS=("$SCAN_PATH" --lang "$LANG_INPUT")
+        if [ "$INCLUDE_TESTS" = "true" ]; then ARGS+=(--include-tests); fi
+        if [ "$INCLUDE_EXAMPLES" = "true" ]; then ARGS+=(--include-examples); fi
+        o1js-scan "${ARGS[@]}" --fail-on "$GATE"

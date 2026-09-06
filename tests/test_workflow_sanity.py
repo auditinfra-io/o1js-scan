@@ -27,7 +27,9 @@ from pathlib import Path
 
 import pytest
 
-yaml = pytest.importorskip("yaml")
+# PyYAML is a dev dependency, so this test is mandatory rather than
+# skippable: a workflow guard that silently skips guards nothing.
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))

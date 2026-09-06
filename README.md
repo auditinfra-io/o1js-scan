@@ -234,12 +234,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: auditinfra-io/o1js-scan@v0.15.0
+      - uses: auditinfra-io/o1js-scan@v0.17.1
         with:
           path: src              # optional, defaults to the repo root
           lang: auto             # auto | o1js | noir
-          # version: 0.15.0       # optional, pin the scanner version
-          # fail-on-findings: true   # optional, fail the job on any high/critical
+          # version: 0.17.1       # optional, pin the scanner version
+          # fail-on: high         # optional, fail the job on high/critical
 ```
 
 ### Noir-only CI recipe
@@ -248,11 +248,11 @@ Recommended for Noir projects that want code-scanning alerts and a high-severity
 gate:
 
 ```yaml
-- uses: auditinfra-io/o1js-scan@v0.15.0
+- uses: auditinfra-io/o1js-scan@v0.17.1
   with:
     path: .
     lang: noir
-    fail-on-findings: true
+    fail-on: high
 ```
 
 Or without the Action:
@@ -278,9 +278,21 @@ noir-scan . --lang noir --fail-on high --sarif noir.sarif
 
 Inputs: `path` (default `.`), `lang` (`auto`|`o1js`|`noir`, default `auto`),
 `version` (PyPI version to install, default latest), `upload-sarif` (default
-`true`), `fail-on-findings` (default `false`), `include-tests` (default
+`true`), `fail-on` (`critical`|`high`|`medium`|`low`|`none`, default `none`),
+`fail-on-findings` (deprecated, default `false`), `include-tests` (default
 `false`), `include-examples` (default `false`). Output: `sarif-file`. SARIF
 upload needs `security-events: write` and code scanning enabled.
+
+The report and the gate are built from one argument array, so `include-tests`
+and `include-examples` apply to both — the SARIF you read and the exit code you
+gate on always describe the same source set. The reporting pass runs at
+`--fail-on none` so findings never block the SARIF upload, but an operational
+failure (a path that does not exist, a CLI usage error) still fails the step
+rather than being reported as a clean scan.
+
+`fail-on-findings: true` is kept for compatibility and maps to `fail-on: high`
+when `fail-on` is left at `none`; it emits a deprecation warning. Prefer
+`fail-on`, which can gate at any severity.
 
 ## What it detects (o1js)
 
@@ -408,7 +420,7 @@ these demo files live under `examples/`.
 
 ## Known limitations
 
-The analyzer is a **lexical, name-matching** pass, not a dataflow engine.
+The analyzer is a **dependency-free lexical frontend plus a lightweight semantic layer** that does alias tracking and interprocedural propagation through same-class helpers. It is not a TypeScript compiler frontend, a type checker, or a whole-program dataflow engine, and there is no SMT or formal-proof layer in this scanner.
 Keep these blind spots in mind when triaging — they are known and intentional
 for this dependency-free design, not bugs:
 

@@ -163,6 +163,29 @@ Required repository secrets: `PYPI_API_TOKEN`, and `NPM_TOKEN` (an npm
 is enabled, so you can exercise the workflow from a branch without a tag; the
 tag comparison is skipped in that mode.
 
+## Disclosing a bug in someone else's project
+
+This scanner exists to find bugs in code we do not own, so this comes up.
+
+**Do not commit a finding about an upstream or third-party project to this
+repository before its maintainers have been contacted and have cleared
+publication.** That includes the write-up, reproducers, proof-of-concept code,
+and — the part that is easy to miss — the commit message.
+
+Deleting the file later does not make it private. A push is public
+immediately and permanently: the blobs stay reachable by SHA, and a commit
+message describing the bug is readable in the commit list without anyone
+needing to know the SHA. Removing it afterwards mostly advertises that
+something was removed. This has happened here, which is why the rule is
+written down.
+
+While a finding is embargoed, keep it out of the repository entirely — a
+private clone, a local branch you never push, or a worktree outside the repo.
+Once maintainers clear it, a synthetic reproducer and the write-up can land
+normally.
+
+If you are unsure whether something is cleared, it is not cleared.
+
 ## Reporting issues
 
 Please include a minimal o1js or Noir snippet that reproduces the false positive

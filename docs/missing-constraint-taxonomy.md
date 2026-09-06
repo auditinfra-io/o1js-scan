@@ -330,9 +330,11 @@ Constrain the helper's result. Require the old state. Bind the domain.
 ## What a tool can and cannot do here
 
 [`o1js-scan`](https://github.com/auditinfra-io/o1js-scan) implements rules for
-categories 1 through 4 across o1js and Noir. It is lexical — regex and
-brace-matching, not a solver and not a dataflow engine. Both live findings
-described above were produced by it.
+categories 1 through 4 across o1js and Noir. Its frontend is lexical — regex
+and brace-matching — with a lightweight semantic layer over it for alias
+tracking and interprocedural propagation through same-class helpers. It is not
+a solver, not a TypeScript compiler frontend, and not a whole-program dataflow
+engine. Both live findings described above were produced by it.
 
 That shallowness is deliberate and worth explaining, because it bears on where
 tooling helps at all. **Proving a circuit is under-constrained requires reasoning

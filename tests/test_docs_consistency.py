@@ -30,6 +30,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 README = REPO_ROOT / "README.md"
@@ -155,7 +156,6 @@ def test_skipped_directories_match_the_readme():
 
 def test_action_inputs_match_the_readme():
     """The README lists the Action's inputs and their defaults verbatim."""
-    yaml = pytest.importorskip("yaml")
     action = yaml.safe_load((REPO_ROOT / "action.yml").read_text(encoding="utf-8"))
     declared = set(action.get("inputs", {}))
 
@@ -233,4 +233,65 @@ def test_readme_npm_instructions_are_backed_by_a_publish_workflow():
     assert "npm publish" in publish, (
         "README advertises `npm install o1js-scan` but no workflow publishes "
         "to npm — the instruction cannot work"
+    )
+
+
+# ───────────────────────────────────────────────────────────────────
+# README must not advertise a version or a runtime it does not ship
+# ───────────────────────────────────────────────────────────────────
+
+def _manifest_version() -> str:
+    text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
+    assert match, "no version in pyproject.toml"
+    return match.group(1)
+
+
+def test_readme_action_examples_match_the_shipped_version():
+    """A copy-pasteable `uses:` line must name the version being released.
+
+    The README sat on `@v0.15.0` through the whole 0.16.x and 0.17.0 line, so
+    anyone following it pinned a scanner two minor versions old. Deriving the
+    expectation from pyproject means the next bump either updates the examples
+    or fails here.
+    """
+    readme = _readme()
+    pinned = set(re.findall(r"uses:\s*auditinfra-io/o1js-scan@v([\d.]+)", readme))
+    if not pinned:
+        pytest.skip("README pins no explicit Action version")
+    version = _manifest_version()
+    assert pinned == {version}, (
+        f"README Action examples pin {sorted(pinned)} but this release is "
+        f"{version}. Update the examples, or switch them to a floating tag the "
+        f"repository actually maintains."
+    )
+
+
+def test_readme_version_comments_match_the_shipped_version():
+    """The commented-out `version:` pin drifts the same way the `uses:` line does."""
+    commented = set(
+        re.findall(r"#\s*version:\s*([\d.]+)", _readme())
+    )
+    if not commented:
+        return
+    assert commented == {_manifest_version()}
+
+
+def test_ci_tests_every_advertised_python_version():
+    """Advertising a classifier the matrix never runs is an untested promise."""
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    advertised = set(
+        re.findall(r'"Programming Language :: Python :: (\d+\.\d+)"', pyproject)
+    )
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    tested = set()
+    for job in workflow["jobs"].values():
+        matrix = job.get("strategy", {}).get("matrix", {})
+        tested.update(str(v) for v in matrix.get("python-version", []))
+    missing = sorted(advertised - tested, key=lambda v: tuple(map(int, v.split("."))))
+    assert missing == [], (
+        f"pyproject advertises Python {missing} but no CI matrix runs them. "
+        f"Either test them or drop the classifiers."
     )

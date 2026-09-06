@@ -113,7 +113,10 @@ just not what a reasonable developer assumes:
 * both branches of `Provable.if` are evaluated in-circuit, so guarding a
   division does not prevent its unconditional assertion.
 
-Each is a static pattern in application source. Each is currently undetected.
+Each is a static pattern in application source. All three are now implemented
+as regression-backed rules, so this study is an independent-origin regression
+corpus rather than an unseen benchmark — a distinction that matters when
+quoting it as evidence.
 That makes them rule candidates with an unusually strong provenance: an
 independent audit firm already judged them worth reporting, so a rule is not
 speculation about what developers get wrong.
