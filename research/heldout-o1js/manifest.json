@@ -38,7 +38,7 @@
     {
       "id": "whisper-key-escrow",
       "repo": "anandcsingh/whisper-key",
-      "commit": "c1b7897e",
+      "commit": "c1b7897ecb4f2e1356a61551af43ba3adaf39c49",
       "primary_path": "whisper-key-core/src/EscrowContract.ts",
       "label": "vulnerable",
       "expected_rules": [
@@ -52,7 +52,7 @@
     {
       "id": "usdm-token-owner",
       "repo": "zk0ath/usdm",
-      "commit": "1014184b",
+      "commit": "1014184b777e4675ad0eb380dbce6ad3ea65e460",
       "primary_path": "contracts/src/TokenContract.ts",
       "label": "vulnerable",
       "expected_rules": [
@@ -69,7 +69,7 @@
     {
       "id": "mina-navi-token-election",
       "repo": "45930/mina-navi-voting-demo",
-      "commit": "4a1a9827",
+      "commit": "4a1a9827ac67f5408fd98ac88f3018d1b4367b38",
       "primary_path": "src/TokenElection.ts",
       "label": "vulnerable",
       "expected_rules": [],
@@ -83,7 +83,7 @@
     {
       "id": "tokenizk-finance",
       "repo": "TokeniZK/tokenizk-finance",
-      "commit": "0535e737",
+      "commit": "0535e737dc80c0f92bcbe6064dacca76ad266faa",
       "primary_path": "packages/contracts/src",
       "label": "vulnerable",
       "expected_rules": [
@@ -97,7 +97,7 @@
     {
       "id": "zeroid-mid",
       "repo": "boidushya/ZeroID",
-      "commit": "d888153b",
+      "commit": "d888153b5e0c187c9e1fcfc6a49d6565b241d8c2",
       "primary_path": "contracts/mid/src/mid.ts",
       "label": "vulnerable",
       "expected_rules": [
@@ -112,7 +112,7 @@
     {
       "id": "repeating-life-gameoflife",
       "repo": "Raunaque97/RepeatingLifeZK",
-      "commit": "12b0ecf4",
+      "commit": "12b0ecf44918264b476b7b88f7c5cf5f928c82e1",
       "primary_path": "Contracts/src/gameOfLife.ts",
       "label": "clean",
       "expected_rules": [],
@@ -126,6 +126,17 @@
     }
   ],
   "label_corrections_note": "One expectation was corrected after the first run \u2014 see whisper-key-escrow. Corrections made after seeing scanner output are recorded inline rather than silently applied, because a label edited to match the tool is not evidence.",
+  "status_semantics": {
+    "held-out": "Never used to develop, tune, or debug the scanner. Only these cases are evidence about unseen code.",
+    "development": "A change was built against this case, so it is no longer unseen. It stays in the corpus as a regression case and must carry a status_reason naming the change. Counting it as held-out evidence again would be overfitting.",
+    "regression": "Retained only to pin behaviour that a past change established. Not evidence in either direction, and must carry a status_reason."
+  },
+  "status_counts": {
+    "held-out": 5,
+    "development": 1,
+    "regression": 0
+  },
+  "status_counts_note": "Declared rather than derived so that moving a case out of held-out has to be an explicit edit. tests/test_heldout_manifest.py recomputes these and fails on a mismatch, which is what stops the held-out count from drifting upward by accident.",
   "benchmark_version": 2,
   "benchmark_version_note": "v1 froze six held-out cases at 0.18.0. v2 records that usdm-token-owner moved to development status after a fix was built against it. Five cases remain genuinely unseen."
 }

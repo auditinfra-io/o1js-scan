@@ -60,8 +60,8 @@ o1js soundness model (the three footguns this encodes)
    recomputes a witness root but binds NONE of them to on-chain state is
    flagged. Rule: ``O1JS_STALE_MERKLE_ROOT``.
    Binding may live in an undecorated same-class helper called as
-   ``this.verifyX(witness)`` — one level of helper-binding propagation covers
-   that (see below).
+   ``this.verifyX(witness)`` — helper-binding propagation covers that, and
+   follows chains of such helpers to a fixed point (see below).
 
 4. **Proof-typed arguments.** A ``@method`` parameter typed as ``Proof<...>``,
    ``SelfProof<...>``, ``DynamicProof<...>``, or a class name ending in
@@ -559,7 +559,8 @@ class O1jsLexer:
         state = _state_fields(stripped)
         methods = _extract_methods(stripped, content)
         semantic_facts = SemanticFacts(methods, state)
-        # Depth-1: undecorated same-class helpers → which param indices they bind.
+        # Undecorated same-class helpers → which param indices they bind,
+        # closed transitively over helper→helper calls.
         helper_binds = self._build_helper_binds(methods, state)
 
         vulns: List[Vulnerability] = []
@@ -583,7 +584,7 @@ class O1jsLexer:
         vulns += self._detect_weak_permissions(content, stripped)
         return _apply_suppressions(content, vulns)
 
-    # --- Cross-method binding (depth-1 helper propagation) ----------------
+    # --- Cross-method binding (transitive helper propagation) -------------
 
     def _build_helper_binds(
         self, methods: List[_Method], state: Dict[str, str],
@@ -649,7 +650,12 @@ class O1jsLexer:
 
         Only ``this.<helper>(...)`` calls; positional index mapping; root
         identifier of each matching arg (leading ident before ``.`` / ``[``).
-        Depth 1 only — helpers are never followed further."""
+
+        One call site is inspected, but ``helper_binds`` arrives already
+        closed over helper→helper calls (see ``_build_helper_binds``), so a
+        binding several helpers deep is reflected here. What is *not*
+        followed is a free or imported function, and an argument that is a
+        local alias rather than the parameter itself."""
         if not helper_binds:
             return set()
         bound: Set[str] = set()
@@ -747,7 +753,7 @@ class O1jsLexer:
                 continue
             # variables that ARE bound to on-chain state in this body:
             # locals assigned from this.<state>.getAndRequireEquals()/get()
-            # PLUS identifiers state-bound via a depth-1 same-class helper call.
+            # PLUS identifiers state-bound via a same-class helper call.
             state_bound: Set[str] = _state_bound_locals(body, state)
             state_bound |= _simple_aliases(body, state_bound)
             helper_bound = self._propagated_bindings(body, helper_binds)
@@ -956,7 +962,7 @@ class O1jsLexer:
 
         Binding may live in an undecorated same-class helper
         (``this.verifyX(witness)``); a witness receiver that appears in the
-        depth-1 helper-propagated bound set counts as verified."""
+        helper-propagated bound set counts as verified."""
         if not state:
             return []
         helper_binds = helper_binds or {}

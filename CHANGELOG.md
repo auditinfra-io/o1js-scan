@@ -6,6 +6,80 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-09-07
+
+No detector changes. Every finding this release affects is a finding about the
+benchmark harness or the documentation, not about anyone's circuit.
+
+### Fixed
+
+- **The held-out benchmark failed open in three places, and now fails closed.**
+  A clone that did not resolve was announced and skipped; a checkout of the
+  pinned commit that did not resolve left the repository on its default branch
+  and carried on; and the reporter skipped any case whose directory was absent.
+  All three paths printed a tidy per-case table and exited 0, so a run over five
+  repositories — or over today's `main` instead of the frozen commit — produced
+  a results file indistinguishable from a real one. `scripts/heldout_benchmark.sh`
+  and `scripts/heldout_report.py` now verify every case with `git rev-parse HEAD`
+  against the manifest pin, exit non-zero on any mismatch, and write no results
+  file when verification fails. `--allow-missing` opts into a partial run and
+  marks it `corpus_complete: false`.
+
+  The recorded 0.18.0 and 0.19.0 results were not affected: re-running the new
+  runner against the same checkouts reproduces `results-0.19.0.json` exactly,
+  and all six were genuinely at their pinned commits. `results-0.19.0.json` now
+  records `expected_commit` / `actual_commit` per case so that is checkable
+  rather than asserted.
+
+- **Held-out commit pins are full 40-character SHAs.** They were 8-character
+  abbreviations, which are ambiguous across forks and cannot be compared against
+  `git rev-parse HEAD` at all. `tests/test_heldout_manifest.py` now requires
+  `[0-9a-f]{40}` exactly.
+
+- **`O1JS_UNVERIFIED_PROOF`'s description no longer promises a match the
+  detector stopped making.** 0.19.0 narrowed the rule so a `*Proof`-*named*
+  parameter is reported only when the method also reads `publicInput` /
+  `publicOutput` on it; the rule metadata still advertised the old behaviour.
+
+- **Helper-propagation depth is documented as what it is.** 0.19.0 made binding
+  propagation transitive over `this.<helper>(...)` chains, but the README, the
+  `lexer` docstrings and the `O1JS_STALE_MERKLE_ROOT` description all still said
+  "depth 1" / "one level".
+
+### Added
+
+- **`RuleSpec.limitations`** — where a rule stops, kept separate from what it
+  finds. A description answers "what did this find"; a limitation answers "what
+  would it have missed", and folding the second into the first made the README
+  table unreadable. Rendered as a *Where it stops* line in `docs/rules.md` only.
+  Four rules carry one so far, each recording a boundary the held-out corpus
+  actually exposed.
+
+- **`research/heldout-o1js/triage-0.19.0.json`** — all twelve unpredicted
+  findings read against their source and classified: **eight true positives,
+  four false positives.** `unexpected` was the wrong word for most of them. Four
+  of the six repositories carry a real defect in a file the labelling never
+  opened, including two unbound Merkle witnesses and a public method that
+  rewrites a fee recipient with no in-circuit gate.
+
+  The four false positives are two causes. Three are one recurring class:
+  `claimTokens` binds its Struct argument with `this.paramsHash.getAndRequireEquals().assertEquals(params.hash())`,
+  a complete binding that witness tracking misses because it runs through a
+  derived expression. That is a documented limitation, and hash-and-compare is
+  common enough in o1js that it will keep recurring — but fixing it means
+  extending witness tracking, not patching a case, so it is deliberately left
+  out of a documentation release.
+
+- **`tests/test_heldout_runner.py`** — the fail-closed contract, asserted
+  against throwaway git repositories in a temp directory over `file://` URLs, so
+  it needs no network. All ten fail against the 0.19.0 scripts.
+
+- **Case status semantics in the manifest.** `held-out` / `development` /
+  `regression` now have written meanings and a declared `status_counts` that
+  `tests/test_heldout_manifest.py` recomputes, plus a test that the corpus
+  README's prose count of held-out cases matches the data. The held-out count
+  can only go down, and now it can only go down deliberately.
+
 ## [0.19.0] - 2026-09-05
 
 ### Fixed

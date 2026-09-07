@@ -169,3 +169,48 @@ def test_generated_rule_docs_are_up_to_date():
         f"{proc.stdout}{proc.stderr}\n"
         f"Run: python3 scripts/render_rule_docs.py"
     )
+
+
+# ---------------------------------------------------------------------------
+# limitations
+# ---------------------------------------------------------------------------
+
+def test_limitations_are_prose_and_reach_the_rule_page():
+    """A limitation nobody can read is not a limitation that was disclosed.
+
+    `limitations` exists so a rule's boundary is recorded next to the rule
+    rather than in a changelog entry nobody re-reads. It is deliberately absent
+    from the README table -- one row per rule stays readable -- so the rule page
+    is the only place it surfaces, and this asserts it actually gets there.
+    """
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "rules.md").read_text(
+        encoding="utf-8"
+    )
+    documented = [spec for spec in REGISTRY.values() if spec.limitations]
+    assert documented, "the field is pointless if no rule uses it"
+    for spec in documented:
+        assert spec.limitations.strip() == spec.limitations
+        assert spec.limitations.endswith("."), (
+            f"{spec.rule_id}: a limitation is a sentence, not a fragment"
+        )
+        assert spec.limitations != spec.description, (
+            f"{spec.rule_id}: restating the description says nothing new"
+        )
+        assert spec.limitations in doc, (
+            f"{spec.rule_id}: limitation is not rendered into docs/rules.md"
+        )
+
+
+def test_the_proof_rule_records_the_name_suffix_corroboration():
+    """0.19.0 narrowed O1JS_UNVERIFIED_PROOF; the metadata has to say so.
+
+    The rule's description promised a finding on any `*Proof`-named parameter
+    for two releases after the detector stopped delivering one. That gap is the
+    reason this field exists, so it is pinned rather than left to review.
+    """
+    spec = spec_for("O1JS_UNVERIFIED_PROOF")
+    assert "publicInput" in spec.limitations and "publicOutput" in spec.limitations
+    assert "*Proof" not in spec.description, (
+        "the description must not promise a bare name-suffix match the "
+        "detector no longer makes"
+    )

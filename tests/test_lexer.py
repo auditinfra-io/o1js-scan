@@ -1232,7 +1232,7 @@ def test_summary_line_reports_counts(tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------------
-# FP class 1 — depth-1 cross-method helper binding (Response.ts shape)
+# FP class 1 — cross-method helper binding (Response.ts shape)
 # ---------------------------------------------------------------------------
 
 # Binding lives in an undecorated helper; @method only calls it then recomputes.

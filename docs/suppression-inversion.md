@@ -192,8 +192,9 @@ more you false-positive.** Good engineers extract verification into helpers, so
 a linter that only reads inside the function body will systematically flag the
 most carefully written projects. One HIGH in this corpus turned out to be a
 merkle-root check that was correct — the binding lived in an undecorated helper
-one call away. Following helper calls one level deep removed a whole class of
-FPs concentrated, by construction, in the best code.
+one call away. Following helper calls removed a whole class of FPs
+concentrated, by construction, in the best code. (That propagation stopped
+after a single helper when this was written; 0.19.0 extended it to chains.)
 
 ## What this doesn't prove
 

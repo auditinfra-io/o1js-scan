@@ -1,9 +1,12 @@
 {
   "scanner_version": "0.19.0",
+  "corpus_complete": true,
   "cases": [
     {
       "id": "whisper-key-escrow",
       "label": "vulnerable",
+      "expected_commit": "c1b7897ecb4f2e1356a61551af43ba3adaf39c49",
+      "actual_commit": "c1b7897ecb4f2e1356a61551af43ba3adaf39c49",
       "expected_rules": [
         "O1JS_UNCONSTRAINED_WITNESS"
       ],
@@ -25,6 +28,8 @@
     {
       "id": "usdm-token-owner",
       "label": "vulnerable",
+      "expected_commit": "1014184b777e4675ad0eb380dbce6ad3ea65e460",
+      "actual_commit": "1014184b777e4675ad0eb380dbce6ad3ea65e460",
       "expected_rules": [
         "O1JS_UNCONSTRAINED_WITNESS"
       ],
@@ -46,6 +51,8 @@
     {
       "id": "mina-navi-token-election",
       "label": "vulnerable",
+      "expected_commit": "4a1a9827ac67f5408fd98ac88f3018d1b4367b38",
+      "actual_commit": "4a1a9827ac67f5408fd98ac88f3018d1b4367b38",
       "expected_rules": [],
       "observed_rules": {},
       "total_findings": 0,
@@ -58,6 +65,8 @@
     {
       "id": "tokenizk-finance",
       "label": "vulnerable",
+      "expected_commit": "0535e737dc80c0f92bcbe6064dacca76ad266faa",
+      "actual_commit": "0535e737dc80c0f92bcbe6064dacca76ad266faa",
       "expected_rules": [
         "O1JS_UNCONSTRAINED_SENDER",
         "O1JS_WEAK_PERMISSIONS"
@@ -88,6 +97,8 @@
     {
       "id": "zeroid-mid",
       "label": "vulnerable",
+      "expected_commit": "d888153b5e0c187c9e1fcfc6a49d6565b241d8c2",
+      "actual_commit": "d888153b5e0c187c9e1fcfc6a49d6565b241d8c2",
       "expected_rules": [
         "O1JS_UNCONSTRAINED_WITNESS"
       ],
@@ -106,6 +117,8 @@
     {
       "id": "repeating-life-gameoflife",
       "label": "clean",
+      "expected_commit": "12b0ecf44918264b476b7b88f7c5cf5f928c82e1",
+      "actual_commit": "12b0ecf44918264b476b7b88f7c5cf5f928c82e1",
       "expected_rules": [],
       "observed_rules": {},
       "total_findings": 0,

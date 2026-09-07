@@ -1,6 +1,7 @@
 # Held-out o1js benchmark
 
-*Six zkApps the analyzer had never seen, labelled before it ran on them.*
+*Six zkApps the analyzer had never seen, labelled before it ran on them.
+Five of them are still unseen; one was spent fixing what it found.*
 
 ---
 
@@ -102,6 +103,50 @@ defects are outside what the analyzer models:
 Both were predicted in the manifest before the run. They are honest scope
 limits, not surprises.
 
+## Triage of the unpredicted findings
+
+`results-0.19.0.json` records twelve findings the labels did not predict.
+Every one was read against its source at the pinned commit and classified in
+`triage-0.19.0.json`: **eight true positives, four false positives.**
+
+`unexpected` turned out to be the wrong word for most of them. The labels were
+written from one `primary_path` per case, and four of the six repositories carry
+a real defect in a file the labelling never opened:
+
+| Finding | Verdict | Why |
+|---|---|---|
+| `whisper-key` `issueCredential` — stale merkle root (×3 vendored copies) | true positive | Writes `witness.computeRootAndKey(hash)` to `mapRoot` without ever proving the witness matches the live tree. |
+| `usdm` `Contract.update` — stale merkle root | true positive | Same shape, and the signer quorum does not cover it: `Block.hash()` is `Poseidon([commitment, height])`, so the witness is outside what signers sign. |
+| `tokenizk` `setPlatfromFeeAddress` — unconstrained witness | true positive | Writes its argument to state with no in-circuit gate. The `editState: signature()` the doc comment relies on is commented out, leaving `proof()` — which this method supplies. |
+| `tokenizk` `configLauchpadPlatformParams` — witness not bound | true positive | Fee params checked only `> 0` before a state write; the binding read is commented out. |
+| `tokenizk` `configureSaleParams` — precondition overwritten | true positive | The second `timestamp.requireBetween` silently replaces the first. |
+| `tokenizk` `scripts/check-global-slot-genesis.ts` — witness not bound | true positive, not production | Correct about the code; the file is a scratch script, and the scanner has no `scripts/` convention the way it has `test/` and `examples/`. |
+| `tokenizk` `claimTokens` ×3 — witness not bound | **false positive** | See below. |
+| `tokenizk` `redeem` — approve without binding | false positive | The approved update carries no update fields and no balance change, so approving it grants nothing. |
+
+### The one false-positive class worth fixing
+
+Three of the four false positives are the same defect in the analyzer. All three
+`claimTokens` methods bind their `SaleParams` / `AirdropParams` argument to
+on-chain state with the standard o1js commitment idiom:
+
+```ts
+const hash0 = saleParams.hash();
+this.saleParamsHash.getAndRequireEquals().assertEquals(hash0);
+```
+
+That is a complete binding — the argument is fully determined by state. The rule
+misses it because the binding runs through a *derived* expression, `params.hash()`,
+and witness tracking follows plain aliases (`const q = qty`) but not derived
+ones. The README's limitation list has always said so; what this corpus adds is
+the price. Hash-and-compare is how o1js contracts bind a Struct to a state
+commitment, so this will recur on any contract written that way.
+
+It is deliberately not fixed in 0.19.1. Following derived expressions from a
+parameter to an assertion is a real extension of witness tracking, and it needs
+its own regression cases and its own held-out check — not a special case bolted
+onto a documentation release.
+
 ## Limitations
 
 Read these before quoting anything above.
@@ -117,9 +162,10 @@ Read these before quoting anything above.
   correction is recorded inline in `manifest.json` rather than silently applied.
 * **Two large repositories were reviewed at method-effect granularity**, not
   line by line: `tokenizk-finance` (1,864 contract lines) and `whisper-key`.
-* **Findings beyond the predicted rules were not all triaged.**
-  `O1JS_STALE_MERKLE_ROOT` on two cases and the `tokenizk` extras are recorded
-  but unclassified. They are not counted as either true or false positives.
+* **The `unexpected` column is not a false-positive count.** All twelve
+  unpredicted findings are now classified in `triage-0.19.0.json`; see the
+  section above. Eight are real. Reading `unexpected` as noise would have
+  been wrong in both directions.
 * **This corpus burns on use, and it has.** The `*Proof` false positive was
   fixed in 0.19.0, developed against `usdm`. Under the anti-overfitting rule
   that case is now marked `development` in the manifest and must not be counted

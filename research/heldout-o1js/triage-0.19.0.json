@@ -1,0 +1,113 @@
+{
+  "schema": 1,
+  "scanner_version": "0.19.0",
+  "results": "results-0.19.0.json",
+  "triaged_at": "2026-09-07",
+  "what_this_is": "Every finding in results-0.19.0.json that the frozen labels did not predict, read against its source and classified. An unexpected finding is not automatically a false positive -- the labels were written from one primary_path per case, and several of these are in files the labelling never looked at. Leaving them uncounted would let the corpus flatter the scanner in one direction and slander it in the other.",
+  "method": "Each location was read in the checked-out pinned commit, along with whatever the surrounding method does with the flagged value. `disposition` is a reviewer's judgement about the code, not a proof: `true_positive` means the constraint the rule says is missing really is missing at that line; `false_positive` means it is present and the rule failed to see it. `production_code: false` marks a finding that is correct about the code but sits in a script that is never deployed.",
+  "summary": {
+    "unexpected_findings": 12,
+    "true_positive": 8,
+    "false_positive": 4
+  },
+  "findings": [
+    {
+      "case": "whisper-key-escrow",
+      "rule_id": "O1JS_STALE_MERKLE_ROOT",
+      "method": "issueCredential",
+      "locations": [
+        "whisper-key-core/src/CredentialProxy.ts:109",
+        "ui/public/credentials/PassportContract.ts:101",
+        "ui/out/credentials/PassportContract.ts:101"
+      ],
+      "note": "One contract vendored three times; counted as three findings because the scanner reports three, but it is one defect.",
+      "disposition": "true_positive",
+      "confidence": "high",
+      "production_code": true,
+      "reasoning": "issueCredential computes `witness.computeRootAndKey(hash)` and writes the resulting root to `mapRoot`, but never proves the witness matches the live tree. `this.mapRoot.assertEquals(currentRoot)` only pins the account precondition against another prover-supplied argument; it says nothing about the witness. A prover can supply a witness for a fabricated tree and overwrite `mapRoot` with any value. This is the exact shape the rule exists for.",
+      "why_the_label_missed_it": "The case was labelled from EscrowContract.ts, the repository's headline contract. CredentialProxy.ts / PassportContract.ts were never read when the labels were frozen."
+    },
+    {
+      "case": "usdm-token-owner",
+      "rule_id": "O1JS_STALE_MERKLE_ROOT",
+      "method": "update",
+      "locations": ["contracts/src/Contract.ts:122"],
+      "disposition": "true_positive",
+      "confidence": "high",
+      "production_code": true,
+      "reasoning": "`newCelestiaBlocksTree = newBlock.witness.calculateRoot(newBlock.hash())` is written straight to `celestiaBlocksTree`, and the read of the current root into a local is commented out at line 55, so nothing ties the witness to the live tree. The signer quorum does not cover it either: `BlockProof.verify` checks a signature over `block.hash()`, and `Block.hash()` is `Poseidon.hash([commitment, height])` -- the witness field is not in the preimage. A quorum-approved block therefore still leaves the witness prover-chosen.",
+      "why_the_label_missed_it": "The case was labelled from TokenContract.ts. Contract.ts is a separate Celestia-bridge contract in the same repository."
+    },
+    {
+      "case": "tokenizk-finance",
+      "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+      "method": "setPlatfromFeeAddress",
+      "locations": ["packages/contracts/src/TokeniZkFactory.ts:222"],
+      "disposition": "true_positive",
+      "confidence": "high",
+      "production_code": true,
+      "reasoning": "The method writes its `address` argument to `platfromFeeAddress` with no precondition and no in-circuit authorization. Its doc comment says 'only by signature', but the factory's own `editState: Permissions.signature()` is commented out at TokeniZkFactory.ts:181, leaving `Permissions.default()` -- that is `editState: proof()`, and this @method produces exactly such a proof. Any caller can redirect the platform fee recipient."
+    },
+    {
+      "case": "tokenizk-finance",
+      "rule_id": "O1JS_WITNESS_NOT_BOUND_TO_STATE",
+      "method": "configLauchpadPlatformParams",
+      "locations": ["packages/contracts/src/TokeniZkFactory.ts:251"],
+      "disposition": "true_positive",
+      "confidence": "high",
+      "production_code": true,
+      "reasoning": "Every field of `newParams` is checked only `assertGreaterThan(0)` before `this.lauchpadPlatformParamsHash.set(newParams.hash())`. The state read that would have bound it is commented out on the line above. Trivially-constrained witness straight into a state write, which is precisely what this MEDIUM describes."
+    },
+    {
+      "case": "tokenizk-finance",
+      "rule_id": "O1JS_PRECONDITION_OVERWRITTEN",
+      "method": "configureSaleParams",
+      "locations": ["packages/contracts/src/TokeniZkPresale.ts:129"],
+      "disposition": "true_positive",
+      "confidence": "high",
+      "production_code": true,
+      "reasoning": "`this.network.timestamp.requireBetween(saleParams0.startTime - 3h, MAXINT)` at line 120 is overwritten by the same call on `saleParams1.startTime` at line 130. Preconditions are set, not accumulated, so only the second survives. The method asserts `tokenAddress` and `totalSaleSupply` equal across the two param sets but not `startTime`, so the two windows genuinely differ and the guard on the outgoing params is silently dropped. V-O1J-VUL-012 in its textbook form. Admin-signature gated, so this is a broken safety check rather than an open door."
+    },
+    {
+      "case": "tokenizk-finance",
+      "rule_id": "O1JS_WITNESS_NOT_BOUND_TO_STATE",
+      "method": "setParam",
+      "locations": ["packages/contracts/scripts/check-global-slot-genesis.ts:69"],
+      "disposition": "true_positive",
+      "confidence": "high",
+      "production_code": false,
+      "reasoning": "`saleParamsHash1` is constrained only by `assertNotEquals` against the current value before being written to state -- correct as a finding. But the file is a one-off script under packages/contracts/scripts/ for probing genesis global-slot behaviour, not a deployed contract. The scanner has no path convention for `scripts/` the way it does for `test/` and `examples/`, so it is reported at full severity."
+    },
+    {
+      "case": "tokenizk-finance",
+      "rule_id": "O1JS_WITNESS_NOT_BOUND_TO_STATE",
+      "method": "claimTokens",
+      "locations": [
+        "packages/contracts/src/TokeniZkAirdrop.ts:98",
+        "packages/contracts/src/TokeniZkFairSale.ts:274",
+        "packages/contracts/src/TokeniZkPresale.ts:300"
+      ],
+      "disposition": "false_positive",
+      "confidence": "high",
+      "production_code": true,
+      "false_positive_class": "hash-and-compare state binding",
+      "reasoning": "All three methods bind the flagged Struct argument to on-chain state with the standard o1js commitment idiom: `const h = params.hash(); this.paramsHash.getAndRequireEquals().assertEquals(h)`. The argument is therefore fully determined by state, not trivially constrained. The rule misses it because the binding runs through a derived expression -- `params.hash()` -- and witness tracking follows plain aliases (`const q = qty`) but not derived ones, a limitation the README already documents. That limitation is cheap in the abstract and expensive here: hash-and-compare is how o1js contracts bind a Struct to a state commitment, so this FP class will recur on any contract that does it."
+    },
+    {
+      "case": "tokenizk-finance",
+      "rule_id": "O1JS_APPROVE_WITHOUT_BINDING",
+      "method": "redeem",
+      "locations": ["packages/contracts/src/TokeniZkPresale.ts:395"],
+      "disposition": "false_positive",
+      "confidence": "medium",
+      "production_code": true,
+      "false_positive_class": "approved account update carries no update fields",
+      "reasoning": "`saleAU` is built in-circuit at a fixed address (`AccountUpdate.create(this.address, TokenId.derive(tokenAddress))`), three of its preconditions are pinned with `AccountUpdate.assertEquals`, and it carries no `body.update` writes and no balance change at all -- the value transfer in this method goes through `this.send(...)` on `this.self`. Approving an update with nothing in it grants nothing. Confidence is medium rather than high because the rule's concern is structurally reasonable: it cannot distinguish 'no update fields set' from 'update fields set and unbound', and the conservative reading is the safe default for a lead."
+    }
+  ],
+  "what_this_changes": [
+    "Four of the six cases carry a real defect in a file the frozen labels never read. That is a property of the labelling, not of the scanner, and it means `unexpected` in results-*.json must not be read as a false-positive count.",
+    "The one FP class worth acting on is hash-and-compare binding: three findings, one cause, and an idiom common enough that it will keep recurring. Fixing it means following a derived expression (`x.hash()`) from a parameter to an assertion, which is a real extension of witness tracking rather than a special case, so it is left for a separate change with its own regression cases rather than folded into this release.",
+    "No rule severity was changed on the strength of this triage."
+  ]
+}

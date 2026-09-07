@@ -78,6 +78,11 @@ def _rules_doc() -> str:
         "`helpUri` values point at the headings on this page, so they stay stable",
         "as the README is reorganised.",
         "",
+        "Where a rule has a non-obvious boundary — a shape it deliberately does",
+        "not match, or corroboration it demands before firing — a *Where it",
+        "stops* line records it. Those lines are only on this page; the README",
+        "table stays one row per rule.",
+        "",
     ]
     for backend in BACKENDS:
         label = "o1js / Mina zkApps" if backend == "o1js" else "Noir / Aztec circuits"
@@ -92,6 +97,8 @@ def _rules_doc() -> str:
                 spec.description,
                 "",
             ]
+            if spec.limitations:
+                out += [f"*Where it stops:* {spec.limitations}", ""]
     return "\n".join(out)
 
 

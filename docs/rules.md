@@ -6,6 +6,11 @@ Every rule `o1js-scan` can emit, with the severities it uses. SARIF
 `helpUri` values point at the headings on this page, so they stay stable
 as the README is reorganised.
 
+Where a rule has a non-obvious boundary — a shape it deliberately does
+not match, or corroboration it demands before firing — a *Where it
+stops* line records it. Those lines are only on this page; the README
+table stays one row per rule.
+
 ## o1js / Mina zkApps
 
 ### O1JS_MISSING_STATE_PRECONDITION
@@ -42,13 +47,17 @@ A witness is only *trivially* constrained (e.g. `> 0`, or compared against a con
 
 **Stale merkle root** — severity: high
 
-A method recomputes a Merkle root from a prover-supplied witness (`computeRootAndKey` / `calculateRoot`) but binds **none** of the recomputed roots to the current on-chain root. Without a `this.root.requireEquals(...)` / `assertEquals` against the live root, a prover can pass a witness for a fabricated or stale tree — forging membership or replaying old state. Binding may live in an undecorated same-class helper (`this.verifyX(witness)`); one level of helper propagation covers that.
+A method recomputes a Merkle root from a prover-supplied witness (`computeRootAndKey` / `calculateRoot`) but binds **none** of the recomputed roots to the current on-chain root. Without a `this.root.requireEquals(...)` / `assertEquals` against the live root, a prover can pass a witness for a fabricated or stale tree — forging membership or replaying old state. Binding may live in an undecorated same-class helper (`this.verifyX(witness)`); helper propagation covers that.
+
+*Where it stops:* Helper propagation follows `this.<helper>(...)` chains within the same class to a fixed point, but maps only bare parameter references between helpers, and does not follow free or imported functions. A binding that lives in an imported verifier will still be reported.
 
 ### O1JS_UNVERIFIED_PROOF
 
 **Unverified proof** — severity: high
 
-A `@method` parameter typed as `Proof<...>` / `SelfProof` / `DynamicProof` / `*Proof` is never `.verify()`'d before its public fields are used. Passing a Proof does not verify it — without an explicit verify the prover can supply an arbitrary proof object, and any use of its `publicOutput` is unconstrained. Also fires when `.verifyIf(flag)` is gated by an unconstrained `@method` argument and the proof's public fields are read, because the prover can make the condition false.
+A `@method` parameter typed as `Proof<...>` / `SelfProof<...>` / `DynamicProof<...>` is never `.verify()`'d before its public fields are used. Passing a Proof does not verify it — without an explicit verify the prover can supply an arbitrary proof object, and any use of its `publicOutput` is unconstrained. Also fires when `.verifyIf(flag)` is gated by an unconstrained `@method` argument and the proof's public fields are read, because the prover can make the condition false.
+
+*Where it stops:* A parameter whose type merely *ends* in `Proof` is matched on naming convention alone, so since 0.19.0 it is reported only when the method also reads `publicInput` / `publicOutput` on that parameter. That corroboration is why a user `Struct` named `BlockProof` no longer produces a HIGH; the cost is that a genuinely unverified `*Proof` whose public fields are never touched is not reported. Explicit `Proof<...>` / `SelfProof<...>` / `DynamicProof<...>` types need no corroboration.
 
 ### O1JS_UNASSERTED_BOOL
 
@@ -61,6 +70,8 @@ An o1js predicate (`equals` / `lessThanOrEqual` / …) returns a `Bool` and adds
 **Unconstrained sender** — severity: high / medium
 
 `this.sender.getUnconstrained()` returns the tx sender without proving it. HIGH when that value (or a local from it) flows into an assert / state `.set` / `send` (vacuous check); MEDIUM otherwise. Prefer `this.sender.getAndRequireSignature()`, or the expanded idiom `AccountUpdate.createSigned(sender)`. **Stays quiet when** (1) the same `@method` also calls `this.sender.getAndRequireSignature()` anywhere (signature requirement is method-scoped), or (2) the witnessed sender value is the argument to `AccountUpdate.createSigned(...)` / an `AccountUpdate.create(...).requireSignature()` on that same key (argument identity required — a `createSigned` on a different key does not suppress).
+
+*Where it stops:* Both suppressions are same-method. A signature requirement wrapped in a helper (`this.requireSenderSig()`) is not followed, so correct code that factors the idiom out draws a false positive. Only the modern `this.sender.getUnconstrained()` spelling is matched; the pre-1.0 bare `this.sender`, which is equally unconstrained, is not.
 
 ### MissingRangeCheck
 
@@ -109,6 +120,8 @@ A `.div()` / `.inv()` / `.sqrt()` inside a `Provable.if` branch, guarded by a co
 **Precondition overwritten** — severity: medium — origin: V-O1J-VUL-012
 
 Two or more `requireEquals` / `requireBetween` / `requireNothing` calls on the **same** property in one method, with differing arguments. Preconditions are *set* on the AccountUpdate rather than accumulated, so each call overwrites the previous one and only the last is enforced — unlike in-circuit assertions, which compose. `a.requireEquals(b)` then `a.requireEquals(c)` implies `a === c`, not `a === b`. Reported by Veridise as `V-O1J-VUL-012`. **Stays quiet when** the arguments are identical (idempotent, nothing lost), on `getAndRequireEquals()` (a different method, so repeated state reads are fine), and when the calls sit in mutually exclusive JS branches, which are resolved at circuit-build time. That last exemption can hide a real overwrite that straddles an unrelated `if`/`else`.
+
+*Where it stops:* Matches the `require*` spelling only. The pre-1.0 `assertEquals` form of the same defect is deliberately not matched, because `assertEquals` is overwhelmingly the in-circuit Field assertion and matching it would flag ordinary arithmetic. The held-out corpus contains a real instance in that legacy spelling (45930/mina-navi-voting-demo) which this rule does not report.
 
 ### O1JS_STATE_READ_AFTER_WRITE
 

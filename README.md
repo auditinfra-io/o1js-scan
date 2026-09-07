@@ -234,11 +234,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: auditinfra-io/o1js-scan@v0.19.0
+      - uses: auditinfra-io/o1js-scan@v0.19.1
         with:
           path: src              # optional, defaults to the repo root
           lang: auto             # auto | o1js | noir
-          # version: 0.19.0       # optional, pin the scanner version
+          # version: 0.19.1       # optional, pin the scanner version
           # fail-on: high         # optional, fail the job on high/critical
 ```
 
@@ -248,7 +248,7 @@ Recommended for Noir projects that want code-scanning alerts and a high-severity
 gate:
 
 ```yaml
-- uses: auditinfra-io/o1js-scan@v0.19.0
+- uses: auditinfra-io/o1js-scan@v0.19.1
   with:
     path: .
     lang: noir
@@ -321,8 +321,8 @@ false-positive guards follow below.
 | `O1JS_UNCONSTRAINED_PROVABLE_WITNESS` | high / medium / low | A `Provable.witness(...)` local flows into a send/state effect with **no** in-circuit assertion. The witness callback runs *outside* the circuit (it's only a prover hint), so the result is a fresh prover-controlled value — the other witness source besides `@method` args. It must be re-derived and asserted (`x.assertEquals(<recomputed>)`) or bound to state. High on a send amount (`this.send(...)` or same-method `AccountUpdate.create*`). |
 | `O1JS_UNCONSTRAINED_RECIPIENT` | low | A `@method` argument is used **only** as the `to:` recipient of a send. This is usually intended (a user names their own withdrawal destination) and is informational — it only matters if the destination is meant to be a fixed treasury or a state-recorded address. Does **not** trip the CI exit-code gate. |
 | `O1JS_WITNESS_NOT_BOUND_TO_STATE` | medium | A witness is only *trivially* constrained (e.g. `> 0`, or compared against a constant) before an effect — never tied to on-chain state. Confirm the off-chain orchestration makes this safe, or the balance is drainable up to its standing value. |
-| `O1JS_STALE_MERKLE_ROOT` | high | A method recomputes a Merkle root from a prover-supplied witness (`computeRootAndKey` / `calculateRoot`) but binds **none** of the recomputed roots to the current on-chain root. Without a `this.root.requireEquals(...)` / `assertEquals` against the live root, a prover can pass a witness for a fabricated or stale tree — forging membership or replaying old state. Binding may live in an undecorated same-class helper (`this.verifyX(witness)`); one level of helper propagation covers that. |
-| `O1JS_UNVERIFIED_PROOF` | high | A `@method` parameter typed as `Proof<...>` / `SelfProof` / `DynamicProof` / `*Proof` is never `.verify()`'d before its public fields are used. Passing a Proof does not verify it — without an explicit verify the prover can supply an arbitrary proof object, and any use of its `publicOutput` is unconstrained. Also fires when `.verifyIf(flag)` is gated by an unconstrained `@method` argument and the proof's public fields are read, because the prover can make the condition false. |
+| `O1JS_STALE_MERKLE_ROOT` | high | A method recomputes a Merkle root from a prover-supplied witness (`computeRootAndKey` / `calculateRoot`) but binds **none** of the recomputed roots to the current on-chain root. Without a `this.root.requireEquals(...)` / `assertEquals` against the live root, a prover can pass a witness for a fabricated or stale tree — forging membership or replaying old state. Binding may live in an undecorated same-class helper (`this.verifyX(witness)`); helper propagation covers that. |
+| `O1JS_UNVERIFIED_PROOF` | high | A `@method` parameter typed as `Proof<...>` / `SelfProof<...>` / `DynamicProof<...>` is never `.verify()`'d before its public fields are used. Passing a Proof does not verify it — without an explicit verify the prover can supply an arbitrary proof object, and any use of its `publicOutput` is unconstrained. Also fires when `.verifyIf(flag)` is gated by an unconstrained `@method` argument and the proof's public fields are read, because the prover can make the condition false. |
 | `O1JS_UNASSERTED_BOOL` | high / medium | An o1js predicate (`equals` / `lessThanOrEqual` / …) returns a `Bool` and adds **no** constraint unless the result is asserted or used. HIGH when the call is a bare discarded statement; MEDIUM when assigned to a local that is never referenced again. |
 | `O1JS_UNCONSTRAINED_SENDER` | high / medium | `this.sender.getUnconstrained()` returns the tx sender without proving it. HIGH when that value (or a local from it) flows into an assert / state `.set` / `send` (vacuous check); MEDIUM otherwise. Prefer `this.sender.getAndRequireSignature()`, or the expanded idiom `AccountUpdate.createSigned(sender)`. **Stays quiet when** (1) the same `@method` also calls `this.sender.getAndRequireSignature()` anywhere (signature requirement is method-scoped), or (2) the witnessed sender value is the argument to `AccountUpdate.createSigned(...)` / an `AccountUpdate.create(...).requireSignature()` on that same key (argument identity required — a `createSigned` on a different key does not suppress). |
 | `MissingRangeCheck` | high | A raw `Field` (not the range-checked `UInt64`/`UInt32`) is used as a transfer amount. A `Field` is an element mod p and is not range-bounded. |
@@ -350,8 +350,8 @@ The analyzer is designed to stay quiet on correct code:
   value is sound and won't be reported. This covers both the direct form —
   `amount.assertLessThanOrEqual(bal)` — and the chained form
   `amount.lessThanOrEqual(bal).assertTrue()`. Binding that lives in an
-  undecorated same-class helper (`this.verifyX(arg)`) is also recognized
-  (depth 1 only).
+  undecorated same-class helper (`this.verifyX(arg)`) is also recognized,
+  including through a chain of such helpers.
 - **Verified proofs are skipped.** A `Proof` / `SelfProof` / `DynamicProof` /
   `*Proof`-typed argument on which `.verify()` is called is constrained by the
   verified circuit — witness findings on it (and its `publicOutput` /
@@ -440,10 +440,13 @@ for this dependency-free design, not bugs:
   const slot = this.root; slot.get();                  // missing precondition missed
   ```
 
-- **Cross-method binding is depth-1 only.** An undecorated same-class helper
-  called as `this.verifyX(arg)` can state-bind a caller's argument (one level).
-  Deeper chains (`@method` → helper A → helper B) and free/imported functions
-  are **not** followed. Local-variable aliasing of the helper argument also
+- **Cross-method binding covers same-class helper chains only.** An
+  undecorated same-class helper called as `this.verifyX(arg)` can state-bind
+  a caller's argument, and since 0.19.0 chains of them
+  (`@method` → helper A → helper B) are followed to a fixed point. The
+  helper→helper step maps only a bare parameter reference, so
+  `helperA(x.add(1))` does not propagate. Free and imported functions are
+  still **not** followed, and local-variable aliasing of the helper argument
   stays a documented limitation.
 
 - **Unasserted-Bool detection is statement-shaped.** Tier A only flags bare
