@@ -19,7 +19,7 @@ set -euo pipefail
 # repo|pinned-sha|expected HIGH (see docs/mina_calibration.md)
 REPOS=(
   "marekyggdrasil/mac|83cea9cbc9cec530cc8dede356221140b7452f39|7"
-  "iluxonchik/zkLocus|600f4068d37b94687cb64cf9c9dd65dcce3a2a8f|3"
+  "iluxonchik/zkLocus|600f4068d37b94687cb64cf9c9dd65dcce3a2a8f|4"
   "iluxonchik/randomina|2d5781a1672f2cac43cf249ec8b63737cd854e29|1"
   "berzanorg/nacho|db85861ebbd08a06a6a52226f569829f0c5fe386|0"
   "berzanorg/xane|9002bca5640b626adb1eb2bf2df26ea8804d2d44|2"

@@ -44,15 +44,52 @@ by npm dependency on `o1js` instead, and token contracts appeared immediately.
 That is the whole argument for holding a corpus out: not that it scores the
 tool, but that it is chosen by someone else's criterion.
 
-### It is deliberately not fixed in this release
+### Fixed in 0.20.0
 
-Extending the gate is a small change and it is the next one to make. It is not
-made here for three reasons: it would be developed against this corpus, burning
-eight of sixteen cases on the release that found them; it changes released
-behaviour materially, so it wants its own release and its own note; and it will
-move the pinned calibration budgets and snapshots, because those repositories
-contain token contracts too, so it needs a deliberate recapture rather than a
-tail-end edit.
+The gate now matches `TokenContract` as well as `SmartContract`, resolves import
+aliases of either (o1js's own dex example writes
+`import { TokenContract as BaseTokenContract }`), tolerates a newline between
+the class name and `extends`, and falls back to comment-stripped source so a
+comment inside the declaration cannot hide it.
+
+All sixteen cases are analyzed now. `results-0.19.1.json` is kept as the record
+of what the tool did before, and a test refuses to let any case go back to
+scoring zero unanalyzed.
+
+**Eight of the sixteen cases are spent.** The fix was developed from them, so
+they are `development` in the manifest and must not be counted as unseen
+evidence again. Eight remain held out, including
+`silvana-approve-delegate-unchecked`, the one pair that was analyzed all along.
+
+### The pair result is now earned
+
+At 0.19.1 all seven pairs showed no delta and six of those results meant
+nothing. Now every pair is analyzed and every pair still shows **no forward
+delta**. The five silvana `collection.ts` pairs each produce six findings on the
+vulnerable side and the same six on the fixed side — four authorization-gate
+false positives, one `initialize` witness, one proof-verification false
+positive. Not one is the audit's defect.
+
+So the claim this corpus was built to test — that these rules do not model the
+defect classes an application audit finds — is finally supported by evidence
+rather than by an accident.
+
+### A security fix introduced a finding
+
+The only non-zero delta runs backwards. `silvana-oracle-approval-bypass`'s
+*fixed* side has one more `O1JS_UNVERIFIED_PROOF` than the vulnerable one.
+
+The fix adds `proof.publicInput.oracleAddress…assertTrue(…)` to `update()`.
+Before it, that method never touched `proof.publicInput` — and since 0.19.0 a
+`*Proof`-*named* parameter is only reported when the method reads
+`publicInput`/`publicOutput` on it, the corroboration added to kill the usdm
+false positives. The security fix opened the gate on its own method, and a false
+positive appeared (`proof.verify(vk)` lives in the private `_update` helper).
+
+The corroboration heuristic is not neutral: adding a legitimate constraint on a
+proof's public input can make an unrelated false positive appear. That was
+invisible until a corpus contained a before/after pair that crossed the
+threshold.
 
 ## How this corpus was built
 
@@ -118,22 +155,30 @@ and, like the gate, it is not being made against the case that found it.
 
 | Case | Kind | Findings | Outcome |
 |---|---|---:|---|
-| `silvana-transfer-approval-bypass` | pair | 0 / 0 | **vacuous** — TokenContract |
+| `silvana-transfer-approval-bypass` | pair | 6 / 6 | no delta — earned |
 | `silvana-approve-delegate-unchecked` | pair | 0 / 0 | no delta, as predicted |
-| `silvana-paused-nft-mint` | pair | 0 / 0 | **vacuous** — TokenContract |
-| `silvana-admin-mint-rebinding` | pair | 0 / 0 | **vacuous** — TokenContract |
-| `silvana-uri-symbol-permissions` | pair | 0 / 0 | **vacuous** — TokenContract |
-| `silvana-oracle-approval-bypass` | pair | 0 / 0 | **vacuous** — TokenContract |
-| `mina-fungible-token-flash-mint` | pair | 0 / 0 | **vacuous** — TokenContract |
+| `silvana-paused-nft-mint` | pair | 6 / 6 | no delta — earned |
+| `silvana-admin-mint-rebinding` | pair | 6 / 6 | no delta — earned |
+| `silvana-uri-symbol-permissions` | pair | 6 / 6 | no delta — earned |
+| `silvana-oracle-approval-bypass` | pair | 6 / 7 | **reverse delta** — the fix added a finding |
+| `mina-fungible-token-flash-mint` | pair | 2 / 2 | no delta — earned |
 | `tradecoin-pair` | single | 11 | predicted FP confirmed, + 2 unpredicted FPs |
 | `zk-states-verifier` | single | 0 | correct silence |
-| `lumina-pool` | single | 0 | **vacuous** — TokenContract |
-| `mina-fungible-token-head` | single | 0 | **vacuous** — TokenContract |
+| `lumina-pool` | single | 16 | predicted FP confirmed, + 1 real finding |
+| `mina-fungible-token-head` | single | 1 | 1 FP (`setAdmin`) |
 | `pinsave-swap` | single | 4 | predicted FP confirmed, + 1 unpredicted FP |
 | `zk-regex-zkapp` | single | 1 | predicted finding, correct |
-| `minanft-contract-v2` | single | 9 | predicted findings, correct |
+| `minanft-contract-v2` | single | 8 | predicted findings, correct |
 | `o1js-merkle-example` | single | 2 | 2 unpredicted true positives — label was wrong |
 | `minauth-treeroot` | single | 0 | correct silence |
+
+Counts are 0.20.0 (`results-0.20.0.json`). `results-0.19.1.json` records the
+pre-fix state, where eight of these were zero because nothing was analyzed.
+
+`lumina-pool`'s one real finding is `O1JS_LOGIC_OUTSIDE_PROOF` at `Pool.ts:194`
+and `:208`: `setDelegator` and `setProtocol` put their "already defined" guard
+inside `Provable.asProver(…)`, which runs outside the circuit and adds no
+constraint. A live AMM, invisible for as long as the gate was.
 
 No rate is quoted. Sixteen cases split across two designs share no denominator,
 and half of them measured nothing.
@@ -149,11 +194,28 @@ three `claimTokens` methods in v1's tokenizk-finance, and `buy` here. The
 `O1JS_STALE_MERKLE_ROOT` findings on `tradecoin-pair` and `pinsave-swap` are
 twelve more, at HIGH.
 
-**Authorization gate in a private helper.** `_method_is_signature_gated` looks
-for a signature idiom in the `@method` body only. `tradecoin-pair`'s
-`initContract` calls `this.checkAdminSignature()` and `pinsave-swap`'s `setFee`
-calls `this.verifyAdminSignature()`; both lose the carve-out and are reported.
-New in v2, and found in two independently written codebases in the same run.
+**Constraint lives in a private helper.** Eighteen findings, four independently
+written codebases, and — after 0.20.0 — three different kinds of constraint:
+
+- *signature gating* — `tradecoin-pair`'s `initContract` calls
+  `this.checkAdminSignature()`, `pinsave-swap`'s `setFee` calls
+  `this.verifyAdminSignature()`; `_method_is_signature_gated` reads the
+  `@method` body only;
+- *merkle-root binding* — both of the above bind the root inside a helper,
+  through a derived local (12 findings, both predicted in advance);
+- *proof verification* — silvana's `collection.ts` calls `proof.verify(vk)`
+  inside `_update`, which `update()` and `updateWithOracle()` both delegate to.
+
+`helper_binds` has propagated *state* binding through `this.<helper>(…)` chains
+since 0.19.0. It propagates none of these three. This is the largest single
+source of noise in the corpus and the strongest candidate for the next change —
+which is exactly why it is not being made in the release that measured it.
+
+**Authorization gate asserted on the caller, not on the value.** Six findings,
+three codebases: silvana's `setName`/`setBaseURL`/`setAdmin`/`transferOwnership`,
+MinaFoundation's `setAdmin`, and o1-labs-XT's. Each asserts
+`adminContract.canChangeX(value).assertTrue(…)` and then writes `value`. The
+assertion gates *who may call*; an admin choosing the next admin is the intent.
 
 `docs/suppression-inversion.md` argues that well-factored code is where this
 analyzer false-positives. These two codebases were chosen before that claim was
@@ -179,6 +241,11 @@ Read these before quoting anything above.
   no audit report; the vulnerability titles come from its commit messages.
 - **Two large files were reviewed at method-effect granularity**, not line by
   line: `Lumina Pool.ts` (646 lines) and `TradeCoin PairContract.ts` (548).
-- **This corpus is already partly spent.** The eight vacuous cases must be
-  re-run once the TokenContract gate is fixed, and they stop being held out at
-  that moment, because the fix was found through them.
+- **This corpus is half spent.** The eight cases that were vacuous at 0.19.1
+  are the evidence the 0.20.0 gate fix was built on, so they are `development`
+  now and are no longer evidence about unseen code. Eight remain held out.
+- **`lumina-pool`'s nine `O1JS_WITNESS_NOT_BOUND_TO_STATE` findings are only
+  partly reviewed.** Eight sit on pure `@method.returns(UInt64)` calculators and
+  are provisionally false positives; tracing the AMM arithmetic against every
+  caller was not done. They are recorded as low confidence and should not be
+  cited as either a true or a false positive count.

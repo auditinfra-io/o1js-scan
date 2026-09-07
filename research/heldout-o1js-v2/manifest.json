@@ -78,8 +78,9 @@
       "expected_delta_rules": [],
       "expected_detected": false,
       "reasoning": "The fix adds one line: `collectionData.requireTransferApproval.assertFalse(...)`. This is a missing authorization assertion on a flag unpacked from packed on-chain state. No o1js-scan rule models 'a policy flag that should have been asserted before an effect' -- the witness rules ask whether a prover-supplied value is constrained, and this value is not prover-supplied, it is read from state and simply not checked. Predicting no delta.",
-      "status": "held-out",
-      "why_not_modelled": "Requires knowing that a particular state-derived Bool is an authorization gate for a particular effect. That is application semantics, not a lexical or dataflow property."
+      "status": "development",
+      "why_not_modelled": "Requires knowing that a particular state-derived Bool is an authorization gate for a particular effect. That is application semantics, not a lexical or dataflow property.",
+      "status_reason": "The 0.20.0 TokenContract gate fix was developed from this case: its scan_path declares `extends TokenContract`, it scored zero findings because the analyzer never recognised the contract, and that is the evidence the fix was built on. Under the anti-overfitting rule it is no longer unseen. It stays as a regression case -- results-0.20.0.json records what it produces now that the file is actually analyzed -- and must not be counted as held-out evidence again."
     },
     {
       "id": "silvana-approve-delegate-unchecked",
@@ -108,8 +109,9 @@
       "expected_delta_rules": [],
       "expected_detected": false,
       "reasoning": "The fix adds `data.isPaused.equals(Bool(false)).or(data.canPause.equals(Bool(true))).assertTrue(...)` -- a missing state invariant on mint. Predicting no delta.",
-      "status": "held-out",
-      "why_not_modelled": "Requires modelling an invariant between two state flags. No rule does."
+      "status": "development",
+      "why_not_modelled": "Requires modelling an invariant between two state flags. No rule does.",
+      "status_reason": "The 0.20.0 TokenContract gate fix was developed from this case: its scan_path declares `extends TokenContract`, it scored zero findings because the analyzer never recognised the contract, and that is the evidence the fix was built on. Under the anti-overfitting rule it is no longer unseen. It stays as a regression case -- results-0.20.0.json records what it produces now that the file is actually analyzed -- and must not be counted as held-out evidence again."
     },
     {
       "id": "silvana-admin-mint-rebinding",
@@ -123,8 +125,9 @@
       "expected_delta_rules": [],
       "expected_detected": false,
       "reasoning": "This is the pair closest to a rule o1js-scan actually has: the fix adds `mintParams.address.assertEquals(mintRequest.address)` and `mintParams.data.owner.assertEquals(mintRequest.owner)`, which is a binding of one value to another. But the unbound value is `mintParams`, a local returned by a cross-contract call, not a `@method` parameter or a `Provable.witness`, and the witness rules key on those two sources. Predicting no delta -- this is the pair I would most expect to be wrong about, in the direction of a surprise hit.",
-      "status": "held-out",
-      "why_not_modelled": "The untrusted value enters through a cross-contract call return, which is not one of the two witness sources the analyzer models."
+      "status": "development",
+      "why_not_modelled": "The untrusted value enters through a cross-contract call return, which is not one of the two witness sources the analyzer models.",
+      "status_reason": "The 0.20.0 TokenContract gate fix was developed from this case: its scan_path declares `extends TokenContract`, it scored zero findings because the analyzer never recognised the contract, and that is the evidence the fix was built on. Under the anti-overfitting rule it is no longer unseen. It stays as a regression case -- results-0.20.0.json records what it produces now that the file is actually analyzed -- and must not be counted as held-out evidence again."
     },
     {
       "id": "silvana-uri-symbol-permissions",
@@ -138,9 +141,10 @@
       "expected_delta_rules": [],
       "expected_detected": false,
       "reasoning": "O1JS_WEAK_PERMISSIONS exists and matches exactly this syntax -- `<field>: Permissions.none()` inside `permissions.set({...})`. It does not fire here only because its field list is editState, send, setVerificationKey, setPermissions, receive, setDelegate and incrementNonce; setZkappUri and setTokenSymbol are not in it. Predicting no delta, from reading the field tuple in `_detect_weak_permissions`, not from running anything.",
-      "status": "held-out",
+      "status": "development",
       "why_not_modelled": "The rule's field list omits setZkappUri and setTokenSymbol.",
-      "improvement_candidate": "Adding setZkappUri and setTokenSymbol to the weak-permissions field list would catch this. It is deliberately NOT done as part of building this corpus: a rule extended to match a case discovered while freezing that case is fitted to it, and the case would no longer be held out. Recorded here so the change can be made later, against its own fixtures, with this pair as the check."
+      "improvement_candidate": "Adding setZkappUri and setTokenSymbol to the weak-permissions field list would catch this. It is deliberately NOT done as part of building this corpus: a rule extended to match a case discovered while freezing that case is fitted to it, and the case would no longer be held out. Recorded here so the change can be made later, against its own fixtures, with this pair as the check.",
+      "status_reason": "The 0.20.0 TokenContract gate fix was developed from this case: its scan_path declares `extends TokenContract`, it scored zero findings because the analyzer never recognised the contract, and that is the evidence the fix was built on. Under the anti-overfitting rule it is no longer unseen. It stays as a regression case -- results-0.20.0.json records what it produces now that the file is actually analyzed -- and must not be counted as held-out evidence again."
     },
     {
       "id": "silvana-oracle-approval-bypass",
@@ -154,8 +158,9 @@
       "expected_delta_rules": [],
       "expected_detected": false,
       "reasoning": "The fix asserts `proof.publicInput.oracleAddress.equals(PublicKey.empty()).assertTrue(...)`. O1JS_UNVERIFIED_PROOF is the only proof-aware rule and it asks whether the proof was verified at all, not whether a particular public input was constrained. The proof is verified on both sides. Predicting no delta.",
-      "status": "held-out",
-      "why_not_modelled": "No rule constrains the *contents* of a verified proof's public inputs; verification is treated as all-or-nothing."
+      "status": "development",
+      "why_not_modelled": "No rule constrains the *contents* of a verified proof's public inputs; verification is treated as all-or-nothing.",
+      "status_reason": "The 0.20.0 TokenContract gate fix was developed from this case: its scan_path declares `extends TokenContract`, it scored zero findings because the analyzer never recognised the contract, and that is the evidence the fix was built on. Under the anti-overfitting rule it is no longer unseen. It stays as a regression case -- results-0.20.0.json records what it produces now that the file is actually analyzed -- and must not be counted as held-out evidence again."
     },
     {
       "id": "mina-fungible-token-flash-mint",
@@ -169,8 +174,9 @@
       "expected_delta_rules": [],
       "expected_detected": false,
       "reasoning": "The fix adds `Bool.or(totalBalance.isPositive().not(), totalBalance.equals(0)).assertTrue('Flash-minting detected.')` inside `forEachUpdate`. The defect is about the ordering of account updates within a transaction -- a property of the AccountUpdate forest, not of any single value's constraints. o1js-scan reads one file lexically and models neither transaction structure nor update ordering. Predicting no delta, with high confidence.",
-      "status": "held-out",
-      "why_not_modelled": "Requires reasoning about the order of account updates inside a transaction. The analyzer has no model of the AccountUpdate forest."
+      "status": "development",
+      "why_not_modelled": "Requires reasoning about the order of account updates inside a transaction. The analyzer has no model of the AccountUpdate forest.",
+      "status_reason": "The 0.20.0 TokenContract gate fix was developed from this case: its scan_path declares `extends TokenContract`, it scored zero findings because the analyzer never recognised the contract, and that is the evidence the fix was built on. Under the anti-overfitting rule it is no longer unseen. It stays as a regression case -- results-0.20.0.json records what it produces now that the file is actually analyzed -- and must not be counted as held-out evidence again."
     },
     {
       "id": "tradecoin-pair",
@@ -212,11 +218,12 @@
       "label": "clean",
       "expected_rules": [],
       "reasoning": "A live AMM pool. Swap and liquidity paths read `this.sender.getUnconstrained()` and then send the output to that address. Naming your own destination is the intended semantics, and the amounts are derived from pool reserves rather than from the sender, so I do not read this as a defect. Reviewed at method-effect granularity; 646 lines.",
-      "status": "held-out",
+      "status": "development",
       "predicted_false_positives": [
         "O1JS_UNCONSTRAINED_SENDER"
       ],
-      "notes": "Pre-registered prediction, held with less confidence than the tradecoin one. O1JS_UNCONSTRAINED_SENDER suppresses when the same method also calls `getAndRequireSignature()` or passes the value to `AccountUpdate.createSigned(...)`. At least one method here does use a signed update; at least one appears to send directly to the unconstrained sender. I expect a finding somewhere in the file and expect it to be a false positive, but I have not traced every method, and a HIGH here would be worth re-reading rather than dismissing."
+      "notes": "Pre-registered prediction, held with less confidence than the tradecoin one. O1JS_UNCONSTRAINED_SENDER suppresses when the same method also calls `getAndRequireSignature()` or passes the value to `AccountUpdate.createSigned(...)`. At least one method here does use a signed update; at least one appears to send directly to the unconstrained sender. I expect a finding somewhere in the file and expect it to be a false positive, but I have not traced every method, and a HIGH here would be worth re-reading rather than dismissing.",
+      "status_reason": "The 0.20.0 TokenContract gate fix was developed from this case: its scan_path declares `extends TokenContract`, it scored zero findings because the analyzer never recognised the contract, and that is the evidence the fix was built on. Under the anti-overfitting rule it is no longer unseen. It stays as a regression case -- results-0.20.0.json records what it produces now that the file is actually analyzed -- and must not be counted as held-out evidence again."
     },
     {
       "id": "mina-fungible-token-head",
@@ -227,12 +234,13 @@
       "label": "clean",
       "expected_rules": [],
       "reasoning": "The official fungible-token standard at HEAD. `initialize()` carries `this.account.provedState.requireEquals(Bool(false))`, the one-shot guard whose absence made `usdm` a vulnerable case in v1 -- included deliberately as the positive counterpart. Mint, burn, pause and admin changes all delegate authorization to the admin contract and assert its answer.",
-      "status": "held-out",
+      "status": "development",
       "predicted_misses": [
         "`permissions.send = Permissions.none()` in `initialize()` is written as a property assignment before `permissions.set(permissions)`, not as a field inside the `set({...})` object literal. `_detect_weak_permissions` reads the parenthesised segment of `permissions.set(`, which here contains only the identifier `permissions`, so no field matches. The value is correct in context (it locks the circulation account) but the syntactic gap would hide a real one.",
         "`mint`/`burn` move value through `this.internal.mint(...)` and `circulationUpdate.balanceChange = ...`, neither of which is a `this.send(...)` or `AccountUpdate.create*(...).send(...)`, so the witness rules have no effect sink to reach."
       ],
-      "notes": "Six months of divergence separates this commit from the mina-fungible-token-flash-mint pair's base (2025-01 vs 2024-07); they are counted as two cases but share a repository, and neither should be read as independent of the other."
+      "notes": "Six months of divergence separates this commit from the mina-fungible-token-flash-mint pair's base (2025-01 vs 2024-07); they are counted as two cases but share a repository, and neither should be read as independent of the other.",
+      "status_reason": "The 0.20.0 TokenContract gate fix was developed from this case: its scan_path declares `extends TokenContract`, it scored zero findings because the analyzer never recognised the contract, and that is the evidence the fix was built on. Under the anti-overfitting rule it is no longer unseen. It stays as a regression case -- results-0.20.0.json records what it produces now that the file is actually analyzed -- and must not be counted as held-out evidence again."
     },
     {
       "id": "pinsave-swap",
@@ -320,10 +328,11 @@
     "regression": "Retained only to pin behaviour that a past change established. Not evidence in either direction, and must carry a status_reason."
   },
   "status_counts": {
-    "held-out": 16,
-    "development": 0,
+    "held-out": 8,
+    "development": 8,
     "regression": 0
   },
   "no_aggregate_rates": "Sixteen cases cannot support a recall, precision or accuracy figure, and pairs and singles do not share a denominator in any case. Results are reported per case. tests/test_heldout_v2_manifest.py fails if a rate appears in the README.",
-  "benchmark_version": 1
+  "benchmark_version": 2,
+  "benchmark_version_note": "v1 froze sixteen held-out cases at 0.19.1. v2 records that the eight cases whose contract was never recognised moved to development status when the TokenContract gate was fixed in 0.20.0 on the strength of that evidence. Eight cases remain genuinely unseen, including silvana-approve-delegate-unchecked, the one pair that was analyzed all along."
 }

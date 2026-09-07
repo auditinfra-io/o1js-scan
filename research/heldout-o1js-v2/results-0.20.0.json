@@ -1,0 +1,507 @@
+{
+  "scanner_version": "0.20.0",
+  "corpus_complete": true,
+  "cases": [
+    {
+      "id": "silvana-transfer-approval-bypass",
+      "kind": "pair",
+      "repo": "SilvanaOne/silvana-lib",
+      "scan_path": "packages/nft/src/contracts/collection.ts",
+      "defect": "Admin approval for transfers can be bypassed. The transfer path did not assert that the collection's `requireTransferApproval` flag was false, so a transfer could proceed without the approval the flag demands.",
+      "vulnerable": {
+        "commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+        "actual_commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+        "observed_rules": {
+          "O1JS_UNCONSTRAINED_WITNESS": 4,
+          "O1JS_UNVERIFIED_PROOF": 1,
+          "O1JS_WITNESS_NOT_BOUND_TO_STATE": 1
+        },
+        "total_findings": 6,
+        "severities": {
+          "high": 1,
+          "medium": 5
+        }
+      },
+      "fixed": {
+        "commit": "db6e2fae08ec0644fde19cc70f299fd4a0fbd487",
+        "actual_commit": "db6e2fae08ec0644fde19cc70f299fd4a0fbd487",
+        "observed_rules": {
+          "O1JS_UNCONSTRAINED_WITNESS": 4,
+          "O1JS_UNVERIFIED_PROOF": 1,
+          "O1JS_WITNESS_NOT_BOUND_TO_STATE": 1
+        },
+        "total_findings": 6,
+        "severities": {
+          "high": 1,
+          "medium": 5
+        }
+      },
+      "delta_rules": {},
+      "reverse_delta_rules": {},
+      "expected_delta_rules": [],
+      "delta_matches_prediction": true,
+      "outcome": "no delta, as predicted - defect class not modelled"
+    },
+    {
+      "id": "silvana-approve-delegate-unchecked",
+      "kind": "pair",
+      "repo": "SilvanaOne/silvana-lib",
+      "scan_path": "packages/nft/src/contracts/nft.ts",
+      "defect": "Approving a delegate address does not verify if changing approval is allowed. The NFT's `canApprove` flag was never asserted before the approval was written.",
+      "vulnerable": {
+        "commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+        "actual_commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+        "observed_rules": {},
+        "total_findings": 0,
+        "severities": {}
+      },
+      "fixed": {
+        "commit": "927685e6bb1c2a9a18a570759dc037031a85369e",
+        "actual_commit": "927685e6bb1c2a9a18a570759dc037031a85369e",
+        "observed_rules": {},
+        "total_findings": 0,
+        "severities": {}
+      },
+      "delta_rules": {},
+      "reverse_delta_rules": {},
+      "expected_delta_rules": [],
+      "delta_matches_prediction": true,
+      "outcome": "no delta, as predicted - defect class not modelled"
+    },
+    {
+      "id": "silvana-paused-nft-mint",
+      "kind": "pair",
+      "repo": "SilvanaOne/silvana-lib",
+      "scan_path": "packages/nft/src/contracts/collection.ts",
+      "defect": "Permanently paused NFTs can be minted. Minting did not check that the NFT was either unpaused or resumable, so an NFT could be created already paused with no way to unpause it.",
+      "vulnerable": {
+        "commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+        "actual_commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+        "observed_rules": {
+          "O1JS_UNCONSTRAINED_WITNESS": 4,
+          "O1JS_UNVERIFIED_PROOF": 1,
+          "O1JS_WITNESS_NOT_BOUND_TO_STATE": 1
+        },
+        "total_findings": 6,
+        "severities": {
+          "high": 1,
+          "medium": 5
+        }
+      },
+      "fixed": {
+        "commit": "4d292845e37bb84492746eb5d78c08d5b11b19df",
+        "actual_commit": "4d292845e37bb84492746eb5d78c08d5b11b19df",
+        "observed_rules": {
+          "O1JS_UNCONSTRAINED_WITNESS": 4,
+          "O1JS_UNVERIFIED_PROOF": 1,
+          "O1JS_WITNESS_NOT_BOUND_TO_STATE": 1
+        },
+        "total_findings": 6,
+        "severities": {
+          "high": 1,
+          "medium": 5
+        }
+      },
+      "delta_rules": {},
+      "reverse_delta_rules": {},
+      "expected_delta_rules": [],
+      "delta_matches_prediction": true,
+      "outcome": "no delta, as predicted - defect class not modelled"
+    },
+    {
+      "id": "silvana-admin-mint-rebinding",
+      "kind": "pair",
+      "repo": "SilvanaOne/silvana-lib",
+      "scan_path": "packages/nft/src/contracts/collection.ts",
+      "defect": "Admin may change minted NFT address/owner. `mint(mintRequest)` obtained `mintParams` from `adminContract.canMint(mintRequest)` and minted from it without checking that the address and owner still matched what the requester asked for, so a malicious admin contract could substitute either.",
+      "vulnerable": {
+        "commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+        "actual_commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+        "observed_rules": {
+          "O1JS_UNCONSTRAINED_WITNESS": 4,
+          "O1JS_UNVERIFIED_PROOF": 1,
+          "O1JS_WITNESS_NOT_BOUND_TO_STATE": 1
+        },
+        "total_findings": 6,
+        "severities": {
+          "high": 1,
+          "medium": 5
+        }
+      },
+      "fixed": {
+        "commit": "a29b2f5e1ca7a44751bdbf6c0b6d34de90d0845c",
+        "actual_commit": "a29b2f5e1ca7a44751bdbf6c0b6d34de90d0845c",
+        "observed_rules": {
+          "O1JS_UNCONSTRAINED_WITNESS": 4,
+          "O1JS_UNVERIFIED_PROOF": 1,
+          "O1JS_WITNESS_NOT_BOUND_TO_STATE": 1
+        },
+        "total_findings": 6,
+        "severities": {
+          "high": 1,
+          "medium": 5
+        }
+      },
+      "delta_rules": {},
+      "reverse_delta_rules": {},
+      "expected_delta_rules": [],
+      "delta_matches_prediction": true,
+      "outcome": "no delta, as predicted - defect class not modelled"
+    },
+    {
+      "id": "silvana-uri-symbol-permissions",
+      "kind": "pair",
+      "repo": "SilvanaOne/silvana-lib",
+      "scan_path": "packages/nft/src/contracts/collection.ts",
+      "defect": "Incorrect URI/Symbol access control. The collection deployed with `setZkappUri: Permissions.none()` and `setTokenSymbol: Permissions.none()`, letting anyone rewrite the collection's URI and token symbol. The fix changes both to `Permissions.proof()`.",
+      "vulnerable": {
+        "commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+        "actual_commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+        "observed_rules": {
+          "O1JS_UNCONSTRAINED_WITNESS": 4,
+          "O1JS_UNVERIFIED_PROOF": 1,
+          "O1JS_WITNESS_NOT_BOUND_TO_STATE": 1
+        },
+        "total_findings": 6,
+        "severities": {
+          "high": 1,
+          "medium": 5
+        }
+      },
+      "fixed": {
+        "commit": "eb2d1d95f81cc7e5914b06b3b857274c4f66306e",
+        "actual_commit": "eb2d1d95f81cc7e5914b06b3b857274c4f66306e",
+        "observed_rules": {
+          "O1JS_UNCONSTRAINED_WITNESS": 4,
+          "O1JS_UNVERIFIED_PROOF": 1,
+          "O1JS_WITNESS_NOT_BOUND_TO_STATE": 1
+        },
+        "total_findings": 6,
+        "severities": {
+          "high": 1,
+          "medium": 5
+        }
+      },
+      "delta_rules": {},
+      "reverse_delta_rules": {},
+      "expected_delta_rules": [],
+      "delta_matches_prediction": true,
+      "outcome": "no delta, as predicted - defect class not modelled"
+    },
+    {
+      "id": "silvana-oracle-approval-bypass",
+      "kind": "pair",
+      "repo": "SilvanaOne/silvana-lib",
+      "scan_path": "packages/nft/src/contracts/collection.ts",
+      "defect": "Oracle approval for updates can be bypassed. `update()` did not assert that the proof's `oracleAddress` public input was empty, so an update that should have gone through `updateWithOracle()` could be pushed through the unoracled path.",
+      "vulnerable": {
+        "commit": "acf2efc6b3f213bc6d95ca75feec1fdca2e953b4",
+        "actual_commit": "acf2efc6b3f213bc6d95ca75feec1fdca2e953b4",
+        "observed_rules": {
+          "O1JS_UNCONSTRAINED_WITNESS": 4,
+          "O1JS_UNVERIFIED_PROOF": 1,
+          "O1JS_WITNESS_NOT_BOUND_TO_STATE": 1
+        },
+        "total_findings": 6,
+        "severities": {
+          "high": 1,
+          "medium": 5
+        }
+      },
+      "fixed": {
+        "commit": "5c795c37d609c41a877757cbf63a051485843bc2",
+        "actual_commit": "5c795c37d609c41a877757cbf63a051485843bc2",
+        "observed_rules": {
+          "O1JS_UNCONSTRAINED_WITNESS": 4,
+          "O1JS_UNVERIFIED_PROOF": 2,
+          "O1JS_WITNESS_NOT_BOUND_TO_STATE": 1
+        },
+        "total_findings": 7,
+        "severities": {
+          "high": 2,
+          "medium": 5
+        }
+      },
+      "delta_rules": {},
+      "reverse_delta_rules": {
+        "O1JS_UNVERIFIED_PROOF": 1
+      },
+      "expected_delta_rules": [],
+      "delta_matches_prediction": true,
+      "outcome": "no delta, as predicted - defect class not modelled"
+    },
+    {
+      "id": "mina-fungible-token-flash-mint",
+      "kind": "pair",
+      "repo": "MinaFoundation/mina-fungible-token",
+      "scan_path": "FungibleToken.ts",
+      "defect": "Flash-minting. Within one transaction the running token balance could go positive before being brought back to zero, so an account update inserted in the middle would observe an arbitrarily inflated balance -- the commit message cites stake-based voting as the concrete risk.",
+      "vulnerable": {
+        "commit": "565f74699794b03100d6bd8cb47eaa400497b7ad",
+        "actual_commit": "565f74699794b03100d6bd8cb47eaa400497b7ad",
+        "observed_rules": {
+          "O1JS_APPROVE_WITHOUT_BINDING": 1,
+          "O1JS_UNCONSTRAINED_WITNESS": 1
+        },
+        "total_findings": 2,
+        "severities": {
+          "medium": 2
+        }
+      },
+      "fixed": {
+        "commit": "03faeed62734e69dfa70733d29dc101fb0a35513",
+        "actual_commit": "03faeed62734e69dfa70733d29dc101fb0a35513",
+        "observed_rules": {
+          "O1JS_APPROVE_WITHOUT_BINDING": 1,
+          "O1JS_UNCONSTRAINED_WITNESS": 1
+        },
+        "total_findings": 2,
+        "severities": {
+          "medium": 2
+        }
+      },
+      "delta_rules": {},
+      "reverse_delta_rules": {},
+      "expected_delta_rules": [],
+      "delta_matches_prediction": true,
+      "outcome": "no delta, as predicted - defect class not modelled"
+    },
+    {
+      "id": "tradecoin-pair",
+      "kind": "single",
+      "repo": "AlexFedotovqq/TradeCoin",
+      "scan_path": "mina/src/PairContract.ts",
+      "label": "clean",
+      "commit": "f67bbd8e94b06be215abc953fc14a74be24250bb",
+      "actual_commit": "f67bbd8e94b06be215abc953fc14a74be24250bb",
+      "observed_rules": {
+        "O1JS_STALE_MERKLE_ROOT": 9,
+        "O1JS_UNCONSTRAINED_WITNESS": 2
+      },
+      "total_findings": 11,
+      "severities": {
+        "high": 9,
+        "medium": 2
+      },
+      "expected_rules": [],
+      "expected_and_found": [],
+      "expected_not_found": [],
+      "unexpected": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "predicted_false_positives": [
+        "O1JS_STALE_MERKLE_ROOT"
+      ],
+      "predicted_fp_confirmed": [
+        "O1JS_STALE_MERKLE_ROOT"
+      ],
+      "predicted_fp_absent": [],
+      "outcome": "UNPREDICTED FINDING ON A CLEAN CASE"
+    },
+    {
+      "id": "zk-states-verifier",
+      "kind": "single",
+      "repo": "Kryha/zk-states",
+      "scan_path": "zk-states-contracts/src/StatesVerifier.ts",
+      "label": "clean",
+      "commit": "360d926c152cd9f573f4237757a06401fe571ae4",
+      "actual_commit": "360d926c152cd9f573f4237757a06401fe571ae4",
+      "observed_rules": {},
+      "total_findings": 0,
+      "severities": {},
+      "expected_rules": [],
+      "expected_and_found": [],
+      "expected_not_found": [],
+      "unexpected": [],
+      "expected_absent_violated": [],
+      "outcome": "clean-negative"
+    },
+    {
+      "id": "lumina-pool",
+      "kind": "single",
+      "repo": "Lumina-DEX/lumina",
+      "scan_path": "packages/contracts/src/pool/Pool.ts",
+      "label": "clean",
+      "commit": "9c1f3851fd212f6d56bf3bf9c8513501add9799e",
+      "actual_commit": "9c1f3851fd212f6d56bf3bf9c8513501add9799e",
+      "observed_rules": {
+        "O1JS_LOGIC_OUTSIDE_PROOF": 2,
+        "O1JS_UNCONSTRAINED_SENDER": 4,
+        "O1JS_VACUOUS_ASSERT": 1,
+        "O1JS_WITNESS_NOT_BOUND_TO_STATE": 9
+      },
+      "total_findings": 16,
+      "severities": {
+        "high": 2,
+        "medium": 14
+      },
+      "expected_rules": [],
+      "expected_and_found": [],
+      "expected_not_found": [],
+      "unexpected": [
+        "O1JS_LOGIC_OUTSIDE_PROOF",
+        "O1JS_VACUOUS_ASSERT",
+        "O1JS_WITNESS_NOT_BOUND_TO_STATE"
+      ],
+      "predicted_false_positives": [
+        "O1JS_UNCONSTRAINED_SENDER"
+      ],
+      "predicted_fp_confirmed": [
+        "O1JS_UNCONSTRAINED_SENDER"
+      ],
+      "predicted_fp_absent": [],
+      "outcome": "UNPREDICTED FINDING ON A CLEAN CASE"
+    },
+    {
+      "id": "mina-fungible-token-head",
+      "kind": "single",
+      "repo": "MinaFoundation/mina-fungible-token",
+      "scan_path": "FungibleToken.ts",
+      "label": "clean",
+      "commit": "8dbf75a4a50d236d9a9ab137a7fd451bafddae41",
+      "actual_commit": "8dbf75a4a50d236d9a9ab137a7fd451bafddae41",
+      "observed_rules": {
+        "O1JS_UNCONSTRAINED_WITNESS": 1
+      },
+      "total_findings": 1,
+      "severities": {
+        "medium": 1
+      },
+      "expected_rules": [],
+      "expected_and_found": [],
+      "expected_not_found": [],
+      "unexpected": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "outcome": "UNPREDICTED FINDING ON A CLEAN CASE"
+    },
+    {
+      "id": "pinsave-swap",
+      "kind": "single",
+      "repo": "PinSaveDAO/PinSave",
+      "scan_path": "packages/mina/src/SwapContract.ts",
+      "label": "clean",
+      "commit": "ee60c01cc6fdbeb4fb2441a9c16d3eb33446ac0d",
+      "actual_commit": "ee60c01cc6fdbeb4fb2441a9c16d3eb33446ac0d",
+      "observed_rules": {
+        "O1JS_STALE_MERKLE_ROOT": 3,
+        "O1JS_UNCONSTRAINED_WITNESS": 1
+      },
+      "total_findings": 4,
+      "severities": {
+        "high": 3,
+        "medium": 1
+      },
+      "expected_rules": [],
+      "expected_and_found": [],
+      "expected_not_found": [],
+      "unexpected": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "predicted_false_positives": [
+        "O1JS_STALE_MERKLE_ROOT"
+      ],
+      "predicted_fp_confirmed": [
+        "O1JS_STALE_MERKLE_ROOT"
+      ],
+      "predicted_fp_absent": [],
+      "outcome": "UNPREDICTED FINDING ON A CLEAN CASE"
+    },
+    {
+      "id": "zk-regex-zkapp",
+      "kind": "single",
+      "repo": "Shigoto-dev19/zk-regex-o1js",
+      "scan_path": "src/zkapp.ts",
+      "label": "vulnerable",
+      "commit": "2400776e7ccd9a2161d01d5a48d1e7e51d8b054e",
+      "actual_commit": "2400776e7ccd9a2161d01d5a48d1e7e51d8b054e",
+      "observed_rules": {
+        "O1JS_UNCONSTRAINED_WITNESS": 1
+      },
+      "total_findings": 1,
+      "severities": {
+        "medium": 1
+      },
+      "expected_rules": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "expected_and_found": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "expected_not_found": [],
+      "unexpected": [],
+      "outcome": "flagged"
+    },
+    {
+      "id": "minanft-contract-v2",
+      "kind": "single",
+      "repo": "dfstio/minanft-lib",
+      "scan_path": "src/contract-v2/nft.ts",
+      "label": "vulnerable",
+      "commit": "3ff4cbce42cf85d2e67a38d9320ab9de8b4039a4",
+      "actual_commit": "3ff4cbce42cf85d2e67a38d9320ab9de8b4039a4",
+      "observed_rules": {
+        "O1JS_UNCONSTRAINED_SENDER": 2,
+        "O1JS_UNCONSTRAINED_WITNESS": 6
+      },
+      "total_findings": 8,
+      "severities": {
+        "medium": 8
+      },
+      "expected_rules": [
+        "O1JS_UNCONSTRAINED_WITNESS",
+        "O1JS_UNCONSTRAINED_SENDER"
+      ],
+      "expected_and_found": [
+        "O1JS_UNCONSTRAINED_SENDER",
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "expected_not_found": [],
+      "unexpected": [],
+      "outcome": "flagged"
+    },
+    {
+      "id": "o1js-merkle-example",
+      "kind": "single",
+      "repo": "plus3-labs/o1js-merkle",
+      "scan_path": "src/examples/merkle_zkapp.ts",
+      "label": "vulnerable",
+      "commit": "a6eb7a9abf9822e23d19df225c4f70076c288c88",
+      "actual_commit": "a6eb7a9abf9822e23d19df225c4f70076c288c88",
+      "observed_rules": {
+        "O1JS_VACUOUS_ASSERT": 1,
+        "O1JS_WEAK_PERMISSIONS": 1
+      },
+      "total_findings": 2,
+      "severities": {
+        "low": 2
+      },
+      "expected_rules": [],
+      "expected_and_found": [],
+      "expected_not_found": [],
+      "unexpected": [
+        "O1JS_VACUOUS_ASSERT",
+        "O1JS_WEAK_PERMISSIONS"
+      ],
+      "outcome": "flagged"
+    },
+    {
+      "id": "minauth-treeroot",
+      "kind": "single",
+      "repo": "mlabs-haskell/minauth",
+      "scan_path": "plugins/minauth-merkle-membership-plugin/src/treerootstoragecontract.ts",
+      "label": "clean",
+      "commit": "e2566429142f3dcaecc82c58bc0ad8b1053d30f0",
+      "actual_commit": "e2566429142f3dcaecc82c58bc0ad8b1053d30f0",
+      "observed_rules": {},
+      "total_findings": 0,
+      "severities": {},
+      "expected_rules": [],
+      "expected_and_found": [],
+      "expected_not_found": [],
+      "unexpected": [],
+      "expected_absent_violated": [],
+      "outcome": "clean-negative"
+    }
+  ]
+}

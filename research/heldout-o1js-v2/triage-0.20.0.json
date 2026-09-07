@@ -1,0 +1,156 @@
+{
+  "schema": 1,
+  "scanner_version": "0.20.0",
+  "results": "results-0.20.0.json",
+  "supersedes": "triage-0.19.1.json",
+  "triaged_at": "2026-09-07",
+  "what_changed": "0.20.0 widened the contract gate to `extends TokenContract`, the defect this corpus was built to find. All sixteen cases are now actually analyzed. The eight that were vacuous at 0.19.1 have moved to `development` status in the manifest, because the fix was developed from them.",
+  "the_pair_result_is_now_earned": {
+    "summary": "At 0.19.1 all seven pairs showed no delta and six of those results meant nothing, because the file was never read. Now every pair is analyzed and every pair still shows no forward delta. The claim the corpus was built to test -- that this rule set does not model the defect classes an application audit finds -- is finally supported by evidence rather than by an accident.",
+    "detail": "The five silvana collection.ts pairs each produce six findings on the vulnerable side and the same six on the fixed side. Not one is the audit's defect: they are four authorization-gate false positives, one initialize witness, and one proof-verification false positive. The audit's fixes -- an unasserted transfer-approval flag, an unasserted canApprove flag, a missing isPaused invariant, an unbound cross-contract mint parameter, `Permissions.none()` on setZkappUri, an unconstrained oracle public input -- move nothing."
+  },
+  "a_security_fix_introduced_a_finding": {
+    "case": "silvana-oracle-approval-bypass",
+    "observation": "The only non-zero delta in the corpus runs backwards: the fixed side has one MORE `O1JS_UNVERIFIED_PROOF` than the vulnerable side.",
+    "mechanism": "The fix adds `proof.publicInput.oracleAddress.equals(PublicKey.empty()).assertTrue(...)` to `update()`. Before it, `update()` never touched `proof.publicInput`. Since 0.19.0 a `*Proof`-named parameter is only reported when the method reads `publicInput`/`publicOutput` on it -- the corroboration added to kill the usdm false positives. So the security fix opened the gate on its own method and a false positive appeared.",
+    "why_it_is_a_false_positive": "`proof.verify(vk)` lives in the private `_update(proof, vk)` helper that both `update()` and `updateWithOracle()` delegate to. The rule reads the @method body only.",
+    "why_it_matters": "The corroboration heuristic is not neutral: adding a legitimate constraint on a proof's public input can make an unrelated false positive appear. That is a real cost of the 0.19.0 fix, and it was invisible until a corpus contained a before/after pair that crossed the threshold."
+  },
+  "false_positive_classes": [
+    {
+      "id": "constraint lives in a private helper",
+      "instances": 18,
+      "now_seen_as": "three different constraint kinds, across four independently written codebases",
+      "detail": [
+        "Signature/authorization gating: tradecoin-pair `initContract` calls `this.checkAdminSignature()`; pinsave-swap `setFee` calls `this.verifyAdminSignature()`. `_method_is_signature_gated` reads the @method body only.",
+        "Merkle-root binding: tradecoin-pair (9) and pinsave-swap (3) bind the root inside `checkMerkleMap`/`verifyTreeLeaf`, through a derived local. Both were predicted before the run.",
+        "Proof verification: silvana collection.ts (1 per side, 2 on the oracle-fix side) calls `proof.verify(vk)` inside `_update`."
+      ],
+      "assessment": "`helper_binds` propagates state binding through `this.<helper>(...)` chains and has since 0.19.0. It does not propagate signature gating, proof verification, or a binding that runs through a derived local. docs/suppression-inversion.md predicted that well-factored code is where this analyzer false-positives; four codebases chosen before that claim was tested now confirm it. This is the largest single source of noise in the corpus and the strongest candidate for the next change -- which is exactly why it is not being made in the release that measured it."
+    },
+    {
+      "id": "authorization gate asserted on the caller, not on the value",
+      "instances": 6,
+      "detail": "silvana `setName`, `setBaseURL`, `setAdmin`, `transferOwnership`; mina-fungible-token `setAdmin`; o1-labs-XT fungible-token-contract `setAdmin` (the last recorded in docs/mina_calibration.md). Each asserts `adminContract.canChangeX(value).assertTrue(...)` and then writes `value`. The assertion gates who may call, and an admin choosing the next admin is the intent. The witness rule sees an unasserted argument reaching a state write.",
+      "assessment": "Distinct from the helper class: here the check is in the method body, it just constrains a different thing than the rule is looking for. Three codebases, including the official standard."
+    }
+  ],
+  "findings": [
+    {
+      "case": "silvana-transfer-approval-bypass, silvana-paused-nft-mint, silvana-admin-mint-rebinding, silvana-uri-symbol-permissions, silvana-oracle-approval-bypass",
+      "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+      "count": 4,
+      "per_side": true,
+      "disposition": "false_positive",
+      "confidence": "high",
+      "reasoning": "`setName`, `setBaseURL`, `setAdmin` and `transferOwnership` each assert the admin contract's permission for the change before writing. Class: authorization gate asserted on the caller, not on the value."
+    },
+    {
+      "case": "silvana-transfer-approval-bypass, silvana-paused-nft-mint, silvana-admin-mint-rebinding, silvana-uri-symbol-permissions, silvana-oracle-approval-bypass",
+      "rule_id": "O1JS_WITNESS_NOT_BOUND_TO_STATE",
+      "count": 1,
+      "per_side": true,
+      "disposition": "false_positive",
+      "confidence": "medium",
+      "reasoning": "`initialize(masterNFT, collectionData)` writes deployer-chosen configuration behind `this.account.provedState.requireEquals(Bool(false))`, the one-shot guard. Choosing your own collection settings at deployment is the intent. Confidence is medium because the rule's complaint -- a witness reaching a state write with only trivial constraints -- is literally true; what makes it benign is the provedState guard, which the rule does not read."
+    },
+    {
+      "case": "silvana-transfer-approval-bypass, silvana-paused-nft-mint, silvana-admin-mint-rebinding, silvana-uri-symbol-permissions, silvana-oracle-approval-bypass",
+      "rule_id": "O1JS_UNVERIFIED_PROOF",
+      "count": 1,
+      "per_side": true,
+      "disposition": "false_positive",
+      "confidence": "high",
+      "reasoning": "`proof.verify(vk)` is in the private `_update(proof, vk)` helper both update methods delegate to. Class: constraint lives in a private helper. On the oracle-fix side there are two, for the reason recorded under a_security_fix_introduced_a_finding."
+    },
+    {
+      "case": "mina-fungible-token-flash-mint",
+      "rule_id": "O1JS_APPROVE_WITHOUT_BINDING",
+      "count": 1,
+      "per_side": true,
+      "disposition": "false_positive",
+      "confidence": "medium",
+      "reasoning": "`approveBase(updates)` is the TokenContract override that walks the forest and asserts the net balance change is zero -- the standard's central safety property, and the very method the flash-mint fix strengthens. The rule reads an approve with no binding of update fields; the binding is the balance arithmetic it cannot follow."
+    },
+    {
+      "case": "mina-fungible-token-flash-mint",
+      "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+      "count": 1,
+      "per_side": true,
+      "disposition": "false_positive",
+      "confidence": "high",
+      "reasoning": "`setAdmin(admin)` asserts `canChangeAdmin(admin)` before writing. Class: authorization gate asserted on the caller, not on the value."
+    },
+    {
+      "case": "mina-fungible-token-head",
+      "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+      "count": 1,
+      "locations": [
+        "FungibleToken.ts:138"
+      ],
+      "disposition": "false_positive",
+      "confidence": "high",
+      "reasoning": "Same `setAdmin` as above, at HEAD. The identical finding on o1-labs-XT's fork is classified in docs/mina_calibration.md."
+    },
+    {
+      "case": "lumina-pool",
+      "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+      "count": 4,
+      "locations": [
+        "Pool.ts:400",
+        "Pool.ts:437",
+        "Pool.ts:454",
+        "Pool.ts:484"
+      ],
+      "disposition": "false_positive",
+      "confidence": "medium",
+      "status": "predicted before the run, and untestable until 0.20.0",
+      "reasoning": "Predicted in manifest.json with the note that it was held with less confidence than the merkle predictions, and confirmed the moment the file became analyzable. `swapFromTokenToMina`, `swapFromMinaToToken`, `withdrawLiquidity` and `burnLiquidityToken` send output to `this.sender.getUnconstrained()`. Naming your own destination is the intended semantics and the amounts are derived from pool reserves. Confidence stays medium: sending withdrawn liquidity to a prover-chosen address is the shape that would matter if the amount were ever derived from the sender, and that was not traced through all four."
+    },
+    {
+      "case": "lumina-pool",
+      "rule_id": "O1JS_LOGIC_OUTSIDE_PROOF",
+      "count": 2,
+      "locations": [
+        "Pool.ts:194",
+        "Pool.ts:208"
+      ],
+      "disposition": "true_positive",
+      "confidence": "high",
+      "reasoning": "`setDelegator` and `setProtocol` put `currentDelegator.equals(delegator).assertFalse('Delegator already defined')` inside `Provable.asProver(() => { ... })`. Code in an asProver block runs outside the circuit and adds no constraint, so the 'already defined' guard is not enforced in the proof. This is a real finding in a live AMM, and it was invisible for as long as the gate was."
+    },
+    {
+      "case": "lumina-pool",
+      "rule_id": "O1JS_VACUOUS_ASSERT",
+      "count": 1,
+      "locations": [
+        "Pool.ts:169"
+      ],
+      "disposition": "false_positive",
+      "confidence": "high",
+      "reasoning": "`Bool(false).assertTrue(\"You can't directly deploy a pool\")` in `deploy()` is a deliberate always-fail guard: pools are only created through the factory. Using a constant false assertion as an unconditional block is idiomatic, and the rule cannot tell it from a mistake."
+    },
+    {
+      "case": "lumina-pool",
+      "rule_id": "O1JS_WITNESS_NOT_BOUND_TO_STATE",
+      "count": 9,
+      "locations": [
+        "Pool.ts:277",
+        "Pool.ts:293",
+        "Pool.ts:319",
+        "Pool.ts:343",
+        "Pool.ts:397"
+      ],
+      "disposition": "false_positive",
+      "confidence": "low",
+      "status": "UNREVIEWED in part",
+      "reasoning": "Eight of the nine sit on the four `@method.returns(UInt64)` swap-and-liquidity calculators, which take amounts and reserves as arguments and return a computed figure without writing state. Provisionally false positives: a pure calculator constrains its inputs by the arithmetic it performs and by the caller that supplied reserves. This is recorded as low confidence and partly unreviewed rather than asserted -- tracing the AMM math against every caller is real work and was not done. Do not cite these as either a true or a false positive count."
+    }
+  ],
+  "what_this_changes": [
+    "Eight of sixteen cases are spent. The fix was developed from them, so they are `development` in the manifest and must not be counted as unseen evidence again. Eight remain held out, including silvana-approve-delegate-unchecked, the one pair that was analyzed all along.",
+    "The next change is helper-resident constraints: eighteen findings across four codebases, in three different constraint kinds. It is deliberately not made in the release that measured it.",
+    "No rule severity was changed on the strength of this triage, and no rule was narrowed to make this corpus quieter."
+  ],
+  "carried_forward": "This file records only what the 0.20.0 gate fix changed. Findings unchanged since 0.19.1 -- tradecoin-pair's merkle and witness findings, pinsave-swap's, zk-regex-zkapp's, minanft-contract-v2's, o1js-merkle-example's -- keep the classifications in triage-0.19.1.json and are not repeated here. Together the two files classify every finding in results-0.20.0.json, which tests/test_heldout_v2_manifest.py checks."
+}

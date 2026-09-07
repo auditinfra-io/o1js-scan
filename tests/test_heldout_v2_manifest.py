@@ -28,8 +28,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 V2 = REPO_ROOT / "research" / "heldout-o1js-v2"
 MANIFEST = V2 / "manifest.json"
 README = V2 / "README.md"
-RESULTS = V2 / "results-0.19.1.json"
-TRIAGE = V2 / "triage-0.19.1.json"
+# The latest run. results-0.19.1.json is kept as the record of the state that
+# motivated the 0.20.0 gate fix; these assertions track the current one.
+RESULTS = V2 / "results-0.20.0.json"
+TRIAGE = V2 / "triage-0.20.0.json"
+RESULTS_AT_FREEZE = V2 / "results-0.19.1.json"
 
 STATUSES = {"held-out", "development", "regression"}
 KINDS = {"single", "pair"}
@@ -171,6 +174,27 @@ def test_results_cover_every_case_at_its_pinned_commits():
             assert rec["fixed"]["actual_commit"] == case["fixed_commit"]
 
 
+def test_the_freeze_time_results_are_kept_as_the_evidence_for_the_fix():
+    """results-0.19.1.json is why the gate was widened; it must not be tidied away.
+
+    Eight of its cases scored zero because their contract was never recognised.
+    Deleting that file once the fix landed would erase the only record of what
+    the tool did before, and the changelog entry would rest on nothing.
+    """
+    at_freeze = json.loads(RESULTS_AT_FREEZE.read_text(encoding="utf-8"))
+    vacuous = [c for c in at_freeze["cases"] if c.get("result_is_vacuous")]
+    assert len(vacuous) == 8
+    assert at_freeze["analysis_gate_defect"].strip()
+
+
+def test_every_case_is_analyzed_now():
+    """The gate fix has to hold: no case may go back to scoring zero unanalyzed."""
+    for rec in _results()["cases"]:
+        assert not rec.get("result_is_vacuous"), (
+            f"{rec['id']}: still unanalyzed after the 0.20.0 gate fix"
+        )
+
+
 def test_a_zero_finding_case_says_whether_it_was_analyzed():
     """Zero findings means two different things and the file has to distinguish them.
 
@@ -179,7 +203,7 @@ def test_a_zero_finding_case_says_whether_it_was_analyzed():
     they were clean. A results file that recorded both as `0` would read as a
     clean bill of health for MinaFoundation's fungible-token standard.
     """
-    for rec in _results()["cases"]:
+    for rec in json.loads(RESULTS_AT_FREEZE.read_text(encoding="utf-8"))["cases"]:
         findings = (rec["total_findings"] if rec["kind"] == "single"
                     else rec["vulnerable"]["total_findings"] + rec["fixed"]["total_findings"])
         if findings == 0 and rec.get("result_is_vacuous"):
@@ -192,7 +216,14 @@ def test_every_observed_rule_is_triaged():
     """A finding nobody classified is counted as nothing, which is a silent verdict."""
     triage = _triage()
     assert triage["scanner_version"] == _results()["scanner_version"]
-    triaged = {(f["case"], f["rule_id"]) for f in triage["findings"]}
+    # The 0.20.0 triage records only what the gate fix changed and says so in
+    # `carried_forward`; unchanged findings keep their 0.19.1 classification.
+    # Coverage is the union, so nothing can be dropped by writing a new file.
+    at_freeze = json.loads((V2 / "triage-0.19.1.json").read_text(encoding="utf-8"))
+    assert triage["carried_forward"].strip()
+    triaged = {(cid.strip(), f["rule_id"])
+               for src in (triage, at_freeze)
+               for f in src["findings"] for cid in f["case"].split(",")}
     for rec in _results()["cases"]:
         observed = (rec["observed_rules"] if rec["kind"] == "single"
                     else {**rec["vulnerable"]["observed_rules"], **rec["fixed"]["observed_rules"]})
@@ -200,9 +231,10 @@ def test_every_observed_rule_is_triaged():
             assert (rec["id"], rule_id) in triaged, (
                 f"{rec['id']}: {rule_id} fired and was never classified"
             )
-    for finding in triage["findings"]:
-        assert finding["disposition"] in {"true_positive", "false_positive"}
-        assert finding["reasoning"].strip(), "a verdict without reasoning is a guess"
+    for src in (triage, at_freeze):
+        for finding in src["findings"]:
+            assert finding["disposition"] in {"true_positive", "false_positive"}
+            assert finding["reasoning"].strip(), "a verdict without reasoning is a guess"
 
 
 def test_a_label_error_is_recorded_rather_than_edited_away():
@@ -217,7 +249,8 @@ def test_a_label_error_is_recorded_rather_than_edited_away():
     assert "a rule for tautological assertions would have something to say and none exists" in manifest_text, (
         "the mistaken prediction must stay in the frozen manifest"
     )
-    corrections = _triage()["label_corrections"]
+    corrections = json.loads((V2 / "triage-0.19.1.json")
+                             .read_text(encoding="utf-8"))["label_corrections"]
     assert any(c["case"] == "o1js-merkle-example" for c in corrections)
     for correction in corrections:
         for key in ("what_i_wrote", "what_is_true", "handling"):
@@ -227,11 +260,18 @@ def test_a_label_error_is_recorded_rather_than_edited_away():
 def test_the_analysis_gate_defect_is_recorded_prominently():
     """The corpus's main result must not be discoverable only by reading JSON."""
     triage = _triage()
+    at_freeze_triage = json.loads((V2 / "triage-0.19.1.json").read_text(encoding="utf-8"))
+    triage = at_freeze_triage
     assert triage["headline"]["id"] == "TOKENCONTRACT_NOT_ANALYZED"
     for key in ("summary", "why_it_matters", "how_it_stayed_hidden",
                 "deliberately_not_fixed_here"):
         assert triage["headline"][key].strip()
     readme = README.read_text(encoding="utf-8")
     assert "TokenContract" in readme
-    vacuous = [c["id"] for c in _results()["cases"] if c.get("result_is_vacuous")]
+    at_freeze = json.loads(RESULTS_AT_FREEZE.read_text(encoding="utf-8"))
+    vacuous = [c["id"] for c in at_freeze["cases"] if c.get("result_is_vacuous")]
     assert len(vacuous) == 8, f"expected 8 vacuous cases, found {len(vacuous)}"
+    burned = [c["id"] for c in _manifest()["cases"] if c["status"] == "development"]
+    assert sorted(burned) == sorted(vacuous), (
+        "every case the fix was developed from must be marked development"
+    )

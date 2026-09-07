@@ -35,7 +35,7 @@ python3 scripts/scan_snapshot.py capture tests/fixtures/mina_benchmark.json \
 | Repo | Commit | HIGH budget |
 |------|--------|------------:|
 | marekyggdrasil/mac | `83cea9cb` | 7 |
-| iluxonchik/zkLocus | `600f4068` | 3 |
+| iluxonchik/zkLocus | `600f4068` | 4 |
 | iluxonchik/randomina | `2d5781a1` | 1 |
 | berzanorg/nacho | `db85861e` | 0 |
 | berzanorg/xane | `9002bca5` | 2 |
@@ -52,6 +52,31 @@ python3 scripts/scan_snapshot.py capture tests/fixtures/mina_benchmark.json \
 New repos (2026-07-30 Wave 2) were selected from
 [MinaFoundation/list-of-projects](https://github.com/MinaFoundation/list-of-projects)
 (token / misc categories) for live `o1js` + `SmartContract` sources.
+
+## Wave 3 (0.20.0): the TokenContract gate
+
+Until 0.20.0 the analyzer's contract gate matched `extends SmartContract` and
+nothing else, so every `extends TokenContract` zkApp was skipped in silence.
+Widening it added **seven findings across this corpus and removed none**. Every
+one is classified below, and the zkLocus HIGH budget moves 3 → 4.
+
+Note what this says about the corpus itself: these fourteen repositories were
+selected by looking for `extends SmartContract`, the same string the analyzer
+keyed on, so the corpus could not have exposed the gap. It took a corpus chosen
+by someone else's criterion (`research/heldout-o1js-v2/`, selected by npm
+dependency) to find it.
+
+| Location | Rule | Verdict | Reasoning |
+|---|---|---|---|
+| `zkLocus` `.../bounty/BountyBulletinBoardContract.ts` :229 | `O1JS_APPROVE_WITHOUT_BINDING` | **TP** | `approveUpdate(au: AccountUpdate) { this.approve(au) }` approves a caller-supplied account update with nothing bound. Any caller hands it any update and the token contract approves it. |
+| `zkLocus` `.../BountyBulletinBoardContract.ts` :233 | `O1JS_APPROVE_WITHOUT_BINDING` | **TP** | `claimBountyWithApprove(claimAU, bountyId)` approves a caller-supplied update and never reads `bountyId` at all. |
+| `zkLocus` `.../BountyBulletinBoardContract.ts` :110, :142 | `O1JS_APPROVE_WITHOUT_BINDING` | **TP** | `sendFromTo(senderAddress, receiverAddress, amount)` runs `this.internal.send({ from: senderAddress, … })` and approves the result, so any caller moves tokens from any address. |
+| `zkLocus` `.../tokens/zkl/ZKLContract.ts` :34 | `O1JS_WEAK_PERMISSIONS` (HIGH) | **TP** | `send: Permissions.none()` on the contract's own account in `deploy()` — no proof and no signature is needed to move value out of it. This is the finding that raises the budget to 4. |
+| `zkLocus` `.../tokens/zkl/ZKLContract.ts` :34 | `O1JS_WEAK_PERMISSIONS` (MEDIUM) | **FP (by convention)** | `receive: Permissions.none()` is the ordinary setting for an account that is meant to be paid into. The rule counts `receive: none()` among its weak values; on a token contract that is noise. Kept rather than silenced, because narrowing the rule to make this corpus quieter is the move the acceptance criterion exists to prevent. |
+| `fungible-token-contract` `src/FungibleTokenContract.ts` :246 | `O1JS_UNCONSTRAINED_WITNESS` | **FP** | `setAdmin(admin)` asserts `canChangeAdmin(admin)` before writing. The gate is on *who* may call, not on the value, and an admin choosing the next admin is the intent. Same class as the "authorization gate in a helper" false positives triaged in `research/heldout-o1js-v2/`; MinaFoundation's own `FungibleToken.ts:138` produces the identical finding. |
+
+The four zkLocus `O1JS_APPROVE_WITHOUT_BINDING` findings are the first real-world
+hits for that rule, and they were invisible for as long as the gate was.
 
 ## Acceptance criterion
 

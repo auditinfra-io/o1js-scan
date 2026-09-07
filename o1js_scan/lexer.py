@@ -109,7 +109,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, FrozenSet, List, Optional, Set, Tuple, Union
 
 from .paths import ScanStats
 from .semantic import SemanticFacts
@@ -134,7 +134,33 @@ _MAX_PARAMS = 4000     # longest parameter list / return-type annotation
 _MAX_CALL_ARG = 2000   # longest single call-argument expression
 
 _O1JS_IMPORT_RE = re.compile(r"""from\s+['"]o1js['"]""")
-_SMARTCONTRACT_RE = re.compile(r"\bclass\s+(\w+)\s+extends\s+SmartContract\b")
+
+# The classes an o1js zkApp can extend. `TokenContract` is
+# `abstract class TokenContract extends SmartContract` in o1js
+# (src/lib/mina/v1/token/token-contract.ts) and is what every custom-token
+# zkApp extends: fungible tokens, NFT collections, AMM pools.
+#
+# Until 0.20.0 this gate matched `SmartContract` alone, so every token contract
+# in existence was skipped in silence -- `is_o1js_source` rejected the file and
+# the CLI printed "no findings". That is the worst shape a false negative can
+# take, because the contracts that hold money are exactly the ones that extend
+# TokenContract. It survived two corpora because both were themselves selected
+# by grepping `extends SmartContract`: a corpus chosen by the analyzer's own
+# criterion cannot contradict it. See research/heldout-o1js-v2/.
+_O1JS_CONTRACT_BASES = frozenset({"SmartContract", "TokenContract"})
+
+# Captures the base name so it can be checked against the (possibly aliased)
+# set for this file, rather than being baked into the pattern. The optional
+# generic parameter list and the tolerance for a newline before `extends` are
+# both load-bearing: silvana-lib writes `class Collection\n  extends TokenContract`.
+_CLASS_EXTENDS_RE = re.compile(
+    r"\bclass\s+(\w{1,%d})\s*(?:<[^>{]{0,%d}>)?\s*extends\s+(\w{1,%d})\b"
+    % (_MAX_IDENT, _MAX_PARAMS, _MAX_IDENT)
+)
+_O1JS_NAMED_IMPORT_RE = re.compile(
+    r"""import\s*(?:type\s+)?\{([^}]{0,%d})\}\s*from\s*['"]o1js['"]""" % _MAX_PARAMS,
+    re.S,
+)
 _METHOD_DECORATOR = r"@method(?:\s*\(\s*\)|\.returns\([^)]{0,%d}\))?" % _MAX_PARAMS
 _METHOD_DECORATOR_RE = re.compile(
     _METHOD_DECORATOR + r"\s+(?:async\s+)?(\w+)\s*\(",
@@ -314,11 +340,54 @@ _VACUOUS_CONST_BOOL_RE = re.compile(
 )
 
 
+def _o1js_contract_bases(src: str) -> FrozenSet[str]:
+    """Contract base names for this file, including local import aliases.
+
+    o1js's own dex example writes `import { TokenContract as BaseTokenContract }`
+    and then `class TokenContract extends BaseTokenContract`, so a fixed name
+    list misses real code -- including code in the repository the upstream
+    canary scans. Only aliases of a known base count; an arbitrary local class
+    named `TokenContract` that extends nothing from o1js is still ignored.
+    """
+    bases = set(_O1JS_CONTRACT_BASES)
+    for m in _O1JS_NAMED_IMPORT_RE.finditer(src):
+        for spec in m.group(1).split(","):
+            original, sep, alias = spec.partition(" as ")
+            if not sep:
+                continue
+            if original.strip() in _O1JS_CONTRACT_BASES and alias.strip():
+                bases.add(alias.strip())
+    return frozenset(bases)
+
+
+def _contract_declarations(haystack: str, src: str) -> List["re.Match"]:
+    """Every `class X extends <an o1js contract base>` in ``haystack``.
+
+    ``src`` is the unstripped source, because comment stripping blanks string
+    bodies and would erase the `'o1js'` in the import the aliases come from.
+    """
+    bases = _o1js_contract_bases(src)
+    return [m for m in _CLASS_EXTENDS_RE.finditer(haystack) if m.group(2) in bases]
+
+
 def is_o1js_source(content: str, filepath: str = "") -> bool:
     """True if ``content`` is an o1js zkApp file worth analyzing."""
     if filepath and not filepath.endswith((".ts", ".js", ".mjs")):
         return False
-    return bool(_O1JS_IMPORT_RE.search(content) and _SMARTCONTRACT_RE.search(content))
+    if not _O1JS_IMPORT_RE.search(content):
+        return False
+    if _contract_declarations(content, content):
+        return True
+    # A comment can sit inside the declaration itself --
+    #     class Collection
+    #       // implements Ownable once the interface lands
+    #       extends TokenContract
+    # -- and raw source is the wrong thing to match that against. Stripping is
+    # only worth its cost on the files the cheap check already rejected, which
+    # is why it is a fallback rather than the first move. The import is still
+    # checked against raw source above: comment stripping blanks string bodies,
+    # so `from 'o1js'` does not survive it.
+    return bool(_contract_declarations(_strip_comments(content), content))
 
 
 # ---------------------------------------------------------------------------
@@ -411,8 +480,8 @@ def _extract_methods(stripped: str, full_src: str) -> List[_Method]:
     flagging which carry the ``@method`` decorator."""
     methods: List[_Method] = []
     # Give semantic consumers a stable declaring-contract identity.  Names are
-    # insufficient because a source file may declare several SmartContracts.
-    contract_starts = [m.start() for m in _SMARTCONTRACT_RE.finditer(stripped)]
+    # insufficient because a source file may declare several contracts.
+    contract_starts = [m.start() for m in _contract_declarations(stripped, full_src)]
     for m in _FUNC_HEAD_RE.finditer(stripped):
         name = m.group("name")
         if name in ("if", "for", "while", "switch", "catch", "function"):

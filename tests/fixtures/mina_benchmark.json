@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "kind": "mina-corpus",
-  "captured_with": "o1js-scan 0.16.1",
+  "captured_with": "o1js-scan 0.19.1",
   "scan": {
     "lang": "o1js",
     "include_tests": false,
@@ -74,16 +74,23 @@
       "name": "fungible-token-contract",
       "commit": "a0d4290135ccdabcaf1defe2ea5d1a2243deb5e1",
       "totals": {
-        "findings": 1,
-        "files": 1,
+        "findings": 2,
+        "files": 2,
         "high": 0,
-        "medium": 0,
+        "medium": 1,
         "low": 1
       },
       "by_rule": {
-        "O1JS_UNCONSTRAINED_SENDER": 1
+        "O1JS_UNCONSTRAINED_SENDER": 1,
+        "O1JS_UNCONSTRAINED_WITNESS": 1
       },
       "findings": [
+        {
+          "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+          "severity": "medium",
+          "file": "src/FungibleTokenContract.ts",
+          "line": 246
+        },
         {
           "rule_id": "O1JS_UNCONSTRAINED_SENDER",
           "severity": "low",
@@ -361,18 +368,18 @@
       "name": "zkLocus",
       "commit": "600f4068d37b94687cb64cf9c9dd65dcce3a2a8f",
       "totals": {
-        "findings": 8,
-        "files": 6,
-        "high": 3,
-        "medium": 5,
+        "findings": 14,
+        "files": 8,
+        "high": 4,
+        "medium": 10,
         "low": 0
       },
       "by_rule": {
-        "O1JS_APPROVE_WITHOUT_BINDING": 1,
+        "O1JS_APPROVE_WITHOUT_BINDING": 5,
         "O1JS_UNCONSTRAINED_SENDER": 1,
         "O1JS_UNVERIFIED_PROOF": 1,
         "O1JS_VACUOUS_ASSERT": 1,
-        "O1JS_WEAK_PERMISSIONS": 4
+        "O1JS_WEAK_PERMISSIONS": 6
       },
       "findings": [
         {
@@ -386,6 +393,30 @@
           "severity": "high",
           "file": "contracts/src/blockchain/contracts/RandoMinaContract.ts",
           "line": 71
+        },
+        {
+          "rule_id": "O1JS_APPROVE_WITHOUT_BINDING",
+          "severity": "medium",
+          "file": "contracts/src/blockchain/contracts/bounty/BountyBulletinBoardContract.ts",
+          "line": 110
+        },
+        {
+          "rule_id": "O1JS_APPROVE_WITHOUT_BINDING",
+          "severity": "medium",
+          "file": "contracts/src/blockchain/contracts/bounty/BountyBulletinBoardContract.ts",
+          "line": 142
+        },
+        {
+          "rule_id": "O1JS_APPROVE_WITHOUT_BINDING",
+          "severity": "medium",
+          "file": "contracts/src/blockchain/contracts/bounty/BountyBulletinBoardContract.ts",
+          "line": 229
+        },
+        {
+          "rule_id": "O1JS_APPROVE_WITHOUT_BINDING",
+          "severity": "medium",
+          "file": "contracts/src/blockchain/contracts/bounty/BountyBulletinBoardContract.ts",
+          "line": 233
         },
         {
           "rule_id": "O1JS_WEAK_PERMISSIONS",
@@ -422,6 +453,18 @@
           "severity": "high",
           "file": "contracts/src/blockchain/contracts/experiments/DeployerVerificationSC.ts",
           "line": 26
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "high",
+          "file": "contracts/src/blockchain/contracts/tokens/zkl/ZKLContract.ts",
+          "line": 34
+        },
+        {
+          "rule_id": "O1JS_WEAK_PERMISSIONS",
+          "severity": "medium",
+          "file": "contracts/src/blockchain/contracts/tokens/zkl/ZKLContract.ts",
+          "line": 34
         }
       ]
     },

@@ -6,42 +6,90 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-09-07
+
+### Fixed
+
+- **`extends TokenContract` is analyzed. It never was before.** The contract
+  gate was one regex — `\bclass\s+(\w+)\s+extends\s+SmartContract\b` — and
+  `TokenContract`, o1js's base class for every custom-token zkApp, did not match
+  it. No methods were extracted, no rule ran, and the CLI printed `no findings`.
+
+  This affected the contracts that hold money. MinaFoundation's official
+  fungible-token standard (11 `@method`), SilvanaOne's NFT collection (28),
+  Lumina's live AMM pool (14), zkLocus's ZKL token, tokenizk-finance's basic
+  token — every one of them scored zero, and a user reads zero as clean.
+
+  The gate now also resolves import aliases of a known base (o1js's own dex
+  example writes `import { TokenContract as BaseTokenContract }`), tolerates a
+  newline between the class name and `extends` (silvana-lib writes
+  `class Collection\n  extends TokenContract`), and falls back to
+  comment-stripped source so a comment inside the declaration cannot hide it.
+  It deliberately does **not** widen to anything merely named `*Contract`.
+
+  Found by `research/heldout-o1js-v2/`, and it took that corpus to find it: the
+  calibration corpus and v1 were both selected by grepping `extends
+  SmartContract`, the same string the analyzer keyed on, so neither could
+  contradict it. v2 selected by npm dependency instead.
+
+### Changed
+
+- **More findings, on code that was previously silent.** Nothing was removed
+  anywhere. Every new finding has been read and classified:
+  - Calibration corpus: **+7, −0**. zkLocus's HIGH budget moves 3 → 4 for
+    `send: Permissions.none()` on the ZKL token's own account, and four
+    `O1JS_APPROVE_WITHOUT_BINDING` true positives appear in its bounty contract
+    — including `approveUpdate(au: AccountUpdate) { this.approve(au) }`, which
+    approves a caller-supplied account update with nothing bound. Those are the
+    rule's first real-world hits. Classified in `docs/mina_calibration.md`;
+    `tests/fixtures/mina_benchmark.json` recaptured.
+  - Held-out v1: tokenizk-finance 10 → 14. Its `TokeniZkBasicToken.ts` had never
+    been analyzed in any recorded run. The four new findings are false positives
+    (locally built, `createSigned` account updates) and are triaged as such.
+  - Held-out v2: all sixteen cases analyzed. `lumina-pool` yields a real
+    `O1JS_LOGIC_OUTSIDE_PROOF` — `setDelegator` and `setProtocol` put their
+    guard inside `Provable.asProver(…)`, which adds no constraint.
+
+- **One finding disappeared, correctly.** `minanft-contract-v2` drops from 9 to
+  8: the file declares a second contract, `NameContractV2 extends
+  TokenContract`, which was previously invisible, so its methods were scoped
+  into the first contract's state map. With the scoping right, a
+  `O1JS_WITNESS_NOT_BOUND_TO_STATE` that the v2 triage had already classified as
+  a false positive no longer fires.
+
 ### Added
 
 - **A second held-out corpus, `research/heldout-o1js-v2/`.** Sixteen cases from
   a different index (npm packages declaring an `o1js` dependency, rather than
   v1's Foundation-curated list), labelled and committed to git before the
-  scanner was run on any of them. Seven are (vulnerable, fixed) commit pairs,
-  six of them from `SilvanaOne/silvana-lib`'s audit remediation series and one
-  from MinaFoundation's own flash-minting fix in the fungible-token standard.
+  scanner was run on any of them — the freezing commit contains no results.
+  Seven are (vulnerable, fixed) commit pairs, six from `SilvanaOne/silvana-lib`'s
+  audit remediation series and one from MinaFoundation's flash-minting fix.
   Scans are scoped to the exact file each label was written from, and false
   positives are pre-registered: two cases predicted `O1JS_STALE_MERKLE_ROOT`
   would fire and be wrong, naming the mechanism, and both predictions held.
+  Every pair still shows no forward delta now that all sixteen are analyzed, so
+  the coverage claim it was built to test is finally supported by evidence.
+  Eight of the sixteen are spent: the gate fix was developed from them, and they
+  are marked `development` rather than counted as unseen evidence again.
+- Four corpus fixtures pinning the gate: a plain `TokenContract` subclass, the
+  multi-line declaration inside a factory function, the aliased import, and a
+  negative for a class whose name merely ends in `Contract`. All three positives
+  fail against the 0.19.1 gate.
 
 ### Known
 
-- **`extends TokenContract` is not analyzed at all.** The contract gate is one
-  regex, `\bclass\s+(\w+)\s+extends\s+SmartContract\b` (`o1js_scan/lexer.py:137`),
-  and `TokenContract` — o1js's base class for every custom-token zkApp — does not
-  match it. No methods are extracted, no rule runs, and the CLI prints
-  `no findings`. Eight of the sixteen v2 cases are affected, including
-  MinaFoundation's official fungible-token standard (11 `@method`),
-  SilvanaOne's NFT collection (28) and Lumina's live AMM pool (14). The v1
-  corpus is affected too: `tokenizk-finance`'s `TokeniZkBasicToken.ts` was never
-  analyzed in those runs either.
-
-  Until this is fixed, treat "o1js-scan found nothing here" as unreliable for
-  any project that issues a token.
-
-  It stayed hidden because the calibration corpus and v1 were both selected by
-  searching for `extends SmartContract` — the same string the analyzer keys on.
-  A selection criterion that mirrors the tool's own blind spot cannot expose it.
-
-  It is deliberately not fixed in this release. The fix would be developed
-  against the corpus that found it, burning eight of sixteen cases; it changes
-  released behaviour materially, so it wants its own release; and it will move
-  the pinned calibration budgets and snapshots, which needs a deliberate
-  recapture rather than a tail-end edit. It is the next change to make.
+- **Constraints that live in a private helper are the largest source of false
+  positives** — 18 findings across four independently written codebases, in
+  three kinds: signature gating, merkle-root binding through a derived local,
+  and proof verification. `helper_binds` propagates state binding through
+  `this.<helper>(…)` chains and none of these. Not fixed in the release that
+  measured it; see `research/heldout-o1js-v2/triage-0.20.0.json`.
+- **A security fix can introduce a finding.** In
+  `silvana-oracle-approval-bypass` the fixed side has one *more*
+  `O1JS_UNVERIFIED_PROOF` than the vulnerable one: the fix makes `update()` read
+  `proof.publicInput`, which opens the `*Proof`-name corroboration gate added in
+  0.19.0. The corroboration heuristic is not neutral.
 
 ## [0.19.1] - 2026-09-07
 
