@@ -1,0 +1,329 @@
+{
+  "schema": 2,
+  "name": "heldout-o1js-v2",
+  "frozen_at": "2026-09-07",
+  "scanner_version_at_freeze": "0.19.1",
+  "label_provenance": "Every label, prediction and reasoning string in this file was written by reading the source at the pinned commit and was committed to git BEFORE o1js-scan was run against any repository in this corpus. The freezing commit is the parent of the commit that adds results-0.19.1.json. They are predictions, not observations. They are NOT third-party labels: they were written by the same agent that wrote several of the rules being evaluated. See the limitations section of README.md.",
+  "selection": {
+    "index": "npm registry",
+    "query": "https://registry.npmjs.org/-/v1/search?text={o1js,mina zkapp,zkapp,mina-protocol,protokit}&size=250",
+    "date": "2026-09-07",
+    "filter": "565 distinct package names were returned. Each package's latest manifest was fetched and kept only if `o1js` appeared in its dependencies or peerDependencies and its repository field pointed at GitHub. That left 35 repositories.",
+    "why_a_different_index": "v1 drew from MinaFoundation/list-of-projects and exhausted its o1js-era contracts at six cases. npm is a different index with a different bias -- it lists code someone packaged and published, where the Foundation list is curated -- and the dependency filter is mechanical rather than a judgement call."
+  },
+  "inclusion_criteria": [
+    "An npm package declaring o1js in dependencies or peerDependencies, with a GitHub repository field.",
+    "The repository clones and contains at least one `class ... extends SmartContract` (or `extends TokenContract`) with an `@method`, outside node_modules, dist, build and test paths.",
+    "Not in docs/mina_calibration.md, which is the corpus the rules were tuned on.",
+    "Not in research/heldout-o1js/ (v1), and not o1-labs/o1js, which scripts/o1js_upstream_canary.sh already scans."
+  ],
+  "exclusion_criteria": [
+    "Repositories with no SmartContract source: frontends, SDKs, wallet adapters, Protokit runtime modules (Protokit uses `@runtimeModule`, which this analyzer does not model at all).",
+    "zkapp-cli scaffold templates -- a 9-to-25-line generated `Add`/`Square` contract measures the generator, not a project.",
+    "Republished copies of o1js's own example contracts.",
+    "Derivatives of a repository already counted, which would double-count the same code."
+  ],
+  "excluded": {
+    "no_smart_contract": [
+      "Raunaque97/protokit-auction-runtimes",
+      "anarkrypto/zeropoll",
+      "devarend/easy-mina-deploy",
+      "egemengol/mina-credentials",
+      "ronykris/mina-account-update",
+      "sybil-center/sybil-center",
+      "zksecurity/mina-attestations",
+      "zksecurity/mina-credentials",
+      "zcred-org/o1js-jal"
+    ],
+    "scaffold_only": [
+      "mina-wallet-adapter/wallet-adapter",
+      "piconbello/zk-passport-o1js-sdk",
+      "zkcloudworker/zkcloudworker-lib"
+    ],
+    "overlaps_calibration_corpus": {
+      "Doot-Foundation/npm": "vendors the Doot oracle contract; Doot-Foundation/contracts is in the calibration corpus",
+      "ymekuria/fungible-token-standard": "published as ftc-scaffold-test-xt; o1-labs-XT/fungible-token-contract is in the calibration corpus",
+      "berzanorg/nacho": "in the calibration corpus",
+      "iluxonchik/zkLocus": "in the calibration corpus",
+      "o1-labs-XT/fungible-token-contract": "in the calibration corpus"
+    },
+    "derivative_of_an_included_repo": {
+      "zkcloudworker/minatokens-lib": "the predecessor of SilvanaOne/silvana-lib -- identical package paths, last commit 2025-02-05, development continues in silvana-lib",
+      "zk-httpz/mina-httpz-token": "a modified copy of MinaFoundation/mina-fungible-token"
+    },
+    "republished_examples": {
+      "IsobelRosenbaum/quisuscipit": "two commits, a tea.yaml, and o1js's own tictactoe/sudoku examples -- a tea.xyz reward-farming repository, not a project"
+    },
+    "unreachable": [
+      "zeko-labs/zeko-ui"
+    ]
+  },
+  "methodology_changes_from_v1": [
+    "The scan is scoped to `scan_path`, the exact file the label was written from. In v1 the label came from one primary_path but the scan covered the whole repository, so eight of twelve unpredicted findings turned out to be real defects in files the labelling had never opened. Scoping makes `unexpected` mean something.",
+    "False positives are pre-registered. `predicted_false_positives` names rules expected to fire and be wrong, with the reason, before the run. A predicted false positive is much stronger evidence about the analyzer than one classified afterwards.",
+    "Predicted misses are recorded too, in `predicted_misses`, where the reason is a specific mechanism in the code rather than a general scope limit.",
+    "Half the corpus is differential pairs. A pair holds the repository, the author, the style and the surrounding code fixed and changes one constraint, so a delta in findings is attributable to that constraint and a null delta is a clean statement about coverage."
+  ],
+  "what_this_corpus_is_expected_to_show": "All seven pairs are predicted to produce no delta. That prediction is the point of including them: a professional application-level audit of a real o1js NFT library produced fixes for authorization flags, state invariants, cross-contract trust and transaction ordering, and this analyzer's rules model none of those categories. If the prediction holds it is a measured statement of where a lexical soundness scanner stops, not a failure to be tuned away. Two of the pairs name a specific, small change that would catch them; neither change is being made as part of freezing this corpus.",
+  "cases": [
+    {
+      "id": "silvana-transfer-approval-bypass",
+      "kind": "pair",
+      "repo": "SilvanaOne/silvana-lib",
+      "vulnerable_commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+      "fixed_commit": "db6e2fae08ec0644fde19cc70f299fd4a0fbd487",
+      "scan_path": "packages/nft/src/contracts/collection.ts",
+      "defect": "Admin approval for transfers can be bypassed. The transfer path did not assert that the collection's `requireTransferApproval` flag was false, so a transfer could proceed without the approval the flag demands.",
+      "provenance": "SilvanaOne/silvana-lib audit remediation series. Commit 06506ba (\"audit\", 2025-03-02) is followed by ~20 commits titled `fix: <vulnerability>`, each merged from its own `audit-fix-N` branch. Five of the pairs below share the base commit e329d79, so each is a single-defect change against a common parent with no other differences. No audit report is published in the repository; the vulnerability titles are the maintainers' own words.",
+      "expected_delta_rules": [],
+      "expected_detected": false,
+      "reasoning": "The fix adds one line: `collectionData.requireTransferApproval.assertFalse(...)`. This is a missing authorization assertion on a flag unpacked from packed on-chain state. No o1js-scan rule models 'a policy flag that should have been asserted before an effect' -- the witness rules ask whether a prover-supplied value is constrained, and this value is not prover-supplied, it is read from state and simply not checked. Predicting no delta.",
+      "status": "held-out",
+      "why_not_modelled": "Requires knowing that a particular state-derived Bool is an authorization gate for a particular effect. That is application semantics, not a lexical or dataflow property."
+    },
+    {
+      "id": "silvana-approve-delegate-unchecked",
+      "kind": "pair",
+      "repo": "SilvanaOne/silvana-lib",
+      "vulnerable_commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+      "fixed_commit": "927685e6bb1c2a9a18a570759dc037031a85369e",
+      "scan_path": "packages/nft/src/contracts/nft.ts",
+      "defect": "Approving a delegate address does not verify if changing approval is allowed. The NFT's `canApprove` flag was never asserted before the approval was written.",
+      "provenance": "SilvanaOne/silvana-lib audit remediation series. Commit 06506ba (\"audit\", 2025-03-02) is followed by ~20 commits titled `fix: <vulnerability>`, each merged from its own `audit-fix-N` branch. Five of the pairs below share the base commit e329d79, so each is a single-defect change against a common parent with no other differences. No audit report is published in the repository; the vulnerability titles are the maintainers' own words.",
+      "expected_delta_rules": [],
+      "expected_detected": false,
+      "reasoning": "The fix adds `data.canApprove.assertTrue(NftErrors.cannotChangeApproval)`. Same shape as the transfer-approval pair: an unasserted permission flag. Predicting no delta.",
+      "status": "held-out",
+      "why_not_modelled": "Same class as silvana-transfer-approval-bypass."
+    },
+    {
+      "id": "silvana-paused-nft-mint",
+      "kind": "pair",
+      "repo": "SilvanaOne/silvana-lib",
+      "vulnerable_commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+      "fixed_commit": "4d292845e37bb84492746eb5d78c08d5b11b19df",
+      "scan_path": "packages/nft/src/contracts/collection.ts",
+      "defect": "Permanently paused NFTs can be minted. Minting did not check that the NFT was either unpaused or resumable, so an NFT could be created already paused with no way to unpause it.",
+      "provenance": "SilvanaOne/silvana-lib audit remediation series. Commit 06506ba (\"audit\", 2025-03-02) is followed by ~20 commits titled `fix: <vulnerability>`, each merged from its own `audit-fix-N` branch. Five of the pairs below share the base commit e329d79, so each is a single-defect change against a common parent with no other differences. No audit report is published in the repository; the vulnerability titles are the maintainers' own words.",
+      "expected_delta_rules": [],
+      "expected_detected": false,
+      "reasoning": "The fix adds `data.isPaused.equals(Bool(false)).or(data.canPause.equals(Bool(true))).assertTrue(...)` -- a missing state invariant on mint. Predicting no delta.",
+      "status": "held-out",
+      "why_not_modelled": "Requires modelling an invariant between two state flags. No rule does."
+    },
+    {
+      "id": "silvana-admin-mint-rebinding",
+      "kind": "pair",
+      "repo": "SilvanaOne/silvana-lib",
+      "vulnerable_commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+      "fixed_commit": "a29b2f5e1ca7a44751bdbf6c0b6d34de90d0845c",
+      "scan_path": "packages/nft/src/contracts/collection.ts",
+      "defect": "Admin may change minted NFT address/owner. `mint(mintRequest)` obtained `mintParams` from `adminContract.canMint(mintRequest)` and minted from it without checking that the address and owner still matched what the requester asked for, so a malicious admin contract could substitute either.",
+      "provenance": "SilvanaOne/silvana-lib audit remediation series. Commit 06506ba (\"audit\", 2025-03-02) is followed by ~20 commits titled `fix: <vulnerability>`, each merged from its own `audit-fix-N` branch. Five of the pairs below share the base commit e329d79, so each is a single-defect change against a common parent with no other differences. No audit report is published in the repository; the vulnerability titles are the maintainers' own words.",
+      "expected_delta_rules": [],
+      "expected_detected": false,
+      "reasoning": "This is the pair closest to a rule o1js-scan actually has: the fix adds `mintParams.address.assertEquals(mintRequest.address)` and `mintParams.data.owner.assertEquals(mintRequest.owner)`, which is a binding of one value to another. But the unbound value is `mintParams`, a local returned by a cross-contract call, not a `@method` parameter or a `Provable.witness`, and the witness rules key on those two sources. Predicting no delta -- this is the pair I would most expect to be wrong about, in the direction of a surprise hit.",
+      "status": "held-out",
+      "why_not_modelled": "The untrusted value enters through a cross-contract call return, which is not one of the two witness sources the analyzer models."
+    },
+    {
+      "id": "silvana-uri-symbol-permissions",
+      "kind": "pair",
+      "repo": "SilvanaOne/silvana-lib",
+      "vulnerable_commit": "e329d79adf2e29e0e112a88dedabf9a632167d97",
+      "fixed_commit": "eb2d1d95f81cc7e5914b06b3b857274c4f66306e",
+      "scan_path": "packages/nft/src/contracts/collection.ts",
+      "defect": "Incorrect URI/Symbol access control. The collection deployed with `setZkappUri: Permissions.none()` and `setTokenSymbol: Permissions.none()`, letting anyone rewrite the collection's URI and token symbol. The fix changes both to `Permissions.proof()`.",
+      "provenance": "SilvanaOne/silvana-lib audit remediation series. Commit 06506ba (\"audit\", 2025-03-02) is followed by ~20 commits titled `fix: <vulnerability>`, each merged from its own `audit-fix-N` branch. Five of the pairs below share the base commit e329d79, so each is a single-defect change against a common parent with no other differences. No audit report is published in the repository; the vulnerability titles are the maintainers' own words.",
+      "expected_delta_rules": [],
+      "expected_detected": false,
+      "reasoning": "O1JS_WEAK_PERMISSIONS exists and matches exactly this syntax -- `<field>: Permissions.none()` inside `permissions.set({...})`. It does not fire here only because its field list is editState, send, setVerificationKey, setPermissions, receive, setDelegate and incrementNonce; setZkappUri and setTokenSymbol are not in it. Predicting no delta, from reading the field tuple in `_detect_weak_permissions`, not from running anything.",
+      "status": "held-out",
+      "why_not_modelled": "The rule's field list omits setZkappUri and setTokenSymbol.",
+      "improvement_candidate": "Adding setZkappUri and setTokenSymbol to the weak-permissions field list would catch this. It is deliberately NOT done as part of building this corpus: a rule extended to match a case discovered while freezing that case is fitted to it, and the case would no longer be held out. Recorded here so the change can be made later, against its own fixtures, with this pair as the check."
+    },
+    {
+      "id": "silvana-oracle-approval-bypass",
+      "kind": "pair",
+      "repo": "SilvanaOne/silvana-lib",
+      "vulnerable_commit": "acf2efc6b3f213bc6d95ca75feec1fdca2e953b4",
+      "fixed_commit": "5c795c37d609c41a877757cbf63a051485843bc2",
+      "scan_path": "packages/nft/src/contracts/collection.ts",
+      "defect": "Oracle approval for updates can be bypassed. `update()` did not assert that the proof's `oracleAddress` public input was empty, so an update that should have gone through `updateWithOracle()` could be pushed through the unoracled path.",
+      "provenance": "SilvanaOne/silvana-lib audit remediation series. Commit 06506ba (\"audit\", 2025-03-02) is followed by ~20 commits titled `fix: <vulnerability>`, each merged from its own `audit-fix-N` branch. Five of the pairs below share the base commit e329d79, so each is a single-defect change against a common parent with no other differences. No audit report is published in the repository; the vulnerability titles are the maintainers' own words.",
+      "expected_delta_rules": [],
+      "expected_detected": false,
+      "reasoning": "The fix asserts `proof.publicInput.oracleAddress.equals(PublicKey.empty()).assertTrue(...)`. O1JS_UNVERIFIED_PROOF is the only proof-aware rule and it asks whether the proof was verified at all, not whether a particular public input was constrained. The proof is verified on both sides. Predicting no delta.",
+      "status": "held-out",
+      "why_not_modelled": "No rule constrains the *contents* of a verified proof's public inputs; verification is treated as all-or-nothing."
+    },
+    {
+      "id": "mina-fungible-token-flash-mint",
+      "kind": "pair",
+      "repo": "MinaFoundation/mina-fungible-token",
+      "vulnerable_commit": "565f74699794b03100d6bd8cb47eaa400497b7ad",
+      "fixed_commit": "03faeed62734e69dfa70733d29dc101fb0a35513",
+      "scan_path": "FungibleToken.ts",
+      "defect": "Flash-minting. Within one transaction the running token balance could go positive before being brought back to zero, so an account update inserted in the middle would observe an arbitrarily inflated balance -- the commit message cites stake-based voting as the concrete risk.",
+      "provenance": "MinaFoundation/mina-fungible-token, the official Mina fungible-token standard. Commit 03faeed by Philipp Kant (Mina Foundation), 2024-07-04, with the rationale written in the commit message.",
+      "expected_delta_rules": [],
+      "expected_detected": false,
+      "reasoning": "The fix adds `Bool.or(totalBalance.isPositive().not(), totalBalance.equals(0)).assertTrue('Flash-minting detected.')` inside `forEachUpdate`. The defect is about the ordering of account updates within a transaction -- a property of the AccountUpdate forest, not of any single value's constraints. o1js-scan reads one file lexically and models neither transaction structure nor update ordering. Predicting no delta, with high confidence.",
+      "status": "held-out",
+      "why_not_modelled": "Requires reasoning about the order of account updates inside a transaction. The analyzer has no model of the AccountUpdate forest."
+    },
+    {
+      "id": "tradecoin-pair",
+      "kind": "single",
+      "repo": "AlexFedotovqq/TradeCoin",
+      "commit": "f67bbd8e94b06be215abc953fc14a74be24250bb",
+      "scan_path": "mina/src/PairContract.ts",
+      "label": "clean",
+      "expected_rules": [],
+      "reasoning": "A DEX pair contract. Every state-changing method routes through `this.checkUserSignature()`, `this.verifyAdminTxTokenPairContractSignature(...)` and `this.checkMerkleMap(keyWitness, userBalance)` before touching the root, and `checkMerkleMap` binds the witness root to `this.root.getAndRequireEquals()`. Reviewed at method-effect granularity across the six supply/withdraw/swap methods; I found no unbound path to an effect.",
+      "status": "held-out",
+      "predicted_false_positives": [
+        "O1JS_STALE_MERKLE_ROOT"
+      ],
+      "notes": "Pre-registered false-positive prediction: each method calls `keyWitness.computeRootAndKey(...)` in its own body and sets the result, while the binding to the live root lives in the undecorated helper `checkMerkleMap` and runs through a derived local (`rootBefore`). That is the same derived-expression limitation the 0.19.0 triage identified in tokenizk-finance, so I expect O1JS_STALE_MERKLE_ROOT to fire here and be wrong. If it does not fire, my model of the limitation is wrong, which is equally worth knowing."
+    },
+    {
+      "id": "zk-states-verifier",
+      "kind": "single",
+      "repo": "Kryha/zk-states",
+      "commit": "360d926c152cd9f573f4237757a06401fe571ae4",
+      "scan_path": "zk-states-contracts/src/StatesVerifier.ts",
+      "label": "clean",
+      "expected_rules": [],
+      "reasoning": "A one-method contract whose only body is `p.verify()` on an `AssertProgramProof` parameter. The proof is verified unconditionally and no public field is read, so there is nothing for a witness to reach and no state at all.",
+      "status": "held-out",
+      "expected_absent": [
+        "O1JS_UNVERIFIED_PROOF",
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "notes": "Chosen partly as a regression check on the 0.19.0 *Proof fix: `AssertProgramProof` matches the name-suffix convention, so a pre-0.19.0 scanner would have had to decide about it. It is verified anyway, so the rule should stay silent for two independent reasons."
+    },
+    {
+      "id": "lumina-pool",
+      "kind": "single",
+      "repo": "Lumina-DEX/lumina",
+      "commit": "9c1f3851fd212f6d56bf3bf9c8513501add9799e",
+      "scan_path": "packages/contracts/src/pool/Pool.ts",
+      "label": "clean",
+      "expected_rules": [],
+      "reasoning": "A live AMM pool. Swap and liquidity paths read `this.sender.getUnconstrained()` and then send the output to that address. Naming your own destination is the intended semantics, and the amounts are derived from pool reserves rather than from the sender, so I do not read this as a defect. Reviewed at method-effect granularity; 646 lines.",
+      "status": "held-out",
+      "predicted_false_positives": [
+        "O1JS_UNCONSTRAINED_SENDER"
+      ],
+      "notes": "Pre-registered prediction, held with less confidence than the tradecoin one. O1JS_UNCONSTRAINED_SENDER suppresses when the same method also calls `getAndRequireSignature()` or passes the value to `AccountUpdate.createSigned(...)`. At least one method here does use a signed update; at least one appears to send directly to the unconstrained sender. I expect a finding somewhere in the file and expect it to be a false positive, but I have not traced every method, and a HIGH here would be worth re-reading rather than dismissing."
+    },
+    {
+      "id": "mina-fungible-token-head",
+      "kind": "single",
+      "repo": "MinaFoundation/mina-fungible-token",
+      "commit": "8dbf75a4a50d236d9a9ab137a7fd451bafddae41",
+      "scan_path": "FungibleToken.ts",
+      "label": "clean",
+      "expected_rules": [],
+      "reasoning": "The official fungible-token standard at HEAD. `initialize()` carries `this.account.provedState.requireEquals(Bool(false))`, the one-shot guard whose absence made `usdm` a vulnerable case in v1 -- included deliberately as the positive counterpart. Mint, burn, pause and admin changes all delegate authorization to the admin contract and assert its answer.",
+      "status": "held-out",
+      "predicted_misses": [
+        "`permissions.send = Permissions.none()` in `initialize()` is written as a property assignment before `permissions.set(permissions)`, not as a field inside the `set({...})` object literal. `_detect_weak_permissions` reads the parenthesised segment of `permissions.set(`, which here contains only the identifier `permissions`, so no field matches. The value is correct in context (it locks the circulation account) but the syntactic gap would hide a real one.",
+        "`mint`/`burn` move value through `this.internal.mint(...)` and `circulationUpdate.balanceChange = ...`, neither of which is a `this.send(...)` or `AccountUpdate.create*(...).send(...)`, so the witness rules have no effect sink to reach."
+      ],
+      "notes": "Six months of divergence separates this commit from the mina-fungible-token-flash-mint pair's base (2025-01 vs 2024-07); they are counted as two cases but share a repository, and neither should be read as independent of the other."
+    },
+    {
+      "id": "pinsave-swap",
+      "kind": "single",
+      "repo": "PinSaveDAO/PinSave",
+      "commit": "ee60c01cc6fdbeb4fb2441a9c16d3eb33446ac0d",
+      "scan_path": "packages/mina/src/SwapContract.ts",
+      "label": "clean",
+      "expected_rules": [],
+      "reasoning": "An NFT-for-MINA swap contract. `buyNFT` verifies the sender's signature, verifies an admin signature over `nftOrder.toFields()`, and calls `this.verifyTreeLeaf(...)`, which asserts `rootBefore.assertEquals(initialRoot)` against `this.root.getAndRequireEquals()`. The order struct is therefore bound both by signature and by tree membership.",
+      "status": "held-out",
+      "predicted_false_positives": [
+        "O1JS_STALE_MERKLE_ROOT"
+      ],
+      "notes": "Same pre-registered false-positive prediction as tradecoin-pair, and included alongside it on purpose: two independently written codebases with the same 'binding lives in a private verify helper' structure. `docs/suppression-inversion.md` argues that well-factored code is where this analyzer false-positives; these two cases test that claim on code neither the rules nor that document were written against."
+    },
+    {
+      "id": "zk-regex-zkapp",
+      "kind": "single",
+      "repo": "Shigoto-dev19/zk-regex-o1js",
+      "commit": "2400776e7ccd9a2161d01d5a48d1e7e51d8b054e",
+      "scan_path": "src/zkapp.ts",
+      "label": "vulnerable",
+      "expected_rules": [
+        "O1JS_UNCONSTRAINED_WITNESS"
+      ],
+      "reasoning": "`initalize(adminName)` hashes an unconstrained `@method` argument straight into `secretAdmin` with no precondition that the contract is uninitialized -- no `provedState.requireEquals(Bool(false))`, no owner check. Anyone can call it again and replace the secret, which is the whole security of the contract. Expect an unconstrained-witness finding on `adminName` reaching a state write.",
+      "status": "held-out",
+      "known_defects_not_expressible": [
+        "Re-initialisation: no rule models 'a state write that should happen once'. This is the third corpus case to hit that gap (usdm and mina-navi in v1).",
+        "`guessName` resets `mysterySolver` and `isDiscovered` on a wrong guess, so a later wrong guess erases a correct one. A logic bug with no soundness consequence."
+      ],
+      "notes": "The file also contains top-level executable script code (LocalBlockchain, transactions) after the contract, so it is a demo rather than deployed code. It is not under a test/ or examples/ path, so the analyzer will treat it as production."
+    },
+    {
+      "id": "minanft-contract-v2",
+      "kind": "single",
+      "repo": "dfstio/minanft-lib",
+      "commit": "3ff4cbce42cf85d2e67a38d9320ab9de8b4039a4",
+      "scan_path": "src/contract-v2/nft.ts",
+      "label": "vulnerable",
+      "expected_rules": [
+        "O1JS_UNCONSTRAINED_WITNESS",
+        "O1JS_UNCONSTRAINED_SENDER"
+      ],
+      "reasoning": "`MinaNFTContractV2` exposes `setOracle(oracle)`, `setPriceLimit(limit)` and `setVerificationKeyHash(hash)`, each writing an unconstrained `@method` argument to state with no in-circuit authorization at all. `mint(params)` reads `this.sender.getUnconstrained()` and uses it in a fee send. Expect unconstrained-witness findings on the three setters and an unconstrained-sender finding in mint.",
+      "status": "held-out",
+      "notes": "The contract sets `editState: Permissions.signature()` at deploy, so in practice the three setters are gated by the account key rather than by the circuit -- the proof alone cannot edit state. The analyzer does not read permissions when deciding witness findings, so it will report them anyway. I am labelling this vulnerable because a circuit that does not constrain what it writes is the defect the rule names, but the permission setting is the reason I would not call it exploitable, and a triage of these findings should say so."
+    },
+    {
+      "id": "o1js-merkle-example",
+      "kind": "single",
+      "repo": "plus3-labs/o1js-merkle",
+      "commit": "a6eb7a9abf9822e23d19df225c4f70076c288c88",
+      "scan_path": "src/examples/merkle_zkapp.ts",
+      "label": "vulnerable",
+      "expected_rules": [],
+      "reasoning": "`addNewAccount(index, account, proof)` inserts a caller-supplied `Account` struct into the tree after only a non-membership check on the index. Nothing constrains the struct's contents, so the points field is prover-chosen at insertion. A real under-constrained witness -- and one I expect the scanner to miss, which is why it is here.",
+      "status": "held-out",
+      "known_defects_not_expressible": [
+        "The Merkle helper is `ProvableMerkleTreeUtils.computeRoot(...)`, a third-party API. O1JS_STALE_MERKLE_ROOT keys on `computeRootAndKey` and `calculateRoot`, the two o1js built-in spellings, so this library's API is outside its vocabulary.",
+        "The link from the `account` parameter to the root it is folded into runs through a free function call, which witness tracking does not follow."
+      ],
+      "notes": "`addNewAccount` also contains `commitment.assertEquals(commitment)`, a vacuously true self-assertion. Harmless, but a rule for tautological assertions would have something to say and none exists."
+    },
+    {
+      "id": "minauth-treeroot",
+      "kind": "single",
+      "repo": "mlabs-haskell/minauth",
+      "commit": "e2566429142f3dcaecc82c58bc0ad8b1053d30f0",
+      "scan_path": "plugins/minauth-merkle-membership-plugin/src/treerootstoragecontract.ts",
+      "label": "clean",
+      "expected_rules": [],
+      "reasoning": "A 29-line contract holding one Merkle root, with a deliberately empty `@method foo()` present only because o1js requires at least one method. Deploy sets `...Permissions.allImpossible()` with `editState` and `access` at `Permissions.signature()`, which is the documented intent: only the key holder changes the root.",
+      "status": "held-out",
+      "expected_absent": [
+        "O1JS_WEAK_PERMISSIONS"
+      ],
+      "notes": "A deliberate negative for the permissions rule. `editState: Permissions.signature()` is not in the rule's weak set for circuit fields -- only `proofOrSignature` and `none` are -- so silence here is correct rather than accidental, and this case pins that."
+    }
+  ],
+  "status_semantics": {
+    "held-out": "Never used to develop, tune, or debug the scanner. Only these cases are evidence about unseen code.",
+    "development": "A change was built against this case, so it is no longer unseen. It stays in the corpus as a regression case and must carry a status_reason naming the change.",
+    "regression": "Retained only to pin behaviour that a past change established. Not evidence in either direction, and must carry a status_reason."
+  },
+  "status_counts": {
+    "held-out": 16,
+    "development": 0,
+    "regression": 0
+  },
+  "no_aggregate_rates": "Sixteen cases cannot support a recall, precision or accuracy figure, and pairs and singles do not share a denominator in any case. Results are reported per case. tests/test_heldout_v2_manifest.py fails if a rate appears in the README.",
+  "benchmark_version": 1
+}
