@@ -6,6 +6,43 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A second held-out corpus, `research/heldout-o1js-v2/`.** Sixteen cases from
+  a different index (npm packages declaring an `o1js` dependency, rather than
+  v1's Foundation-curated list), labelled and committed to git before the
+  scanner was run on any of them. Seven are (vulnerable, fixed) commit pairs,
+  six of them from `SilvanaOne/silvana-lib`'s audit remediation series and one
+  from MinaFoundation's own flash-minting fix in the fungible-token standard.
+  Scans are scoped to the exact file each label was written from, and false
+  positives are pre-registered: two cases predicted `O1JS_STALE_MERKLE_ROOT`
+  would fire and be wrong, naming the mechanism, and both predictions held.
+
+### Known
+
+- **`extends TokenContract` is not analyzed at all.** The contract gate is one
+  regex, `\bclass\s+(\w+)\s+extends\s+SmartContract\b` (`o1js_scan/lexer.py:137`),
+  and `TokenContract` — o1js's base class for every custom-token zkApp — does not
+  match it. No methods are extracted, no rule runs, and the CLI prints
+  `no findings`. Eight of the sixteen v2 cases are affected, including
+  MinaFoundation's official fungible-token standard (11 `@method`),
+  SilvanaOne's NFT collection (28) and Lumina's live AMM pool (14). The v1
+  corpus is affected too: `tokenizk-finance`'s `TokeniZkBasicToken.ts` was never
+  analyzed in those runs either.
+
+  Until this is fixed, treat "o1js-scan found nothing here" as unreliable for
+  any project that issues a token.
+
+  It stayed hidden because the calibration corpus and v1 were both selected by
+  searching for `extends SmartContract` — the same string the analyzer keys on.
+  A selection criterion that mirrors the tool's own blind spot cannot expose it.
+
+  It is deliberately not fixed in this release. The fix would be developed
+  against the corpus that found it, burning eight of sixteen cases; it changes
+  released behaviour materially, so it wants its own release; and it will move
+  the pinned calibration budgets and snapshots, which needs a deliberate
+  recapture rather than a tail-end edit. It is the next change to make.
+
 ## [0.19.1] - 2026-09-07
 
 No detector changes. Every finding this release affects is a finding about the

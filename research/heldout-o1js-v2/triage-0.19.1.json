@@ -1,0 +1,173 @@
+{
+  "schema": 1,
+  "scanner_version": "0.19.1",
+  "results": "results-0.19.1.json",
+  "triaged_at": "2026-09-07",
+  "headline": {
+    "id": "TOKENCONTRACT_NOT_ANALYZED",
+    "severity": "the most serious defect this project has found in itself",
+    "summary": "o1js-scan does not analyze `extends TokenContract` at all. The contract gate is the single regex `\\bclass\\s+(\\w+)\\s+extends\\s+SmartContract\\b` (o1js_scan/lexer.py:137). A class that extends `TokenContract` -- o1js's base class for every custom-token zkApp -- matches nothing, no methods are extracted, and every rule silently reports zero findings for the file.",
+    "why_it_matters": "TokenContract subclasses are the contracts that hold money. Eight of the sixteen cases in this corpus are affected, including MinaFoundation's official fungible-token standard (`class FungibleToken extends TokenContract`, 11 @method), SilvanaOne's NFT collection (`class Collection extends TokenContract`, 28 @method) and Lumina's live AMM pool (`class Pool extends TokenContract`, 14 @method). For all of them the CLI prints `no findings`, which a user reads as a clean bill of health. `docs/suppression-inversion.md` opens by warning that zero findings is also what a broken rule produces; this is that, for an entire class of contract.",
+    "not_confined_to_this_corpus": "The v1 corpus is affected too: tokenizk-finance/packages/contracts/src/TokeniZkBasicToken.ts extends TokenContract and was therefore never analyzed in the v1 runs either. So is zkchess/ChessContract.ts among the v1 candidates. Any recorded result over a repository containing a token contract has been silently under-counting.",
+    "how_it_stayed_hidden": "The calibration corpus and v1 were both selected by looking for `extends SmartContract`, the same string the analyzer keys on. A selection criterion that mirrors the tool's own blind spot can never expose it. v2 selected by npm dependency on o1js instead, which is why token contracts appeared at all.",
+    "deliberately_not_fixed_here": "Extending the gate to TokenContract is a small change, and it is not being made in this commit. Three reasons. It would be developed against this corpus, which would burn eight of sixteen cases on the release that discovered them. It changes released behaviour materially -- every user with a token contract would start seeing findings where they saw none -- so it wants its own release and its own note. And it will move the pinned calibration budgets and snapshots, because those repositories contain token contracts too, so it needs a deliberate recapture rather than a tail-end edit. It should be the next change made."
+  },
+  "prediction_scorecard": {
+    "note": "Reported as counts of specific predictions, not as a rate. Sixteen cases split across two designs share no denominator, and eight of them turned out to measure nothing.",
+    "pairs_predicted_no_delta": 7,
+    "pairs_observed_no_delta": 7,
+    "pairs_where_that_is_meaningful": 1,
+    "pairs_vacuous": 6,
+    "pairs_comment": "All seven predictions were literally correct and six of them were correct for the wrong reason: the file was never analyzed, so the prediction that 'no rule models this defect class' was never actually tested. Only silvana-approve-delegate-unchecked, on nft.ts, ran against a recognised contract and produced no delta. That one is a real, if small, coverage result: an unasserted `canApprove` permission flag is invisible to the rule set.",
+    "predicted_false_positives_confirmed": [
+      "tradecoin-pair O1JS_STALE_MERKLE_ROOT",
+      "pinsave-swap O1JS_STALE_MERKLE_ROOT"
+    ],
+    "predicted_false_positives_untested": [
+      "lumina-pool O1JS_UNCONSTRAINED_SENDER (file never analyzed)"
+    ],
+    "expected_rules_found": [
+      "zk-regex-zkapp O1JS_UNCONSTRAINED_WITNESS",
+      "minanft-contract-v2 O1JS_UNCONSTRAINED_WITNESS",
+      "minanft-contract-v2 O1JS_UNCONSTRAINED_SENDER"
+    ],
+    "expected_absent_held": [
+      "zk-states-verifier O1JS_UNVERIFIED_PROOF",
+      "minauth-treeroot O1JS_WEAK_PERMISSIONS"
+    ],
+    "label_errors": 1,
+    "findings_triaged": 27
+  },
+  "label_corrections": [
+    {
+      "case": "o1js-merkle-example",
+      "what_i_wrote": "\"`addNewAccount` also contains `commitment.assertEquals(commitment)`, a vacuously true self-assertion. Harmless, but a rule for tautological assertions would have something to say and none exists.\"",
+      "what_is_true": "O1JS_VACUOUS_ASSERT exists, is in the registry, and fired on exactly that line. I was wrong about my own tool's rule set while writing a label about it.",
+      "handling": "Recorded here rather than edited out of manifest.json. A label corrected after seeing output is not a prediction, and the manifest has to keep saying what was actually predicted.",
+      "also_missed": "I predicted no findings for this case because I read only the @method bodies. The deploy block sets `editState: Permissions.proofOrSignature()`, and O1JS_WEAK_PERMISSIONS correctly flagged it. Both unpredicted findings on this case are true positives; the case was labelled by someone who did not read the whole file."
+    }
+  ],
+  "findings": [
+    {
+      "case": "tradecoin-pair",
+      "rule_id": "O1JS_STALE_MERKLE_ROOT",
+      "count": 9,
+      "severity": "high",
+      "disposition": "false_positive",
+      "confidence": "high",
+      "status": "predicted before the run",
+      "reasoning": "Each of the nine methods calls `keyWitness.computeRootAndKey(...)` in its own body and sets the result, while the binding to the live root lives in the undecorated helper `checkMerkleMap` and runs through a derived local (`rootBefore.assertEquals(initialRoot)`). Helper propagation carries a binding only when the helper binds the parameter itself; a binding on a value derived from it does not propagate. Predicted in manifest.json and confirmed."
+    },
+    {
+      "case": "pinsave-swap",
+      "rule_id": "O1JS_STALE_MERKLE_ROOT",
+      "count": 3,
+      "severity": "high",
+      "disposition": "false_positive",
+      "confidence": "high",
+      "status": "predicted before the run",
+      "reasoning": "Identical mechanism to tradecoin-pair, in an independently written codebase: `verifyTreeLeaf` asserts `rootBefore.assertEquals(initialRoot)` on a local derived from the witness rather than on the witness. Two codebases, one cause. This is the concrete price of the derived-expression limitation, and it is being paid in HIGH findings."
+    },
+    {
+      "case": "tradecoin-pair",
+      "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+      "count": 2,
+      "locations": [
+        "mina/src/PairContract.ts:71",
+        "mina/src/PairContract.ts:72"
+      ],
+      "disposition": "false_positive",
+      "confidence": "high",
+      "status": "unpredicted",
+      "false_positive_class": "authorization gate in a private helper",
+      "reasoning": "`initContract(_tokenX, _tokenY)` writes both arguments to state, and its first statement is `this.checkAdminSignature()`. The values are admin-chosen, which is the intent. The finding exists because `_method_is_signature_gated` looks for a signature idiom in the @method body only, and this codebase factors the idiom into a helper. Same limitation as the merkle one and the same cause: a well-factored contract loses a carve-out."
+    },
+    {
+      "case": "pinsave-swap",
+      "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+      "count": 1,
+      "locations": [
+        "packages/mina/src/SwapContract.ts:78"
+      ],
+      "disposition": "false_positive",
+      "confidence": "high",
+      "status": "unpredicted",
+      "false_positive_class": "authorization gate in a private helper",
+      "reasoning": "`setFee(newFeeAmount)` calls `this.verifyAdminSignature()`, which asserts the sender is the admin and requires that admin's signature, before writing the fee. An admin setting an admin-chosen fee is the intended behaviour. Same class as the tradecoin one -- and again two independent codebases producing it, which is what makes it a class rather than an anecdote."
+    },
+    {
+      "case": "minanft-contract-v2",
+      "rule_id": "O1JS_WITNESS_NOT_BOUND_TO_STATE",
+      "count": 1,
+      "locations": [
+        "src/contract-v2/nft.ts:168"
+      ],
+      "disposition": "false_positive",
+      "confidence": "high",
+      "status": "unpredicted",
+      "false_positive_class": "derived-expression state binding",
+      "reasoning": "`buy(price, buyer)` does `const data = NFTparams.unpack(this.data.getAndRequireEquals()); data.price.assertEquals(price)`, which binds `price` to on-chain state completely. The rule misses it because the binding runs through `NFTparams.unpack(...)`, a derived expression. Third instance of this class in two corpora, after the three `claimTokens` findings triaged in v1."
+    },
+    {
+      "case": "minanft-contract-v2",
+      "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+      "count": 6,
+      "disposition": "true_positive",
+      "confidence": "high",
+      "status": "predicted",
+      "reasoning": "Three of the six are the predicted setters -- `setOracle`, `setPriceLimit`, `setVerificationKeyHash` -- which write a @method argument to state with no in-circuit gate whatsoever. The other three (`sell`'s price, `buy`'s buyer, `transferNFT`'s newOwner) are owner-gated by `this.owner.getAndRequireEquals().assertEquals(sender)` but write an unconstrained value, so they are correct findings of the kind the rule names.",
+      "caveat": "The contract deploys with `editState: Permissions.signature()`, so in practice a proof alone cannot edit state and the account key is the real gate. The analyzer does not read permissions when deciding witness findings. These are true positives about the circuit and would need that context in a real report."
+    },
+    {
+      "case": "o1js-merkle-example",
+      "rule_id": "O1JS_VACUOUS_ASSERT",
+      "count": 1,
+      "locations": [
+        "src/examples/merkle_zkapp.ts:71"
+      ],
+      "disposition": "true_positive",
+      "confidence": "high",
+      "status": "unpredicted, and predicted impossible -- see label_corrections",
+      "reasoning": "`commitment.assertEquals(commitment)` is exactly what the rule is for."
+    },
+    {
+      "case": "o1js-merkle-example",
+      "rule_id": "O1JS_WEAK_PERMISSIONS",
+      "count": 1,
+      "locations": [
+        "src/examples/merkle_zkapp.ts:59"
+      ],
+      "disposition": "true_positive",
+      "confidence": "high",
+      "status": "unpredicted",
+      "reasoning": "`deploy()` sets `editState: Permissions.proofOrSignature()`, so the account key can rewrite state without satisfying any circuit. Correct MEDIUM. Unpredicted only because the label was written from the @method bodies without reading deploy."
+    },
+    {
+      "case": "zk-regex-zkapp",
+      "rule_id": "O1JS_UNCONSTRAINED_WITNESS",
+      "count": 1,
+      "locations": [
+        "src/zkapp.ts:26"
+      ],
+      "disposition": "true_positive",
+      "confidence": "high",
+      "status": "predicted",
+      "reasoning": "`initalize(adminName)` hashes an unconstrained @method argument into `secretAdmin` with no guard that the contract is uninitialised -- no `provedState.requireEquals(Bool(false))`, no owner check. Anyone can call it again and replace the secret the contract exists to protect. Predicted in manifest.json and found."
+    },
+    {
+      "case": "minanft-contract-v2",
+      "rule_id": "O1JS_UNCONSTRAINED_SENDER",
+      "count": 2,
+      "disposition": "true_positive",
+      "confidence": "medium",
+      "status": "predicted",
+      "reasoning": "`mint` reads `this.sender.getUnconstrained()` and uses the result in a fee transfer without a same-method signature requirement on that key. Predicted and found. Confidence is medium rather than high because the surrounding mint flow verifies a signature over the mint parameters, which constrains who can mint even though it does not constrain the sender value itself."
+    }
+  ],
+  "what_this_changes": [
+    "The TokenContract gate is the next change to make, ahead of anything in the rule set. Until it lands, any statement of the form 'o1js-scan found nothing in this repository' is unreliable for any project that issues a token.",
+    "Two false-positive classes are now each attested in two independently written codebases: derived-expression state binding (four instances across both corpora) and authorization-gate-in-a-private-helper (two instances, new in v2). Both are consequences of documented limitations, and both cost HIGH and MEDIUM findings in ordinary, well-written code.",
+    "Eight of the sixteen cases must be re-run once the gate is fixed, and they stop being held out at that moment because the fix was found through them. The other eight (tradecoin-pair, zk-states-verifier, pinsave-swap, zk-regex-zkapp, minanft-contract-v2, o1js-merkle-example, minauth-treeroot, silvana-approve-delegate-unchecked) ran against recognised contracts and their results stand.",
+    "No rule severity was changed on the strength of this triage, and no rule was edited to match a case in this corpus."
+  ]
+}

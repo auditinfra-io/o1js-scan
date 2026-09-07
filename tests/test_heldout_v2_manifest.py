@@ -28,6 +28,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 V2 = REPO_ROOT / "research" / "heldout-o1js-v2"
 MANIFEST = V2 / "manifest.json"
 README = V2 / "README.md"
+RESULTS = V2 / "results-0.19.1.json"
+TRIAGE = V2 / "triage-0.19.1.json"
 
 STATUSES = {"held-out", "development", "regression"}
 KINDS = {"single", "pair"}
@@ -141,3 +143,95 @@ def test_no_aggregate_rate_is_quoted():
     text = README.read_text(encoding="utf-8")
     rates = re.findall(r"\b\d{1,3}\s?%\s*(?:recall|precision|accuracy|detection)", text, re.I)
     assert rates == [], f"README quotes a rate over sixteen cases: {rates}"
+
+
+# ---------------------------------------------------------------------------
+# Results and triage
+# ---------------------------------------------------------------------------
+
+def _results() -> dict:
+    return json.loads(RESULTS.read_text(encoding="utf-8"))
+
+
+def _triage() -> dict:
+    return json.loads(TRIAGE.read_text(encoding="utf-8"))
+
+
+def test_results_cover_every_case_at_its_pinned_commits():
+    results, manifest = _results(), _manifest()
+    assert results["corpus_complete"] is True
+    assert {c["id"] for c in results["cases"]} == {c["id"] for c in manifest["cases"]}
+    by_id = {c["id"]: c for c in manifest["cases"]}
+    for rec in results["cases"]:
+        case = by_id[rec["id"]]
+        if rec["kind"] == "single":
+            assert rec["actual_commit"] == case["commit"] == rec["commit"]
+        else:
+            assert rec["vulnerable"]["actual_commit"] == case["vulnerable_commit"]
+            assert rec["fixed"]["actual_commit"] == case["fixed_commit"]
+
+
+def test_a_zero_finding_case_says_whether_it_was_analyzed():
+    """Zero findings means two different things and the file has to distinguish them.
+
+    Eight cases here scored zero because their contract was never recognised --
+    `extends TokenContract` does not match the analyzer's gate -- not because
+    they were clean. A results file that recorded both as `0` would read as a
+    clean bill of health for MinaFoundation's fungible-token standard.
+    """
+    for rec in _results()["cases"]:
+        findings = (rec["total_findings"] if rec["kind"] == "single"
+                    else rec["vulnerable"]["total_findings"] + rec["fixed"]["total_findings"])
+        if findings == 0 and rec.get("result_is_vacuous"):
+            assert rec["vacuous_reason"].strip(), (
+                f"{rec['id']}: a vacuous result must say why it is vacuous"
+            )
+
+
+def test_every_observed_rule_is_triaged():
+    """A finding nobody classified is counted as nothing, which is a silent verdict."""
+    triage = _triage()
+    assert triage["scanner_version"] == _results()["scanner_version"]
+    triaged = {(f["case"], f["rule_id"]) for f in triage["findings"]}
+    for rec in _results()["cases"]:
+        observed = (rec["observed_rules"] if rec["kind"] == "single"
+                    else {**rec["vulnerable"]["observed_rules"], **rec["fixed"]["observed_rules"]})
+        for rule_id in observed:
+            assert (rec["id"], rule_id) in triaged, (
+                f"{rec['id']}: {rule_id} fired and was never classified"
+            )
+    for finding in triage["findings"]:
+        assert finding["disposition"] in {"true_positive", "false_positive"}
+        assert finding["reasoning"].strip(), "a verdict without reasoning is a guess"
+
+
+def test_a_label_error_is_recorded_rather_than_edited_away():
+    """The manifest must still say what was predicted, wrong or not.
+
+    o1js-merkle-example's label asserts that no rule exists for tautological
+    assertions. O1JS_VACUOUS_ASSERT exists and fired on the line named. The
+    honest handling is a correction in the triage; editing the manifest would
+    turn a failed prediction into a successful one.
+    """
+    manifest_text = MANIFEST.read_text(encoding="utf-8")
+    assert "a rule for tautological assertions would have something to say and none exists" in manifest_text, (
+        "the mistaken prediction must stay in the frozen manifest"
+    )
+    corrections = _triage()["label_corrections"]
+    assert any(c["case"] == "o1js-merkle-example" for c in corrections)
+    for correction in corrections:
+        for key in ("what_i_wrote", "what_is_true", "handling"):
+            assert correction[key].strip(), f"{correction['case']}: {key} is empty"
+
+
+def test_the_analysis_gate_defect_is_recorded_prominently():
+    """The corpus's main result must not be discoverable only by reading JSON."""
+    triage = _triage()
+    assert triage["headline"]["id"] == "TOKENCONTRACT_NOT_ANALYZED"
+    for key in ("summary", "why_it_matters", "how_it_stayed_hidden",
+                "deliberately_not_fixed_here"):
+        assert triage["headline"][key].strip()
+    readme = README.read_text(encoding="utf-8")
+    assert "TokenContract" in readme
+    vacuous = [c["id"] for c in _results()["cases"] if c.get("result_is_vacuous")]
+    assert len(vacuous) == 8, f"expected 8 vacuous cases, found {len(vacuous)}"
