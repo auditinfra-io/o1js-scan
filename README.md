@@ -3,7 +3,8 @@
 [![CI](https://github.com/auditinfra-io/o1js-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/auditinfra-io/o1js-scan/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.8%2B-blue)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/o1js-scan.svg)](https://pypi.org/project/o1js-scan/)
+[![PyPI](https://img.shields.io/pypi/v/o1js-scan)](https://pypi.org/project/o1js-scan/)
+[![npm](https://img.shields.io/npm/v/o1js-scan?label=npm)](https://www.npmjs.com/package/o1js-scan)
 
 > **Community package:** `o1js-scan` is listed in the official [o1js Community Packages](https://github.com/o1-labs/o1js#community-packages) directory.
 
