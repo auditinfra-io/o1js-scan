@@ -7,6 +7,12 @@
 
 > **Community package:** `o1js-scan` is listed in the official [o1js Community Packages](https://github.com/o1-labs/o1js#community-packages) directory.
 
+> **Latest: 0.20.0** — the analyzer now reads contracts that `extends TokenContract`.
+> Until this release the contract gate matched `SmartContract` alone, so every
+> fungible token, NFT collection and AMM pool in the ecosystem scanned as
+> "no findings". If you scanned a token contract before 0.20.0, scan it again.
+> See [CHANGELOG](CHANGELOG.md#0200---2026-09-07).
+
 A fast, dependency-free static analyzer for **zk circuit soundness bugs** in:
 
 - **o1js / Mina zkApps** (TypeScript `.ts` / `.js`) — Kimchi circuits from `@method` bodies

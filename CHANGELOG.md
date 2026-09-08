@@ -864,7 +864,16 @@ run at the default `--fail-on high` is unaffected; a pipeline set to
   the chained `amount.lessThanOrEqual(bal).assertTrue()` form) are now
   recognized as binding a witness to on-chain state.
 
-[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.15.0...HEAD
+<!-- 0.18.0 has no compare link: it was never tagged. Its changes reached the
+     public registries inside v0.19.0, which is why the tag list jumps
+     v0.17.0 -> v0.19.0. -->
+[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.19.1...v0.20.0
+[0.19.1]: https://github.com/auditinfra-io/o1js-scan/compare/v0.19.0...v0.19.1
+[0.19.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.17.0...v0.19.0
+[0.17.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.16.1...v0.17.0
+[0.16.1]: https://github.com/auditinfra-io/o1js-scan/compare/v0.16.0...v0.16.1
+[0.16.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.12.0...v0.13.0

@@ -277,6 +277,45 @@ def test_readme_version_comments_match_the_shipped_version():
     assert commented == {_manifest_version()}
 
 
+def test_readme_latest_banner_matches_the_shipped_version():
+    """The "Latest: X" banner is a version pin like any other, so it is checked.
+
+    A banner announcing a release is worse than no banner once it goes stale:
+    the `uses:` examples at least fail loudly against a tag that does not exist,
+    while a wrong banner just quietly misinforms. This is the same guard as the
+    Action pins, applied to the one other place the README names a version.
+    """
+    banner = re.findall(r"\*\*Latest:\s*([\d.]+)\*\*", _readme())
+    if not banner:
+        pytest.skip("README carries no latest-release banner")
+    version = _manifest_version()
+    assert set(banner) == {version}, (
+        f"README banner says {sorted(set(banner))} but this release is {version}. "
+        f"Update the banner and the CHANGELOG anchor it links to, or drop it -- "
+        f"the PyPI badge above it never goes stale."
+    )
+
+
+def test_readme_latest_banner_links_to_a_real_changelog_heading():
+    """A banner whose link 404s inside our own file is worse than no link."""
+    readme = _readme()
+    anchors = re.findall(r"\(CHANGELOG\.md#([a-z0-9-]+)\)", readme)
+    if not anchors:
+        pytest.skip("README links no CHANGELOG anchor")
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    # GitHub slugs a heading by lowercasing and dropping everything that is not
+    # alphanumeric, a space or a hyphen, then joining on hyphens.
+    slugs = set()
+    for heading in re.findall(r"^##+\s+(.*)$", changelog, re.M):
+        cleaned = re.sub(r"[^\w\s-]", "", heading.lower())
+        slugs.add(re.sub(r"[\s]+", "-", cleaned.strip()))
+    for anchor_id in anchors:
+        assert anchor_id in slugs, (
+            f"README links CHANGELOG.md#{anchor_id}, which no heading produces. "
+            f"Nearest headings: {sorted(x for x in slugs if x[:4] == anchor_id[:4])}"
+        )
+
+
 def test_ci_tests_every_advertised_python_version():
     """Advertising a classifier the matrix never runs is an untested promise."""
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
