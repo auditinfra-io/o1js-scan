@@ -4,8 +4,6 @@ All notable changes to o1js-scan are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
 ## [0.20.0] - 2026-09-07
 
 ### Fixed
@@ -92,6 +90,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   0.19.0. The corroboration heuristic is not neutral.
 
 ## [0.19.1] - 2026-09-07
+
+> Never tagged or published on its own. Everything below shipped inside
+> [0.20.0](#0200---2026-09-07).
 
 No detector changes. Every finding this release affects is a finding about the
 benchmark harness or the documentation, not about anyone's circuit.
@@ -864,12 +865,13 @@ run at the default `--fail-on high` is unaffected; a pipeline set to
   the chained `amount.lessThanOrEqual(bal).assertTrue()` form) are now
   recognized as binding a witness to on-chain state.
 
-<!-- 0.18.0 has no compare link: it was never tagged. Its changes reached the
-     public registries inside v0.19.0, which is why the tag list jumps
-     v0.17.0 -> v0.19.0. -->
-[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.20.0...HEAD
-[0.20.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.19.1...v0.20.0
-[0.19.1]: https://github.com/auditinfra-io/o1js-scan/compare/v0.19.0...v0.19.1
+<!-- 0.18.0 and 0.19.1 have no compare links: neither was ever tagged, so a
+     link to v0.18.0 or v0.19.1 would 404. Both reached the public registries
+     inside the next release that was tagged -- 0.18.0 inside v0.19.0, 0.19.1
+     inside v0.20.0 -- which is why the tag list jumps v0.17.0 -> v0.19.0 ->
+     v0.20.0. Their sections below are kept: the work shipped, only the tag is
+     missing. -->
+[0.20.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.17.0...v0.19.0
 [0.17.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.16.1...v0.17.0
 [0.16.1]: https://github.com/auditinfra-io/o1js-scan/compare/v0.16.0...v0.16.1
