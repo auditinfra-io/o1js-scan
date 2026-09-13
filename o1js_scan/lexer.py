@@ -2916,6 +2916,8 @@ def analyze_project(
             if not _path_is_skipped(p)
         ]
 
+    stats.matched_files += len(paths)
+
     for p in paths:
         sp = str(p)
         # Test code is skipped before it is even read: the finding would be the
@@ -2928,12 +2930,18 @@ def analyze_project(
         except OSError:
             continue
         found: List[Vulnerability] = []
+        # ``analyzed_files`` counts only files a lexer actually saw. A matched
+        # path that fails the is-o1js / is-Noir content check was never
+        # examined, so counting it would overstate coverage in precisely the
+        # situation this number exists to expose.
         if sp.endswith(".nr"):
             if lang == "o1js":
                 continue
             if is_noir_source(src, sp):
+                stats.analyzed_files += 1
                 found = noir_lexer.analyze(src, p)
         elif lang != "noir" and is_o1js_source(src, sp):
+            stats.analyzed_files += 1
             found = o1js_lexer.analyze(src, p)
         if not found:
             continue
