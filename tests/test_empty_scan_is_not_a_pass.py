@@ -32,8 +32,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from o1js_scan.cli import main
 from o1js_scan.lexer import analyze_project
 from o1js_scan.paths import ScanStats
