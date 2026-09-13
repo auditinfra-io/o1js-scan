@@ -4,6 +4,32 @@ All notable changes to o1js-scan are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A scan that examined no files is no longer a green pass.** The CLI already
+  refused a path that does not exist, for the stated reason that "a typo'd scan
+  target silently produces zero findings and exit 0 — a green CI run that
+  scanned nothing". That guard stopped one step short: a path that *exists* but
+  holds nothing analyzable produced the same exit 0, under a summary line that
+  could not tell the two apart — `no findings (or no Noir / o1js sources
+  found)`. Measured, both exiting 0 before this change: a directory with no
+  o1js/Noir sources, and `--lang noir` pointed at a real o1js project. Neither
+  is exotic — a refactor that moves `src/`, a `--lang` that does not match the
+  project, or one leg of a monorepo CI matrix all land there and read as
+  "scanned clean". `ScanStats` now tracks `analyzed_files` (files a lexer
+  actually saw, which is fewer than the globs matched whenever a matched file
+  fails the is-o1js / is-Noir content check), zero exits 2 with a message
+  naming the likely cause, and `--allow-empty` is the explicit opt-out for a
+  directory that legitimately has no circuits.
+
+### Changed
+
+- The summary line always states coverage: `N finding(s) [...] in X of Y
+  file(s)` when there are findings, and `no findings in Y file(s)` when there
+  are none. Files-with-findings alone said nothing about how much was examined.
+
 ## [0.20.0] - 2026-09-07
 
 ### Fixed

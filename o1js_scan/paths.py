@@ -98,10 +98,17 @@ def apply_example_policy(
 
 @dataclasses.dataclass
 class ScanStats:
-    """Counts of what path policy suppressed or downgraded during a scan."""
+    """Counts of what a scan covered, suppressed, or downgraded."""
 
     skipped_test_files: int = 0
     downgraded_example_findings: int = 0
+    #: Files the globs matched, before any content check.
+    matched_files: int = 0
+    #: Files actually handed to a lexer. Lower than ``matched_files`` whenever a
+    #: matched file turned out not to be o1js/Noir source, so this is the number
+    #: that says how much was really examined — and the one that distinguishes a
+    #: clean scan from a scan that looked at nothing.
+    analyzed_files: int = 0
 
     def note(self) -> Optional[str]:
         """A one-line human summary, or ``None`` when nothing was affected."""
