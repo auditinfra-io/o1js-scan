@@ -486,22 +486,24 @@ for this dependency-free design, not bugs:
   `Nargo.toml` / import resolution). Prefer miss over false positive.
 
 These are the reason findings are a starting point for human review, not
-proofs. A dataflow-aware rewrite is deliberately out of scope for the
-lexical analyzer.
+proofs. Broader compiler-style or whole-program dataflow analysis is
+deliberately out of scope for the lexical analyzer.
 
 ## Where this tool stops
 
-o1js-scan is deliberately a **shallow, single-file lexical pass** — no parser,
-no dataflow, no solver. That is what makes it dependency-free and instant in
-CI, and it is also a hard ceiling. The limitations above aren't a backlog;
-they're consequences of the design.
+o1js-scan deliberately uses **shallow, single-file lexical heuristics**, plus
+limited tracking for simple aliases and same-class helper calls. It has no
+TypeScript compiler frontend, general-purpose or whole-program dataflow
+analysis, or solver. That is what makes it dependency-free and instant in CI,
+and it is also a hard ceiling. The limitations above aren't a backlog; they're
+consequences of the design.
 
 So it is worth being explicit about what this tool can and cannot tell you:
 
 - **A clean run is not an audit.** It means no *shape* this scanner recognizes
-  matched — not that the circuit is sound. Bug classes that need dataflow,
-  path sensitivity, or constraint solving are out of reach for a tool of this
-  shape, in any language.
+  matched — not that the circuit is sound. Bug classes that need general
+  dataflow analysis, path sensitivity, or constraint solving are out of reach
+  for a tool of this shape, in any language.
 - **A finding is a lead, not a verdict.** Every rule here is a heuristic with
   a documented false-positive class.
 
@@ -510,11 +512,11 @@ working on something where the difference matters — a protocol holding real
 value, a circuit you can't afford to get wrong — treat this as the first pass
 and budget for a real review.
 
-For deeper analysis, the separate full scanner is maintained in the
-[`audit-engine-cli` repository](https://github.com/auditinfra-io/audit-engine-cli).
+For deeper analysis, see the public
+[`audit-engine` overview](https://github.com/auditinfra-io/audit-engine).
 `o1js-scan` is the intentionally lightweight, open scanner; the full scanner's
 proprietary detection knowledge and implementation details are not reproduced
-here. For access or a more complete circuit review, reach out:
+here. To request an evaluation or a more complete circuit review, contact
 `auditinfracorp@proton.me`.
 
 ## Privacy and private code
