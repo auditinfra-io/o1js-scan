@@ -24,6 +24,10 @@ The security-critical bugs usually aren't in the proving system — they're in t
 never binds. `o1js-scan` is the under-constrained-signal scanner for Circom's
 cousins in the Mina and Noir ecosystems.
 
+See also: [gnark-safety](https://github.com/auditinfra-io/gnark-safety) (gnark
+circuits), [vk-guard](https://github.com/auditinfra-io/vk-guard)
+(verification-key regression).
+
 ```bash
 pip install o1js-scan
 # or: pipx install o1js-scan
