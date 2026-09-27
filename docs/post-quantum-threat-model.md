@@ -73,10 +73,10 @@ systems.
 
 ## Deeper analysis
 
-The separate full scanner maintained in the
-[`audit-engine-cli` repository](https://github.com/auditinfra-io/audit-engine-cli)
-can perform deeper analysis than this lightweight lexical scanner. This guide
-does not enumerate its proprietary checks, detection strategies, or
-implementation details. That separation lets `o1js-scan` state its limits and
-provide a useful public review checklist without disclosing the knowledge used
-by the full scanner.
+The public [`audit-engine` overview](https://github.com/auditinfra-io/audit-engine)
+describes the deeper analysis available beyond this lightweight lexical
+scanner. This guide does not enumerate its proprietary checks, detection
+strategies, or implementation details. That separation lets `o1js-scan` state
+its limits and provide a useful public review checklist without disclosing the
+knowledge used by the full scanner. To request an evaluation, contact
+`auditinfracorp@proton.me`.

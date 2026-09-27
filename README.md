@@ -512,11 +512,11 @@ working on something where the difference matters — a protocol holding real
 value, a circuit you can't afford to get wrong — treat this as the first pass
 and budget for a real review.
 
-For deeper analysis, the separate full scanner is maintained in the
-[`audit-engine-cli` repository](https://github.com/auditinfra-io/audit-engine-cli).
+For deeper analysis, see the public
+[`audit-engine` overview](https://github.com/auditinfra-io/audit-engine).
 `o1js-scan` is the intentionally lightweight, open scanner; the full scanner's
 proprietary detection knowledge and implementation details are not reproduced
-here. For access or a more complete circuit review, reach out:
+here. To request an evaluation or a more complete circuit review, contact
 `auditinfracorp@proton.me`.
 
 ## Privacy and private code
