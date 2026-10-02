@@ -3,17 +3,18 @@
 #
 # The upstream canary scans o1js at HEAD and asks only "did it still parse?".
 # This asks the sharper question: does the analyzer report the *same* findings
-# on two pinned o1js releases that straddle a protocol boundary?
+# on pinned o1js releases, including two that straddle a protocol boundary?
 #
 #   2.15.0  last release on the pre-Mesa 2.x line
 #   3.0.0   the Mesa hard-fork release
+#   3.1.0   security release on the Mesa line (nested-call VKs, createIf)
 #
 # Mesa's breaking changes are runtime- and protocol-level, so a finding present
 # on 2.15.0 must still be present on 3.0.0. Any loss is a compatibility
 # regression in the scanner, not a change upstream.
 #
 # Usage:
-#   ./scripts/o1js_release_matrix.sh                # clone both tags to a temp dir
+#   ./scripts/o1js_release_matrix.sh                # clone every tag to a temp dir
 #   ./scripts/o1js_release_matrix.sh /path/to/dir   # reuse/populate a checkout dir
 set -euo pipefail
 
@@ -21,6 +22,7 @@ set -euo pipefail
 RELEASES=(
   "2.15.0|9620ef08db60fdbfd3953be2635691cd2b5d8f2f"
   "v3.0.0|cc18a919fe40be152afb1b603c57d74a9b2225b0"
+  "v3.1.0|24829345d5296b9d101c122c72fa3fcb2b7227d6"
 )
 
 ROOT="${1:-}"

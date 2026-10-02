@@ -150,9 +150,9 @@ def test_calibration_doc_matches_the_canary():
 # o1js release matrix: the compatibility claim in the README
 # ───────────────────────────────────────────────────────────────────
 
-def test_release_matrix_covers_both_supported_lines():
+def test_release_matrix_covers_the_pinned_releases():
     names = {t["name"] for t in _load(RELEASE_SNAPSHOT)["targets"]}
-    assert names == {"o1js 2.15.0", "o1js 3.0.0"}
+    assert names == {"o1js 2.15.0", "o1js 3.0.0", "o1js 3.1.0"}
 
 
 def test_no_finding_was_lost_between_2_15_and_mesa():
@@ -176,6 +176,22 @@ def test_the_only_mesa_delta_is_the_new_32_state_example():
     old = {key(f) for f in targets["o1js 2.15.0"]["findings"]}
     gained = [f for f in targets["o1js 3.0.0"]["findings"] if key(f) not in old]
     assert {f["file"] for f in gained} == {MESA_ONLY_SOURCE}
+
+
+def test_findings_are_identical_between_3_0_and_3_1():
+    """o1js 3.1.0 is a security release inside the Mesa line.
+
+    It regenerates verification keys for contracts with nested method calls and
+    changes ``AccountUpdate.createIf``'s return type, but renames nothing the
+    scanner keys on. The README states the findings are identical, so a gain is
+    as much a drift from that claim as a loss.
+    """
+    targets = {t["name"]: t for t in _load(RELEASE_SNAPSHOT)["targets"]}
+    key = lambda f: (f["file"], f["line"], f["rule_id"], f["severity"])  # noqa: E731
+    before = {key(f) for f in targets["o1js 3.0.0"]["findings"]}
+    after = {key(f) for f in targets["o1js 3.1.0"]["findings"]}
+    assert before - after == set(), "findings present on 3.0.0 disappeared on 3.1.0"
+    assert after - before == set(), "3.1.0 gained findings the README does not describe"
 
 
 def test_readme_release_matrix_table_matches_the_snapshot():

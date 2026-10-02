@@ -116,7 +116,7 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: pip install -e .
-      - name: Compatibility matrix (o1js 2.15.0 vs 3.0.0 / Mesa)
+      - name: Compatibility matrix (o1js 2.15.0, 3.0.0 / Mesa, 3.1.0)
         run: bash scripts/o1js_release_matrix.sh
 
   o1js-upstream-canary:

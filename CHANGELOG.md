@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **o1js 3.1.0 in the release-compatibility matrix.** `scripts/o1js_release_matrix.sh`
+  now also scans o1js 3.1.0 (`24829345`), the security release that regenerates
+  verification keys for contracts with nested `@method` calls and changes
+  `AccountUpdate.createIf()` to return an `OptionalAccountUpdate`. It reports
+  the same 39 findings as 3.0.0, at the same files, lines and severities, and
+  `test_findings_are_identical_between_3_0_and_3_1` pins that. The snapshot was
+  recaptured with o1js-scan 0.20.0, and the 2.15.0 and 3.0.0 entries came out
+  unchanged from the 0.16.0 capture. The scanner does not yet model sends
+  through `createIf`, so 3.1.0's change to that API neither helps nor hurts
+  detection.
+
 ### Fixed
 
 - **A scan that examined no files is no longer a green pass.** The CLI already
