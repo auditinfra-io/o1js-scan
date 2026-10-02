@@ -38,6 +38,10 @@ inputs:
     description: 'Keep the original severity for findings in example code (examples/ directories, .eg. filenames). Downgraded to LOW by default.'
     required: false
     default: 'false'
+  allow-empty:
+    description: 'Pass when the path holds no o1js or Noir source to analyze. By default such a scan fails (exit 2) instead of reading as a clean pass.'
+    required: false
+    default: 'false'
 
 outputs:
   sarif-file:
@@ -76,6 +80,7 @@ runs:
         LANG_INPUT: ${{ inputs.lang }}
         INCLUDE_TESTS: ${{ inputs.include-tests }}
         INCLUDE_EXAMPLES: ${{ inputs.include-examples }}
+        ALLOW_EMPTY: ${{ inputs.allow-empty }}
         FAIL_ON: ${{ inputs.fail-on }}
         FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
       run: |
@@ -86,6 +91,7 @@ runs:
         ARGS=("$SCAN_PATH" --lang "$LANG_INPUT")
         if [ "$INCLUDE_TESTS" = "true" ]; then ARGS+=(--include-tests); fi
         if [ "$INCLUDE_EXAMPLES" = "true" ]; then ARGS+=(--include-examples); fi
+        if [ "$ALLOW_EMPTY" = "true" ]; then ARGS+=(--allow-empty); fi
 
         # Reporting pass: --fail-on none means findings do not fail this step,
         # so the SARIF upload always has a file to consume. Operational
@@ -117,10 +123,12 @@ runs:
         LANG_INPUT: ${{ inputs.lang }}
         INCLUDE_TESTS: ${{ inputs.include-tests }}
         INCLUDE_EXAMPLES: ${{ inputs.include-examples }}
+        ALLOW_EMPTY: ${{ inputs.allow-empty }}
         GATE: ${{ steps.scan.outputs.gate }}
       run: |
         set -euo pipefail
         ARGS=("$SCAN_PATH" --lang "$LANG_INPUT")
         if [ "$INCLUDE_TESTS" = "true" ]; then ARGS+=(--include-tests); fi
         if [ "$INCLUDE_EXAMPLES" = "true" ]; then ARGS+=(--include-examples); fi
+        if [ "$ALLOW_EMPTY" = "true" ]; then ARGS+=(--allow-empty); fi
         o1js-scan "${ARGS[@]}" --fail-on "$GATE"

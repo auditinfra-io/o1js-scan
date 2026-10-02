@@ -8,11 +8,13 @@
 
 > **Community package:** `o1js-scan` is listed in the official [o1js Community Packages](https://github.com/o1-labs/o1js#community-packages) directory.
 
-> **Latest: 0.20.0** — the analyzer now reads contracts that `extends TokenContract`.
-> Until this release the contract gate matched `SmartContract` alone, so every
-> fungible token, NFT collection and AMM pool in the ecosystem scanned as
-> "no findings". If you scanned a token contract before 0.20.0, scan it again.
-> See [CHANGELOG](CHANGELOG.md#0200---2026-09-07).
+> **Latest: 0.21.0** — a scan that analyzed no files now **exits 2** instead of
+> passing. A mistyped path, or a `--lang` that does not match the project, used
+> to read as a clean run. If a CI job legitimately scans a directory with no
+> o1js or Noir source, pass `--allow-empty` (or `allow-empty: true` on the
+> Action). Also verified against o1js 3.1.0. Token contracts are analyzed
+> since 0.20.0; if you scanned one before that, scan it again.
+> See [CHANGELOG](CHANGELOG.md#0210---2026-10-02).
 
 A fast, dependency-free static analyzer for **zk circuit soundness bugs** in:
 
@@ -151,6 +153,9 @@ o1js-scan src --include-tests
 # example code is downgraded to LOW by default; keep original severity
 o1js-scan src --include-examples
 
+# a path with no o1js / Noir source exits 2; opt out where that is expected
+o1js-scan packages/ --allow-empty
+
 o1js-scan --version
 ```
 
@@ -161,7 +166,10 @@ rule below) does **not** fail the build; use `--fail-on none` to only report,
 or `--strict` (a shorthand for `--fail-on medium`) to gate more strictly while
 still treating low-severity findings as advisory. The two options are mutually
 exclusive so CI configuration cannot be ambiguous. A missing scan path exits `2`
-with an error on stderr, so a typo can't silently pass CI as a clean run. Every run
+with an error on stderr, so a typo can't silently pass CI as a clean run. So does
+a path that exists but holds no o1js or Noir source the analyzer can read (for
+example `--lang noir` pointed at an o1js project); pass `--allow-empty` where
+that is legitimate. Every run
 prints a one-line summary (counts by severity and the gate verdict) to stderr.
 
 **Test code is excluded by default — both backends.** Tests deliberately build
@@ -245,11 +253,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: auditinfra-io/o1js-scan@v0.20.0
+      - uses: auditinfra-io/o1js-scan@v0.21.0
         with:
           path: src              # optional, defaults to the repo root
           lang: auto             # auto | o1js | noir
-          # version: 0.20.0       # optional, pin the scanner version
+          # version: 0.21.0       # optional, pin the scanner version
           # fail-on: high         # optional, fail the job on high/critical
 ```
 
@@ -259,7 +267,7 @@ Recommended for Noir projects that want code-scanning alerts and a high-severity
 gate:
 
 ```yaml
-- uses: auditinfra-io/o1js-scan@v0.20.0
+- uses: auditinfra-io/o1js-scan@v0.21.0
   with:
     path: .
     lang: noir
@@ -291,7 +299,8 @@ Inputs: `path` (default `.`), `lang` (`auto`|`o1js`|`noir`, default `auto`),
 `version` (PyPI version to install, default latest), `upload-sarif` (default
 `true`), `fail-on` (`critical`|`high`|`medium`|`low`|`none`, default `none`),
 `fail-on-findings` (deprecated, default `false`), `include-tests` (default
-`false`), `include-examples` (default `false`). Output: `sarif-file`. SARIF
+`false`), `include-examples` (default `false`), `allow-empty` (default
+`false`; see the exit codes above). Output: `sarif-file`. SARIF
 upload needs `security-events: write` and code scanning enabled.
 
 The report and the gate are built from one argument array, so `include-tests`

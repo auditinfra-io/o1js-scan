@@ -4,7 +4,7 @@ All notable changes to o1js-scan are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.21.0] - 2026-10-02
 
 ### Added
 
@@ -18,6 +18,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unchanged from the 0.16.0 capture. The scanner does not yet model sends
   through `createIf`, so 3.1.0's change to that API neither helps nor hurts
   detection.
+- **`allow-empty` input on the GitHub Action**, passed to both the reporting
+  and the gate pass. Without it, Action users had no way to opt out of the
+  empty-scan failure below. It defaults to `false`, so the Action fails closed
+  like the CLI.
 
 ### Fixed
 
@@ -910,6 +914,7 @@ run at the default `--fail-on high` is unaffected; a pipeline set to
      inside v0.20.0 -- which is why the tag list jumps v0.17.0 -> v0.19.0 ->
      v0.20.0. Their sections below are kept: the work shipped, only the tag is
      missing. -->
+[0.21.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.17.0...v0.19.0
 [0.17.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.16.1...v0.17.0

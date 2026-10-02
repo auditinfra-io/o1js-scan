@@ -92,7 +92,7 @@ def test_reporting_pass_disables_the_finding_gate():
 # Report and gate must see the same sources
 # ───────────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("flag", ["--include-tests", "--include-examples"])
+@pytest.mark.parametrize("flag", ["--include-tests", "--include-examples", "--allow-empty"])
 def test_both_passes_honor_the_include_flags(flag):
     for step in (_scan_step(), _gate_step()):
         assert flag in str(step["run"]), (
@@ -106,7 +106,8 @@ def test_both_passes_build_the_same_argument_array():
     build = re.compile(
         r'ARGS=\("\$SCAN_PATH" --lang "\$LANG_INPUT"\).*?'
         r'INCLUDE_TESTS.*?--include-tests.*?'
-        r'INCLUDE_EXAMPLES.*?--include-examples',
+        r'INCLUDE_EXAMPLES.*?--include-examples.*?'
+        r'ALLOW_EMPTY.*?--allow-empty',
         re.S,
     )
     for step in (_scan_step(), _gate_step()):
@@ -139,6 +140,15 @@ def test_inputs_reach_scripts_through_the_environment():
 # ───────────────────────────────────────────────────────────────────
 # The severity gate
 # ───────────────────────────────────────────────────────────────────
+
+def test_allow_empty_defaults_to_failing_an_empty_scan():
+    """The CLI exits 2 when nothing was analyzed; the action must not soften that.
+
+    A default of 'true' would make a mistyped `path` or wrong `lang` a green
+    run again, the exact failure the CLI change closed.
+    """
+    assert _action()["inputs"]["allow-empty"]["default"] == "false"
+
 
 def test_fail_on_input_exists_with_a_non_gating_default():
     inputs = _action()["inputs"]
