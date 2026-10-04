@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-04
+
 ### Added
 
 - **A local MCP server, `o1js-scan-mcp`, for AI coding assistants** such as
@@ -941,7 +943,8 @@ run at the default `--fail-on high` is unaffected; a pipeline set to
      inside v0.20.0 -- which is why the tag list jumps v0.17.0 -> v0.19.0 ->
      v0.20.0. Their sections below are kept: the work shipped, only the tag is
      missing. -->
-[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.17.0...v0.19.0

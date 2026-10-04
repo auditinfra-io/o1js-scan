@@ -8,13 +8,13 @@
 
 > **Community package:** `o1js-scan` is listed in the official [o1js Community Packages](https://github.com/o1-labs/o1js#community-packages) directory.
 
-> **Latest: 0.21.0** — a scan that analyzed no files now **exits 2** instead of
-> passing. A mistyped path, or a `--lang` that does not match the project, used
-> to read as a clean run. If a CI job legitimately scans a directory with no
-> o1js or Noir source, pass `--allow-empty` (or `allow-empty: true` on the
-> Action). Also verified against o1js 3.1.0. Token contracts are analyzed
-> since 0.20.0; if you scanned one before that, scan it again.
-> See [CHANGELOG](CHANGELOG.md#0210---2026-10-02).
+> **Latest: 0.22.0** — a [local MCP server](#local-mcp-server-ai-coding-assistants)
+> lets Claude Code, Cursor and other AI coding assistants run the scanner while
+> you write a zkApp: `pip install 'o1js-scan[mcp]'`. It runs on your machine
+> over stdio and uploads nothing. A scan that analyzed no files is an error, not
+> a clean result, and a result with no findings says it is not a security
+> guarantee. The core scanner still has no dependencies.
+> See [CHANGELOG](CHANGELOG.md#0220---2026-10-04).
 
 A fast, dependency-free static analyzer for **zk circuit soundness bugs** in:
 
@@ -253,11 +253,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: auditinfra-io/o1js-scan@v0.21.0
+      - uses: auditinfra-io/o1js-scan@v0.22.0
         with:
           path: src              # optional, defaults to the repo root
           lang: auto             # auto | o1js | noir
-          # version: 0.21.0       # optional, pin the scanner version
+          # version: 0.22.0       # optional, pin the scanner version
           # fail-on: high         # optional, fail the job on high/critical
 ```
 
@@ -267,7 +267,7 @@ Recommended for Noir projects that want code-scanning alerts and a high-severity
 gate:
 
 ```yaml
-- uses: auditinfra-io/o1js-scan@v0.21.0
+- uses: auditinfra-io/o1js-scan@v0.22.0
   with:
     path: .
     lang: noir
