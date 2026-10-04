@@ -369,6 +369,17 @@ virtualenv, give the absolute path to the script, for example
 }
 ```
 
+You can also add it from the settings screen instead of editing the file. Open
+Cursor Settings (`Cmd+,` on macOS, `Ctrl+,` on Windows and Linux) and go to the
+MCP section, which recent versions call **Tools & MCP**. Add a new server named
+`o1js-scan`, with the `stdio` transport and the command `o1js-scan-mcp`. As
+with Claude Code, use the script's absolute path if you installed into a
+virtualenv.
+
+After editing `mcp.json`, restart Cursor completely. Then check the server in
+the same settings section: a green status dot means Cursor started
+`o1js-scan-mcp` and completed the MCP handshake.
+
 `python -m o1js_scan.mcp_server` starts the same server, if you'd rather point
 a client at an interpreter than at a script.
 
