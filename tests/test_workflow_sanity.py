@@ -76,8 +76,9 @@ def test_python_tools_are_installed_before_use(tool):
 
             if any(p in run for p in _PROVIDERS[tool]) and tool in run:
                 installed = True
-            # `pip install -e ".[dev]"` pulls the whole dev extra
-            if re.search(r"pip install[^\n]*\[dev\]", run):
+            # `pip install -e ".[dev]"` pulls the whole dev extra, as does any
+            # extras list that names it, e.g. ".[dev,mcp]"
+            if re.search(r"pip install[^\n]*\[[^\]\n]*\bdev\b[^\]\n]*\]", run):
                 installed = True
             if "install" in uses and tool in uses:
                 installed = True

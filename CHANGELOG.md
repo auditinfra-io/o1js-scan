@@ -4,6 +4,33 @@ All notable changes to o1js-scan are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **A local MCP server, `o1js-scan-mcp`, for AI coding assistants** such as
+  Claude Code and Cursor. Install with `pip install 'o1js-scan[mcp]'`. It is
+  built on the official MCP Python SDK (2.x) and serves stdio only, so it opens
+  no network socket and uploads nothing. Its three read-only tools are `scan`,
+  `list_rules` and `explain_rule`; `scan` calls the same `analyze_project` as
+  the CLI. The server is designed so an agent cannot misreport a clean result:
+  - Every scan response carries coverage, the scanner version and the rules
+    that ran as structured fields.
+  - A scan that analyzed no files is an MCP tool error (`isError`), never an
+    empty success. This mirrors the CLI's exit 2.
+  - A no-findings result states in its own `interpretation` that it is not a
+    soundness or security result, and the tool's description says the same.
+  - Symlinks resolving outside the requested path are refused unread.
+  - Findings are capped at 200 per response, with an explicit truncation note.
+
+  The SDK is an optional extra: `project.dependencies` stays empty, the core
+  still runs on Python 3.8+, and the server needs 3.10+. A new `mcp-server` CI
+  job drives the server over real stdio on 3.10 and 3.13.
+- `ScanStats` now accounts for every matched file: analyzed (per language), not
+  source, unreadable, skipped as test code, or outside the root.
+  `analyze_project` takes `confine_to_root`, off by default, so the CLI's file
+  selection is unchanged.
+
 ## [0.21.0] - 2026-10-02
 
 ### Added
@@ -914,6 +941,7 @@ run at the default `--fail-on high` is unaffected; a pipeline set to
      inside v0.20.0 -- which is why the tag list jumps v0.17.0 -> v0.19.0 ->
      v0.20.0. Their sections below are kept: the work shipped, only the tag is
      missing. -->
+[Unreleased]: https://github.com/auditinfra-io/o1js-scan/compare/v0.21.0...HEAD
 [0.21.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/auditinfra-io/o1js-scan/compare/v0.17.0...v0.19.0

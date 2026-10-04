@@ -32,6 +32,11 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "ruff>=0.6", "PyYAML>=6.0"]
+# The local MCP server (o1js-scan-mcp). Optional: the scanner itself has no
+# runtime dependencies. The SDK needs Python 3.10+, so the marker keeps
+# `pip install 'o1js-scan[mcp]'` from failing on 3.8 / 3.9; there the entry
+# point explains the requirement instead.
+mcp = ["mcp>=2.3,<3; python_version >= '3.10'"]
 
 [project.urls]
 Homepage = "https://github.com/auditinfra-io/o1js-scan"
@@ -42,6 +47,7 @@ Changelog = "https://github.com/auditinfra-io/o1js-scan/blob/main/CHANGELOG.md"
 [project.scripts]
 o1js-scan = "o1js_scan.cli:main"
 noir-scan = "o1js_scan.cli:main"
+o1js-scan-mcp = "o1js_scan.cli:mcp_main"
 
 [tool.setuptools.packages.find]
 include = ["o1js_scan*"]

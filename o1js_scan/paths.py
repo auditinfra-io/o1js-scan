@@ -109,6 +109,16 @@ class ScanStats:
     #: that says how much was really examined — and the one that distinguishes a
     #: clean scan from a scan that looked at nothing.
     analyzed_files: int = 0
+    #: ``analyzed_files`` split by the lexer that saw each file.
+    analyzed_o1js_files: int = 0
+    analyzed_noir_files: int = 0
+    #: Matched files that were never examined, by reason. Together with
+    #: ``skipped_test_files`` and ``analyzed_files`` these account for every
+    #: matched file, so a caller can say exactly why coverage is what it is.
+    not_source_files: int = 0
+    unreadable_files: int = 0
+    #: Only counted when the walk is confined to its root (``confine_to_root``).
+    outside_root_files: int = 0
 
     def note(self) -> Optional[str]:
         """A one-line human summary, or ``None`` when nothing was affected."""

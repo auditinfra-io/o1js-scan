@@ -77,7 +77,7 @@ See [`examples/`](examples/) for the o1js and Noir vulnerable/fixed pairs.
 
 - [Install](#install)
 - [Usage](#usage) · [Suppressing a finding](#suppressing-a-reviewed-finding)
-- [GitHub Action](#github-action)
+- [GitHub Action](#github-action) · [MCP server for AI assistants](#local-mcp-server-ai-coding-assistants)
 - [What it detects — o1js](#what-it-detects-o1js) · [Noir](#what-it-detects-noir)
 - [Known limitations](#known-limitations) · [Where this tool stops](#where-this-tool-stops)
 - [Privacy and private code](#privacy-and-private-code)
@@ -314,6 +314,104 @@ rather than being reported as a clean scan.
 when `fail-on` is left at `none`; it emits a deprecation warning. Prefer
 `fail-on`, which can gate at any severity.
 
+## Local MCP server (AI coding assistants)
+
+`o1js-scan-mcp` lets an AI coding assistant such as Claude Code or Cursor call
+the scanner while you write a zkApp. **It runs on your machine, and o1js-scan
+uploads nothing.** The server is a subprocess of your editor, speaking
+[MCP](https://modelcontextprotocol.io) over stdin/stdout. It has no network
+transport, opens no socket, and reads your source locally, exactly as the CLI
+does.
+
+What does leave the server is its *result*: findings, file paths, function
+names, and rule text. That goes back to the assistant that asked, and from
+there to wherever your assistant sends its context. If the assistant uses a
+hosted model, the model provider sees those results, as it sees anything else
+the assistant reads. The server never sends source on its own.
+
+### Install
+
+```bash
+pip install 'o1js-scan[mcp]'
+```
+
+The `mcp` extra pulls in the official
+[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk), which
+needs Python 3.10+. The scanner itself still has no runtime dependencies and
+still runs on 3.8+. Without the extra, `o1js-scan-mcp` prints the install line
+above and exits 2.
+
+### Register it
+
+**Claude Code** (stdio is the default transport):
+
+```bash
+claude mcp add o1js-scan -- o1js-scan-mcp
+claude mcp get o1js-scan          # check that it connected
+```
+
+Add `--scope project` to write the entry to `.mcp.json` and share it with your
+team, or `--scope user` to use it in every project. If you installed into a
+virtualenv, give the absolute path to the script, for example
+`claude mcp add o1js-scan -- /path/to/venv/bin/o1js-scan-mcp`.
+
+**Cursor**: add the server to `.cursor/mcp.json` in your project, or to
+`~/.cursor/mcp.json` for every project:
+
+```json
+{
+  "mcpServers": {
+    "o1js-scan": {
+      "command": "o1js-scan-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+`python -m o1js_scan.mcp_server` starts the same server, if you'd rather point
+a client at an interpreter than at a script.
+
+### Tools
+
+| Tool | What it does |
+|---|---|
+| `scan(path, lang="auto", fail_on="high")` | Runs the same analysis as the CLI on a file or directory and returns findings plus coverage. |
+| `list_rules()` | Every rule the scanner applies. Nothing outside this list is checked. |
+| `explain_rule(rule_id)` | One rule's description, severities and documented limitations. |
+
+All three are read-only. They write, modify and execute nothing, and declare
+`readOnlyHint` to the client.
+
+### A clean result is not a security result
+
+An assistant summarizing a scan will be tempted to say "your contract is
+secure". The server is built so the result itself contradicts that:
+
+- **Every `scan` response carries coverage as structured fields.** It includes
+  the scanner version, the rules that ran, `files_matched`, `files_analyzed`
+  (per language), and `files_skipped` broken down by reason (test code, not
+  o1js/Noir source, unreadable, symlink outside the root). `coverage.status` is
+  `all_candidate_files_examined`, `partial`, or `none`.
+- **A scan that analyzed nothing is an error, never an empty success.** That
+  covers an empty directory, a TypeScript project with no zkApp in it, a `lang`
+  that doesn't match, or a directory holding only tests. The server returns
+  `isError: true` with "No o1js or Noir sources were analyzed at <path>". This
+  is the same contract as the CLI's exit 2. A missing path is an error too.
+- **A result with no findings says what it means.** Its `outcome` is
+  `no_known_patterns_matched`, not "clean". Its `interpretation` field states
+  that this does not mean the code is sound or secure, and the `scan` tool's
+  description tells the assistant never to report a clean scan as a security
+  guarantee.
+- **`gate` is the CLI's exit-code threshold** at `fail_on`. It's a CI gate,
+  not a verdict.
+
+Test files are skipped, and findings in example code are downgraded to LOW, as
+in the CLI; the response counts both. A symlink that resolves outside the
+requested path is refused unread and counted. Each response lists at most 200
+findings, highest severity first. If there are more, `truncated` is set and the
+counts in `findings_summary` still cover every finding.
+
 ## What it detects (o1js)
 
 ### Supported rules at a glance
@@ -533,7 +631,9 @@ here. To request an evaluation or a more complete circuit review, contact
 The installed CLI analyzes files **locally**. It has no telemetry, network
 client, account, or upload step, and its Python runtime has no third-party
 dependencies. Running `o1js-scan path/to/private-repo` does not send the source
-or findings anywhere.
+or findings anywhere. The optional [MCP server](#local-mcp-server-ai-coding-assistants)
+is the same: it runs locally over stdio, though its results go to the assistant
+that called it.
 
 Like compiler logs, scanner output can contain paths, identifiers, and source
 fragments. SARIF also identifies exact repository locations, and the GitHub

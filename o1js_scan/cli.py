@@ -225,5 +225,22 @@ def _summary(prog: str, findings, fail_on: str, gate: bool, lang: str,
             f"in {files} of {analyzed_files} file(s) — {verdict}")
 
 
+def mcp_main() -> int:
+    """Entry point for ``o1js-scan-mcp``: the local stdio MCP server.
+
+    Lives here, not in ``mcp_server``, so a missing ``mcp`` extra produces the
+    install instruction instead of a traceback. Only that one ImportError is
+    caught; any other import failure is a bug and surfaces as one.
+    """
+    from .mcp_tools import MCPExtraNotInstalled
+
+    try:
+        from .mcp_server import main as serve
+    except MCPExtraNotInstalled as exc:
+        print(f"o1js-scan-mcp: {exc}", file=sys.stderr)
+        return 2
+    return serve()
+
+
 if __name__ == "__main__":
     sys.exit(main())

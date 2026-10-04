@@ -2874,12 +2874,33 @@ def _path_is_skipped(path: Path) -> bool:
     return any(part in _SKIP_DIR_NAMES for part in path.parts)
 
 
+def _resolves_within(path: Path, real_root: Path) -> bool:
+    """True when ``path``, with every symlink resolved, lies inside ``real_root``.
+
+    ``real_root`` must already be resolved. A file root resolves to itself, so
+    a single-file scan is always within it. ``relative_to`` rather than
+    ``is_relative_to``, which only exists from Python 3.9.
+    """
+    try:
+        real = path.resolve()
+    except (OSError, RuntimeError):  # a symlink loop raises RuntimeError on 3.8-3.12
+        return False
+    if real == real_root:
+        return True
+    try:
+        real.relative_to(real_root)
+    except ValueError:
+        return False
+    return True
+
+
 def analyze_project(
     root: str,
     lang: str = "auto",
     include_tests: bool = False,
     include_examples: bool = False,
     stats: "Optional[ScanStats]" = None,
+    confine_to_root: bool = False,
 ) -> List[Tuple[str, Vulnerability]]:
     """Scan o1js (``.ts``/``.js``/``.mjs``) and/or Noir (``.nr``) files under
     ``root``.
@@ -2887,6 +2908,12 @@ def analyze_project(
     ``lang`` is ``auto`` (both), ``o1js``, or ``noir``. Skips ``node_modules``,
     ``target``, ``.git``, and other build/vendor directory basenames. Returns
     ``[(filepath, vuln), ...]``.
+
+    ``confine_to_root`` refuses any matched file whose resolved location lies
+    outside the resolved ``root`` — a symlink pointing elsewhere on disk is
+    counted in ``stats.outside_root_files`` and never read. Off by default so
+    the CLI's behavior is unchanged; the MCP server turns it on, because there
+    the path comes from an agent rather than from the person at the terminal.
     """
     from .noir import NoirLexer, is_noir_source
     from .paths import ScanStats, apply_example_policy, is_test_path
@@ -2917,9 +2944,13 @@ def analyze_project(
         ]
 
     stats.matched_files += len(paths)
+    real_root = base.resolve() if confine_to_root else None
 
     for p in paths:
         sp = str(p)
+        if real_root is not None and not _resolves_within(p, real_root):
+            stats.outside_root_files += 1
+            continue
         # Test code is skipped before it is even read: the finding would be the
         # point of the test, not a bug. Counted so the CLI can say so out loud.
         if not include_tests and is_test_path(sp):
@@ -2928,6 +2959,7 @@ def analyze_project(
         try:
             src = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
+            stats.unreadable_files += 1
             continue
         found: List[Vulnerability] = []
         # ``analyzed_files`` counts only files a lexer actually saw. A matched
@@ -2936,13 +2968,20 @@ def analyze_project(
         # situation this number exists to expose.
         if sp.endswith(".nr"):
             if lang == "o1js":
+                stats.not_source_files += 1
                 continue
             if is_noir_source(src, sp):
                 stats.analyzed_files += 1
+                stats.analyzed_noir_files += 1
                 found = noir_lexer.analyze(src, p)
+            else:
+                stats.not_source_files += 1
         elif lang != "noir" and is_o1js_source(src, sp):
             stats.analyzed_files += 1
+            stats.analyzed_o1js_files += 1
             found = o1js_lexer.analyze(src, p)
+        else:
+            stats.not_source_files += 1
         if not found:
             continue
         found, n_down = apply_example_policy(sp, found, include_examples)
